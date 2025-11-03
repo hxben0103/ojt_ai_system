@@ -53,17 +53,13 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
     }
 
     setState(() => _isLoading = true);
-
-    // Simulate a registration delay
-    await Future.delayed(const Duration(seconds: 3));
-
+    await Future.delayed(const Duration(seconds: 3)); // simulate delay
     setState(() => _isLoading = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          "Registration submitted successfully! Please wait for OJT Coordinator approval.",
-        ),
+            "Registration submitted successfully! Please wait for OJT Coordinator approval."),
       ),
     );
 
@@ -114,7 +110,11 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
             backgroundColor: Colors.indigo,
             foregroundColor: Colors.white,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
+              icon: Image.network(
+                'https://cdn-icons-png.flaticon.com/512/507/507257.png',
+                height: 26,
+                color: Colors.white,
+              ),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -144,8 +144,10 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                           key: _formKey,
                           child: Column(
                             children: [
-                              const Icon(Icons.engineering,
-                                  size: 90, color: Colors.indigo),
+                              Image.network(
+                                'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+                                height: 90,
+                              ),
                               const SizedBox(height: 10),
                               const Text(
                                 "Supervisor Registration",
@@ -157,13 +159,17 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                               ),
                               const SizedBox(height: 20),
 
-                              // ✅ Fields start here
+                              // ✅ Fields
                               animatedField(
                                 TextFormField(
                                   controller: _fullNameController,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Full Name',
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/1077/1077114.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   validator: (v) => v!.isEmpty
                                       ? "Please enter your full name"
@@ -174,10 +180,14 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                               animatedField(
                                 TextFormField(
                                   controller: _idController,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText:
                                         'Supervisor ID Number (for login)',
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/3064/3064197.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   validator: (v) => v!.isEmpty
                                       ? "Please enter your ID number"
@@ -189,9 +199,13 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                                 TextFormField(
                                   controller: _emailController,
                                   keyboardType: TextInputType.emailAddress,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Email Address',
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/732/732200.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   validator: (v) => v!.isEmpty
                                       ? "Please enter your email"
@@ -202,9 +216,13 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                               animatedField(
                                 DropdownButtonFormField<String>(
                                   value: _selectedGender,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: "Gender",
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/1250/1250689.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   items: const [
                                     DropdownMenuItem(
@@ -224,9 +242,13 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                                 TextFormField(
                                   controller: _phoneController,
                                   keyboardType: TextInputType.phone,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Phone Number',
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/15/15874.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   validator: (v) => v!.isEmpty
                                       ? "Please enter your phone number"
@@ -237,9 +259,13 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                               animatedField(
                                 TextFormField(
                                   controller: _officeController,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Office / Department',
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/1006/1006542.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   validator: (v) => v!.isEmpty
                                       ? "Please enter your office name"
@@ -250,9 +276,13 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                               animatedField(
                                 TextFormField(
                                   controller: _positionController,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Position / Role',
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/3135/3135789.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   validator: (v) => v!.isEmpty
                                       ? "Please enter your position"
@@ -263,9 +293,13 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                               animatedField(
                                 TextFormField(
                                   controller: _locationController,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Office Location / Address',
-                                    border: OutlineInputBorder(),
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/854/854878.png',
+                                      height: 20,
+                                    ),
                                   ),
                                   validator: (v) => v!.isEmpty
                                       ? "Please enter office location"
@@ -280,10 +314,17 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                                   decoration: InputDecoration(
                                     labelText: 'Password',
                                     border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/1000/1000966.png',
+                                      height: 20,
+                                    ),
                                     suffixIcon: IconButton(
-                                      icon: Icon(_showPassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility),
+                                      icon: Image.network(
+                                        _showPassword
+                                            ? 'https://cdn-icons-png.flaticon.com/512/709/709612.png'
+                                            : 'https://cdn-icons-png.flaticon.com/512/709/709724.png',
+                                        height: 22,
+                                      ),
                                       onPressed: () => setState(() =>
                                           _showPassword = !_showPassword),
                                     ),
@@ -301,10 +342,17 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                                   decoration: InputDecoration(
                                     labelText: 'Confirm Password',
                                     border: const OutlineInputBorder(),
+                                    prefixIcon: Image.network(
+                                      'https://cdn-icons-png.flaticon.com/512/2889/2889676.png',
+                                      height: 20,
+                                    ),
                                     suffixIcon: IconButton(
-                                      icon: Icon(_showPassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility),
+                                      icon: Image.network(
+                                        _showPassword
+                                            ? 'https://cdn-icons-png.flaticon.com/512/709/709612.png'
+                                            : 'https://cdn-icons-png.flaticon.com/512/709/709724.png',
+                                        height: 22,
+                                      ),
                                       onPressed: () => setState(() =>
                                           _showPassword = !_showPassword),
                                     ),
@@ -321,7 +369,11 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                               // ✅ Submit button
                               ElevatedButton.icon(
                                 onPressed: _register,
-                                icon: const Icon(Icons.check_circle_outline),
+                                icon: Image.network(
+                                  'https://cdn-icons-png.flaticon.com/512/845/845646.png',
+                                  height: 24,
+                                  color: Colors.white,
+                                ),
                                 label: const Text("Submit for Approval"),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.indigo,
@@ -345,7 +397,7 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
           ),
         ),
 
-        // ✅ Loading overlay with logo
+        // ✅ Loading overlay
         if (_isLoading)
           Container(
             color: Colors.black.withOpacity(0.5),
@@ -354,7 +406,7 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Image.asset(
-                    'assets/images/ojt.png', // Replace with your logo
+                    'assets/images/ojt.png',
                     height: 90,
                   ),
                   const SizedBox(height: 20),

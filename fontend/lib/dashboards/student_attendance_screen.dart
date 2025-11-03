@@ -28,7 +28,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     "Overtime Out": "",
   };
 
-  // ✅ Overtime is optional — we check only the first 4
   bool get isComplete =>
       timeLogs["Morning In"]!.isNotEmpty &&
       timeLogs["Morning Out"]!.isNotEmpty &&
@@ -117,7 +116,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           SnackBar(content: Text("✅ $label recorded at $timeNow")),
         );
 
-        // ✅ Show signature pad once Morning & Afternoon are complete
         if (isComplete) {
           Future.delayed(const Duration(milliseconds: 400), () {
             _showSignatureDialog();
@@ -137,7 +135,17 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("🖋 Certified By"),
+        title: Row(
+          children: [
+            Image.network(
+              "https://cdn-icons-png.flaticon.com/512/1157/1157089.png",
+              width: 28,
+              height: 28,
+            ),
+            const SizedBox(width: 8),
+            const Text("Certified By"),
+          ],
+        ),
         content: SizedBox(
           height: 200,
           child: Signature(
@@ -147,11 +155,12 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () {
-                _signatureController.clear();
-              },
-              child: const Text("Clear")),
-          ElevatedButton(
+            onPressed: () {
+              _signatureController.clear();
+            },
+            child: const Text("Clear"),
+          ),
+          ElevatedButton.icon(
             onPressed: () async {
               final signature = await _signatureController.toPngBytes();
               if (signature != null) {
@@ -163,7 +172,13 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            child: const Text("Save Signature"),
+            icon: Image.network(
+              "https://cdn-icons-png.flaticon.com/512/1828/1828640.png",
+              width: 20,
+              height: 20,
+              color: Colors.white,
+            ),
+            label: const Text("Save Signature"),
           ),
         ],
       ),
@@ -177,7 +192,17 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("🕒 Daily Time Record"),
+        title: Row(
+          children: [
+            Image.network(
+              "https://cdn-icons-png.flaticon.com/512/2910/2910768.png",
+              width: 26,
+              height: 26,
+            ),
+            const SizedBox(width: 8),
+            const Text("Daily Time Record"),
+          ],
+        ),
         backgroundColor: Colors.orange,
       ),
       body: ListView(
@@ -218,7 +243,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Buttons
+          // Buttons with network icons
           ...timeLogs.keys.map((label) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: ElevatedButton.icon(
@@ -228,7 +253,12 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                         : Colors.orange,
                     minimumSize: const Size(double.infinity, 50),
                   ),
-                  icon: const Icon(Icons.camera_alt, color: Colors.white),
+                  icon: Image.network(
+                    "https://cdn-icons-png.flaticon.com/512/1047/1047711.png",
+                    width: 22,
+                    height: 22,
+                    color: Colors.white,
+                  ),
                   label: Text(
                     timeLogs[label]!.isNotEmpty
                         ? "$label - Done"

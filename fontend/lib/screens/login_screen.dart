@@ -14,7 +14,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _passwordController = TextEditingController();
   String _selectedRole = "Student";
   bool _rememberMe = false;
-  bool _obscurePass = true; // ✅ show/hide password
+  bool _obscurePass = true;
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
@@ -32,7 +32,6 @@ class _LoginScreenState extends State<LoginScreen>
     super.initState();
     _loadRememberedID();
 
-    // ✅ Animation setup
     _controller =
         AnimationController(vsync: this, duration: const Duration(seconds: 1));
     _fadeAnimation =
@@ -138,24 +137,39 @@ class _LoginScreenState extends State<LoginScreen>
               const Text("Register As",
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
+
+              // Student
               ListTile(
-                leading: const Icon(Icons.school, color: Colors.indigo),
+                leading: Image.network(
+                  'https://cdn-icons-png.flaticon.com/512/3135/3135755.png',
+                  height: 28,
+                ),
                 title: const Text("Student"),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.pushNamed(context, '/register_student');
                 },
               ),
+
+              // OJT Coordinator
               ListTile(
-                leading: const Icon(Icons.badge, color: Colors.indigo),
+                leading: Image.network(
+                  'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+                  height: 28,
+                ),
                 title: const Text("OJT Coordinator"),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.pushNamed(context, '/register_coordinator');
                 },
               ),
+
+              // Industry Supervisor
               ListTile(
-                leading: const Icon(Icons.engineering, color: Colors.indigo),
+                leading: Image.network(
+                  'https://cdn-icons-png.flaticon.com/512/1995/1995574.png',
+                  height: 28,
+                ),
                 title: const Text("Industry Supervisor"),
                 onTap: () {
                   Navigator.pop(context);
@@ -174,7 +188,6 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        // ✅ Gradient background
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [Color(0xFF3F51B5), Color(0xFF7986CB)],
@@ -251,11 +264,11 @@ class _LoginScreenState extends State<LoginScreen>
                               labelText: 'Password',
                               border: const OutlineInputBorder(),
                               suffixIcon: IconButton(
-                                icon: Icon(
+                                icon: Image.network(
                                   _obscurePass
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                  color: Colors.grey,
+                                      ? 'https://cdn-icons-png.flaticon.com/512/565/565655.png' // hidden eye
+                                      : 'https://cdn-icons-png.flaticon.com/512/565/565654.png', // visible eye
+                                  height: 22,
                                 ),
                                 onPressed: () {
                                   setState(() {

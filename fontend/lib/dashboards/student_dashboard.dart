@@ -9,6 +9,7 @@ import '../widgets/role_dashboard.dart';
 import 'student_checklist_screen.dart';
 import 'student_attendance_screen.dart';
 import 'student_dtr_view_screen.dart';
+import 'package:flutter_application_1/screens/login_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -33,7 +34,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   String? _coordinator;
   String? _supervisor;
 
-  List<Map<String, dynamic>> _dtrRecords = []; // ✅ DTR data list
+  List<Map<String, dynamic>> _dtrRecords = [];
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
@@ -43,7 +44,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     super.initState();
     _loadStudentData();
     _loadAttendanceData();
-    _loadDTRRecords(); // ✅ Load DTRs
+    _loadDTRRecords();
 
     _controller = AnimationController(
       vsync: this,
@@ -96,7 +97,6 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   Future<void> _loadDTRRecords() async {
-    // In real app, this might come from SharedPreferences, database, or API
     setState(() {
       _dtrRecords = [
         {
@@ -130,6 +130,7 @@ class _StudentDashboardState extends State<StudentDashboard>
             _buildAnimatedCard(_buildLastRecordCard(), delay: 600),
           _buildAnimatedCard(_buildImprovementTipsCard(), delay: 800),
           _buildAnimatedCard(_buildChecklistCardButton(), delay: 1000),
+          _buildAnimatedCard(_buildLogoutCard(), delay: 1200),
         ],
       ),
     );
@@ -181,7 +182,11 @@ class _StudentDashboardState extends State<StudentDashboard>
                   _profileImage != null ? FileImage(_profileImage!) : null,
               backgroundColor: Colors.white,
               child: _profileImage == null
-                  ? const Icon(Icons.person, size: 45, color: Colors.orange)
+                  ? Image.network(
+                      'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+                      height: 45,
+                      color: Colors.orange,
+                    )
                   : null,
             ),
           ),
@@ -226,77 +231,85 @@ class _StudentDashboardState extends State<StudentDashboard>
       elevation: 6,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
-        leading: const Icon(Icons.assignment, color: Colors.orange, size: 30),
+        leading: Image.network(
+          'https://cdn-icons-png.flaticon.com/512/3515/3515523.png',
+          height: 30,
+        ),
         title: const Text(
           "Attendance Record",
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: const Text("View or update your daily attendance records"),
-        trailing:
-            const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 18),
-        onTap: () {
-          _showAttendanceOptions(context);
-        },
+        trailing: Image.network(
+          'https://cdn-icons-png.flaticon.com/512/271/271228.png',
+          height: 20,
+        ),
+        onTap: () => _showAttendanceOptions(context),
       ),
     );
   }
 
-  void _showAttendanceOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.camera_alt, color: Colors.orange),
-                title: const Text("Record Attendance"),
-                subtitle: const Text("Open camera to take attendance photo"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const StudentAttendanceScreen()),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.list_alt, color: Colors.orange),
-                title: const Text("View DTR"),
-                subtitle: const Text("Check your Daily Time Record"),
-                onTap: () {
-                  Navigator.pop(context);
 
-                  // ✅ Pass required arguments
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => StudentDTRViewScreen(
-                        studentName: _studentName ?? "Unknown",
-                        studentId: _studentId ?? "N/A",
-                        course: _course ?? "N/A",
-                        dtrRecords: _dtrRecords,
-                      ),
-                    ),
-                  );
-                },
+
+    // ------------------- Last Attendance Record -------------------
+  Widget _buildLastRecordCard() {
+    return Card(
+      elevation: 5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Image.network(
+                  'https://cdn-icons-png.flaticon.com/512/747/747310.png', // calendar icon
+                  height: 26,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  "Last Attendance Record",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_lastActionTime != null)
+              Row(
+                children: [
+                  Image.network(
+                    'https://cdn-icons-png.flaticon.com/512/2088/2088617.png', // clock icon
+                    height: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _lastActionTime!,
+                    style: const TextStyle(fontSize: 16, color: Colors.black87),
+                  ),
+                ],
               ),
-            ],
-          ),
-        );
-      },
+            const SizedBox(height: 10),
+            if (_attendanceImage != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(
+                  _attendanceImage!,
+                  height: 200,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ).animate().fadeIn(duration: 600.ms).scale(),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
   // ------------------- Upload Report -------------------
   Widget _buildUploadCard() {
     return _buildCardTemplate(
-      icon: Icons.upload_file,
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/992/992651.png',
       title: "Upload Progress Report",
       subtitle: "Submit your daily report after duty ends",
       onTap: () {
@@ -312,7 +325,7 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   // ------------------- Shared Card Template -------------------
   Widget _buildCardTemplate({
-    required IconData icon,
+    required String iconUrl,
     required String title,
     required String subtitle,
     required VoidCallback onTap,
@@ -327,7 +340,7 @@ class _StudentDashboardState extends State<StudentDashboard>
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Row(
             children: [
-              Icon(icon, color: Colors.orange, size: 30),
+              Image.network(iconUrl, height: 30),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -351,19 +364,8 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   // ------------------- Improvement Tips -------------------
   Widget _buildImprovementTipsCard() {
-    final List<String> tips = [
-      "💡 Always arrive early and prepare your materials before starting your tasks.",
-      "🗣️ Communicate proactively with your supervisor about challenges and progress.",
-      "📋 Keep a daily journal of what you’ve learned.",
-      "🤝 Show initiative — ask for extra tasks or responsibilities.",
-      "🧠 Learn about your company’s workflow.",
-      "🕒 Manage your time efficiently — prioritize urgent tasks.",
-      "✨ Dress and behave professionally.",
-      "📈 Review your daily reports and improve each day.",
-    ];
-
     return _buildCardTemplate(
-      icon: Icons.lightbulb_outline,
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/2721/2721276.png',
       title: "Get Improvement Tips",
       subtitle: "Receive suggestions to improve your OJT performance",
       onTap: () {
@@ -373,28 +375,7 @@ class _StudentDashboardState extends State<StudentDashboard>
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: const Text("🌟 OJT Improvement Tips"),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: tips.length,
-                itemBuilder: (context, index) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.check_circle_outline,
-                          color: Colors.orange),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(tips[index],
-                            style: const TextStyle(fontSize: 15, height: 1.4)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            content: const Text("💡 Keep improving daily with good habits!"),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(ctx),
@@ -406,43 +387,10 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // ------------------- Last Attendance Record -------------------
-  Widget _buildLastRecordCard() {
-    return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("📅 Last Attendance Record",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            if (_lastActionTime != null)
-              Text("🕒 $_lastActionTime",
-                  style: const TextStyle(fontSize: 16, color: Colors.black87)),
-            const SizedBox(height: 10),
-            if (_attendanceImage != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  _attendanceImage!,
-                  height: 200,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ).animate().fadeIn(duration: 600.ms).scale(),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ------------------- Checklist -------------------
   Widget _buildChecklistCardButton() {
     return _buildCardTemplate(
-      icon: Icons.checklist,
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/1828/1828640.png',
       title: "OJT Application Checklist",
       subtitle: "View and upload required OJT documents",
       onTap: () {
@@ -450,6 +398,104 @@ class _StudentDashboardState extends State<StudentDashboard>
           context,
           MaterialPageRoute(
               builder: (context) => const StudentChecklistScreen()),
+        );
+      },
+    );
+  }
+
+  // ------------------- Logout Card -------------------
+  Widget _buildLogoutCard() {
+    return _buildCardTemplate(
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/1828/1828490.png',
+      title: "Log Out",
+      subtitle: "Sign out from your account",
+      onTap: () async {
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("Confirm Logout"),
+            content: const Text("Are you sure you want to log out?"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                style:
+                    ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text("Logout"),
+              ),
+            ],
+          ),
+        );
+
+        if (confirm == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.clear();
+
+          if (!mounted) return;
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+            (route) => false,
+          );
+        }
+      },
+    );
+  }
+
+  void _showAttendanceOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Image.network(
+                  'https://cdn-icons-png.flaticon.com/512/2921/2921222.png',
+                  height: 30,
+                ),
+                title: const Text("Record Attendance"),
+                subtitle: const Text("Open camera to take attendance photo"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const StudentAttendanceScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Image.network(
+                  'https://cdn-icons-png.flaticon.com/512/1828/1828415.png',
+                  height: 30,
+                ),
+                title: const Text("View DTR"),
+                subtitle: const Text("Check your Daily Time Record"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => StudentDTRViewScreen(
+                        studentName: _studentName ?? "Unknown",
+                        studentId: _studentId ?? "N/A",
+                        course: _course ?? "N/A",
+                        dtrRecords: _dtrRecords,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
         );
       },
     );

@@ -13,7 +13,6 @@ class _RegisterStudentState extends State<RegisterStudent>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
 
-  // Controllers
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _fullNameController = TextEditingController();
@@ -48,7 +47,6 @@ class _RegisterStudentState extends State<RegisterStudent>
     _animController.forward();
   }
 
-  // ✅ Generate Full Name automatically
   void _generateFullName() {
     final first = _firstNameController.text.trim();
     final last = _lastNameController.text.trim();
@@ -57,7 +55,6 @@ class _RegisterStudentState extends State<RegisterStudent>
     });
   }
 
-  // ✅ Pick profile picture
   Future<void> _pickProfileImage() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
@@ -67,7 +64,6 @@ class _RegisterStudentState extends State<RegisterStudent>
     }
   }
 
-  // ✅ Submit form
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -85,11 +81,8 @@ class _RegisterStudentState extends State<RegisterStudent>
       return;
     }
 
-    // ✅ Show loading overlay
     setState(() => _isLoading = true);
-
-    await Future.delayed(const Duration(seconds: 3)); // simulate server delay
-
+    await Future.delayed(const Duration(seconds: 3));
     setState(() => _isLoading = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -119,7 +112,6 @@ class _RegisterStudentState extends State<RegisterStudent>
     super.dispose();
   }
 
-  // ✅ Helper Widget: Animated Fade-in Field
   Widget animatedField(Widget child, int index) {
     return FadeTransition(
       opacity: _fadeAnim,
@@ -149,7 +141,11 @@ class _RegisterStudentState extends State<RegisterStudent>
             title: const Text("Student Registration"),
             foregroundColor: Colors.white,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
+              icon: Image.network(
+                'https://cdn-icons-png.flaticon.com/512/271/271218.png', // back arrow
+                height: 24,
+                color: Colors.white,
+              ),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -190,7 +186,7 @@ class _RegisterStudentState extends State<RegisterStudent>
                               ),
                               const SizedBox(height: 10),
 
-                              // ✅ Profile picture
+                              // Profile Picture
                               GestureDetector(
                                 onTap: _pickProfileImage,
                                 child: AnimatedContainer(
@@ -213,8 +209,11 @@ class _RegisterStudentState extends State<RegisterStudent>
                                         ? FileImage(_profileImage!)
                                         : null,
                                     child: _profileImage == null
-                                        ? const Icon(Icons.camera_alt,
-                                            size: 40, color: Colors.white)
+                                        ? Image.network(
+                                            'https://cdn-icons-png.flaticon.com/512/2921/2921222.png', // camera icon
+                                            height: 40,
+                                            color: Colors.indigo,
+                                          )
                                         : null,
                                   ),
                                 ),
@@ -227,7 +226,7 @@ class _RegisterStudentState extends State<RegisterStudent>
                               ),
                               const SizedBox(height: 20),
 
-                              // ✅ Form fields
+                              // Form Fields
                               animatedField(
                                 TextFormField(
                                   controller: _firstNameController,
@@ -381,6 +380,8 @@ class _RegisterStudentState extends State<RegisterStudent>
                                 ),
                                 11,
                               ),
+
+                              // Password fields with network icons
                               animatedField(
                                 TextFormField(
                                   controller: _passwordController,
@@ -389,11 +390,15 @@ class _RegisterStudentState extends State<RegisterStudent>
                                     labelText: 'Password',
                                     border: const OutlineInputBorder(),
                                     suffixIcon: IconButton(
-                                      icon: Icon(_showPassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility),
-                                      onPressed: () => setState(
-                                          () => _showPassword = !_showPassword),
+                                      icon: Image.network(
+                                        _showPassword
+                                            ? 'https://cdn-icons-png.flaticon.com/512/709/709612.png' // hidden eye
+                                            : 'https://cdn-icons-png.flaticon.com/512/709/709699.png', // visible eye
+                                        height: 24,
+                                        color: Colors.indigo,
+                                      ),
+                                      onPressed: () => setState(() =>
+                                          _showPassword = !_showPassword),
                                     ),
                                   ),
                                 ),
@@ -407,11 +412,15 @@ class _RegisterStudentState extends State<RegisterStudent>
                                     labelText: 'Confirm Password',
                                     border: const OutlineInputBorder(),
                                     suffixIcon: IconButton(
-                                      icon: Icon(_showPassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility),
-                                      onPressed: () => setState(
-                                          () => _showPassword = !_showPassword),
+                                      icon: Image.network(
+                                        _showPassword
+                                            ? 'https://cdn-icons-png.flaticon.com/512/709/709612.png'
+                                            : 'https://cdn-icons-png.flaticon.com/512/709/709699.png',
+                                        height: 24,
+                                        color: Colors.indigo,
+                                      ),
+                                      onPressed: () => setState(() =>
+                                          _showPassword = !_showPassword),
                                     ),
                                   ),
                                 ),
@@ -419,10 +428,14 @@ class _RegisterStudentState extends State<RegisterStudent>
                               ),
                               const SizedBox(height: 25),
 
-                              // ✅ Submit button
+                              // Submit button with network icon
                               ElevatedButton.icon(
                                 onPressed: _register,
-                                icon: const Icon(Icons.check_circle_outline),
+                                icon: Image.network(
+                                  'https://cdn-icons-png.flaticon.com/512/845/845646.png', // check mark
+                                  height: 24,
+                                  color: Colors.white,
+                                ),
                                 label: const Text("Submit for Approval"),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.indigo,
@@ -446,7 +459,7 @@ class _RegisterStudentState extends State<RegisterStudent>
           ),
         ),
 
-        // ✅ Loading Spinner Overlay with School Logo
+        // Loading Overlay
         if (_isLoading)
           Container(
             color: Colors.black.withOpacity(0.5),
@@ -454,9 +467,8 @@ class _RegisterStudentState extends State<RegisterStudent>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 🔷 Replace with your school logo in assets
                   Image.asset(
-                    'assets/images/ojt.png', // <-- make sure logo exists
+                    'assets/images/ojt.png',
                     height: 90,
                   ),
                   const SizedBox(height: 20),

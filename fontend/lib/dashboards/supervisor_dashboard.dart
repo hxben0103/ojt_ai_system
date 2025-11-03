@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/role_dashboard.dart';
 import 'supervisor_student_monitor.dart';
+import 'package:flutter_application_1/screens/login_screen.dart';
 
 class SupervisorDashboard extends StatelessWidget {
   const SupervisorDashboard({super.key});
@@ -28,7 +30,7 @@ class SupervisorDashboard extends StatelessWidget {
       customActions: [
         _buildAnimated(_buildProfileHeader(), 0),
         _buildAnimated(_buildFeatureCard(
-          icon: Icons.check_circle_outline,
+          iconUrl: "https://cdn-icons-png.flaticon.com/512/992/992700.png",
           title: "Auto Check Completed OJT Hours",
           subtitle: "Tap to see students who have completed their required hours",
           onTap: () {
@@ -46,7 +48,11 @@ class SupervisorDashboard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: completedStudents
                             .map((name) => ListTile(
-                                  leading: const Icon(Icons.check, color: Colors.teal),
+                                  leading: Image.network(
+                                    "https://cdn-icons-png.flaticon.com/512/845/845646.png",
+                                    height: 24,
+                                    width: 24,
+                                  ),
                                   title: Text(name),
                                 ))
                             .toList(),
@@ -63,7 +69,7 @@ class SupervisorDashboard extends StatelessWidget {
           },
         ), 200),
         _buildAnimated(_buildFeatureCard(
-          icon: Icons.assignment_turned_in,
+          iconUrl: "https://cdn-icons-png.flaticon.com/512/2838/2838912.png",
           title: "Submit Evaluations",
           subtitle: "Evaluate students and submit feedback",
           onTap: () {
@@ -76,7 +82,7 @@ class SupervisorDashboard extends StatelessWidget {
           },
         ), 400),
         _buildAnimated(_buildFeatureCard(
-          icon: Icons.monitor_heart,
+          iconUrl: "https://cdn-icons-png.flaticon.com/512/5974/5974636.png",
           title: "Monitor Student Behavior",
           subtitle: "Track OJT hours and progress of students",
           onTap: () {
@@ -89,7 +95,7 @@ class SupervisorDashboard extends StatelessWidget {
           },
         ), 600),
         _buildAnimated(_buildFeatureCard(
-          icon: Icons.message,
+          iconUrl: "https://cdn-icons-png.flaticon.com/512/561/561127.png",
           title: "Message Students/Coordinators",
           subtitle: "Send announcements or complaints",
           onTap: () {
@@ -100,6 +106,9 @@ class SupervisorDashboard extends StatelessWidget {
             );
           },
         ), 800),
+
+        // ✅ Logout Card Added
+        _buildAnimated(_buildLogoutCard(context), 1000),
       ],
     );
   }
@@ -171,9 +180,9 @@ class SupervisorDashboard extends StatelessWidget {
     );
   }
 
-  // --- Reusable Feature Card ---
+  // --- Reusable Feature Card (with Network Icon) ---
   Widget _buildFeatureCard({
-    required IconData icon,
+    required String iconUrl,
     required String title,
     required String subtitle,
     required VoidCallback onTap,
@@ -193,12 +202,12 @@ class SupervisorDashboard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.teal.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: Colors.teal, size: 28),
+                child: Image.network(iconUrl, height: 28, width: 28),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -214,11 +223,80 @@ class SupervisorDashboard extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, size: 18, color: Colors.grey),
+              Image.network(
+                "https://cdn-icons-png.flaticon.com/512/271/271228.png",
+                height: 18,
+                width: 18,
+                color: Colors.grey,
+              ),
             ],
           ),
         ),
       ),
     ).animate().fadeIn(duration: 500.ms).scale(delay: 100.ms);
+  }
+
+  // --- Logout Card (with Network Icon) ---
+  Widget _buildLogoutCard(BuildContext context) {
+    return Card(
+      elevation: 6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shadowColor: Colors.teal.withOpacity(0.3),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () async {
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Confirm Logout"),
+              content: const Text("Are you sure you want to log out of your account?"),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text("Cancel"),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text("Logout"),
+                ),
+              ],
+            ),
+          );
+
+          if (confirm == true) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.clear();
+
+            if (context.mounted) {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                (route) => false,
+              );
+            }
+          }
+        },
+        child: ListTile(
+          leading: Image.network(
+            "https://cdn-icons-png.flaticon.com/512/1828/1828490.png",
+            height: 28,
+            width: 28,
+          ),
+          title: const Text(
+            "Log Out",
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          subtitle: const Text("Sign out from your account"),
+          trailing: Image.network(
+            "https://cdn-icons-png.flaticon.com/512/271/271228.png",
+            height: 18,
+            width: 18,
+            color: Colors.grey,
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -109,7 +109,10 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
             elevation: 0,
             foregroundColor: Colors.white,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              icon: Image.network(
+                'https://cdn-icons-png.flaticon.com/512/271/271220.png', // Back arrow icon
+                height: 26,
+              ),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -132,8 +135,10 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                         child: Column(
                           children: [
                             const SizedBox(height: 10),
-                            const Icon(Icons.manage_accounts,
-                                color: Colors.indigo, size: 80),
+                            Image.network(
+                              'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', // Coordinator icon
+                              height: 80,
+                            ),
                             const SizedBox(height: 10),
                             const Text(
                               "Coordinator Registration",
@@ -169,10 +174,11 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                                   labelText: 'Password',
                                   border: const OutlineInputBorder(),
                                   suffixIcon: IconButton(
-                                    icon: Icon(
+                                    icon: Image.network(
                                       _showPassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility,
+                                          ? 'https://cdn-icons-png.flaticon.com/512/565/565655.png' // eye off
+                                          : 'https://cdn-icons-png.flaticon.com/512/565/565654.png', // eye on
+                                      height: 22,
                                     ),
                                     onPressed: () => setState(() =>
                                         _showPassword = !_showPassword),
@@ -194,10 +200,11 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                                   labelText: 'Confirm Password',
                                   border: const OutlineInputBorder(),
                                   suffixIcon: IconButton(
-                                    icon: Icon(
+                                    icon: Image.network(
                                       _showPassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility,
+                                          ? 'https://cdn-icons-png.flaticon.com/512/565/565655.png'
+                                          : 'https://cdn-icons-png.flaticon.com/512/565/565654.png',
+                                      height: 22,
                                     ),
                                     onPressed: () => setState(() =>
                                         _showPassword = !_showPassword),
@@ -227,7 +234,11 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                                           color: Colors.white,
                                         ),
                                       )
-                                    : const Icon(Icons.check),
+                                    : Image.network(
+                                        'https://cdn-icons-png.flaticon.com/512/845/845646.png', // checkmark icon
+                                        height: 22,
+                                        color: Colors.white,
+                                      ),
                                 label: Text(
                                   _isLoading
                                       ? "Submitting..."
@@ -263,7 +274,6 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 🏫 Replace with your actual logo
                   Image.asset(
                     'assets/images/ojt.png',
                     height: 90,

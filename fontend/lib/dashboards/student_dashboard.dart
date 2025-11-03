@@ -4,9 +4,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_animate/flutter_animate.dart'; // 👈 for animations
+import 'package:flutter_animate/flutter_animate.dart';
 import '../widgets/role_dashboard.dart';
 import 'student_checklist_screen.dart';
+import 'student_attendance_screen.dart';
+import 'student_dtr_view_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -31,6 +33,8 @@ class _StudentDashboardState extends State<StudentDashboard>
   String? _coordinator;
   String? _supervisor;
 
+  List<Map<String, dynamic>> _dtrRecords = []; // ✅ DTR data list
+
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
 
@@ -39,8 +43,8 @@ class _StudentDashboardState extends State<StudentDashboard>
     super.initState();
     _loadStudentData();
     _loadAttendanceData();
+    _loadDTRRecords(); // ✅ Load DTRs
 
-    // 👇 Animation controller for fade-in
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -91,62 +95,22 @@ class _StudentDashboardState extends State<StudentDashboard>
     });
   }
 
-  Future<void> _saveAttendance(
-      String imagePath, bool isTimedIn, String timeText) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('attendance_image', imagePath);
-    await prefs.setBool('is_timed_in', isTimedIn);
-    await prefs.setString('last_action_time', timeText);
-    await prefs.setInt('completed_hours', _completedHours);
-  }
-
-  Future<bool> _requestCameraPermission() async {
-    var status = await Permission.camera.status;
-    if (status.isGranted) return true;
-    status = await Permission.camera.request();
-    if (status.isGranted) return true;
-    if (status.isPermanentlyDenied) openAppSettings();
-    return false;
-  }
-
-  // ------------------- Time In/Out -------------------
-  Future<void> _handleAttendance() async {
-    bool granted = await _requestCameraPermission();
-    if (!granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Camera permission required.")),
-      );
-      return;
-    }
-
-    try {
-      final XFile? image =
-          await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
-      if (image != null) {
-        String timeNow =
-            DateFormat('hh:mm a, MMM d yyyy').format(DateTime.now());
-        setState(() {
-          _attendanceImage = File(image.path);
-          _isTimedIn = !_isTimedIn;
-          _lastActionTime = timeNow;
-          if (!_isTimedIn) _completedHours += 8;
-        });
-
-        await _saveAttendance(image.path, _isTimedIn, timeNow);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isTimedIn
-                ? "✅ Time In successful at $timeNow"
-                : "✅ Time Out successful at $timeNow"),
-          ),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("⚠️ Camera error: $e")),
-      );
-    }
+  Future<void> _loadDTRRecords() async {
+    // In real app, this might come from SharedPreferences, database, or API
+    setState(() {
+      _dtrRecords = [
+        {
+          'date': '2025-11-03',
+          'amIn': '08:00 AM',
+          'amOut': '12:00 PM',
+          'pmIn': '01:00 PM',
+          'pmOut': '05:00 PM',
+          'otIn': '-',
+          'otOut': '-',
+          'totalHours': '8',
+        },
+      ];
+    });
   }
 
   // ------------------- UI -------------------
@@ -185,6 +149,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
+  // ------------------- Profile Card -------------------
   Widget _buildProfileCard() {
     double progress = (_completedHours / _requiredHours > 1)
         ? 1
@@ -255,45 +220,97 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
+  // ------------------- Attendance Card -------------------
   Widget _buildAttendanceCard() {
     return Card(
       elevation: 6,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
-        leading: Icon(_isTimedIn ? Icons.logout : Icons.login,
-            color: Colors.orange, size: 30),
-        title: Text(
-          _isTimedIn ? "Time Out (End Duty)" : "Time In (Start Duty)",
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        leading: const Icon(Icons.assignment, color: Colors.orange, size: 30),
+        title: const Text(
+          "Attendance Record",
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: const Text("Tap to record attendance using camera"),
-        trailing: const Icon(Icons.camera_alt, color: Colors.grey),
-        onTap: _handleAttendance,
+        subtitle: const Text("View or update your daily attendance records"),
+        trailing:
+            const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 18),
+        onTap: () {
+          _showAttendanceOptions(context);
+        },
       ),
     );
   }
 
+  void _showAttendanceOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: Colors.orange),
+                title: const Text("Record Attendance"),
+                subtitle: const Text("Open camera to take attendance photo"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const StudentAttendanceScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.list_alt, color: Colors.orange),
+                title: const Text("View DTR"),
+                subtitle: const Text("Check your Daily Time Record"),
+                onTap: () {
+                  Navigator.pop(context);
+
+                  // ✅ Pass required arguments
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => StudentDTRViewScreen(
+                        studentName: _studentName ?? "Unknown",
+                        studentId: _studentId ?? "N/A",
+                        course: _course ?? "N/A",
+                        dtrRecords: _dtrRecords,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ------------------- Upload Report -------------------
   Widget _buildUploadCard() {
     return _buildCardTemplate(
       icon: Icons.upload_file,
       title: "Upload Progress Report",
       subtitle: "Submit your daily report after duty ends",
       onTap: () {
-        if (_isTimedIn) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content:
-                  Text("⚠️ You must Time Out first before uploading your report.")));
-          return;
-        }
         if (_lastActionTime == null) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("⚠️ Please complete Time In/Out first.")));
+              content:
+                  Text("⚠️ Please record your attendance before uploading.")));
           return;
         }
       },
     );
   }
 
+  // ------------------- Shared Card Template -------------------
   Widget _buildCardTemplate({
     required IconData icon,
     required String title,
@@ -332,6 +349,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
+  // ------------------- Improvement Tips -------------------
   Widget _buildImprovementTipsCard() {
     final List<String> tips = [
       "💡 Always arrive early and prepare your materials before starting your tasks.",
@@ -388,6 +406,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
+  // ------------------- Last Attendance Record -------------------
   Widget _buildLastRecordCard() {
     return Card(
       elevation: 5,
@@ -420,6 +439,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
+  // ------------------- Checklist -------------------
   Widget _buildChecklistCardButton() {
     return _buildCardTemplate(
       icon: Icons.checklist,

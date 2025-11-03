@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'chatbot_screen.dart';
 
 class RoleDashboard extends StatefulWidget {
   final String title;
@@ -18,23 +20,37 @@ class RoleDashboard extends StatefulWidget {
   State<RoleDashboard> createState() => _RoleDashboardState();
 }
 
-class _RoleDashboardState extends State<RoleDashboard> {
+class _RoleDashboardState extends State<RoleDashboard>
+    with SingleTickerProviderStateMixin {
   bool _isLoading = true;
+
+  late AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
+
     // Simulate loading delay
     Future.delayed(const Duration(seconds: 2), () {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     });
+
+    // Floating button pulse animation
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Loading screen
+    // ✅ Loading Screen
     if (_isLoading) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -42,36 +58,37 @@ class _RoleDashboardState extends State<RoleDashboard> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // ✅ Center logo
-              Image.asset(
-                'assets/images/ojt.png',
-                height: 120,
-              ),
+              Image.asset('assets/images/ojt.png', height: 120)
+                  .animate()
+                  .fadeIn(duration: 500.ms)
+                  .scale(duration: 700.ms),
               const SizedBox(height: 30),
               const CircularProgressIndicator(
                 color: Colors.indigo,
                 strokeWidth: 4,
-              ),
+              ).animate().scale(duration: 800.ms),
               const SizedBox(height: 20),
               const Text(
                 "Loading Dashboard...",
                 style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.indigo),
-              ),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.indigo,
+                ),
+              ).animate().fadeIn(duration: 1000.ms),
             ],
           ),
         ),
       );
     }
 
-    // ✅ After loading, show the real dashboard
+    // ✅ Main Dashboard
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
         backgroundColor: widget.color,
         foregroundColor: Colors.white,
+        elevation: 3,
       ),
       body: AnimatedOpacity(
         opacity: _isLoading ? 0 : 1,
@@ -81,54 +98,105 @@ class _RoleDashboardState extends State<RoleDashboard> {
           child: ListView(
             children: [
               if (widget.customActions != null) ...widget.customActions!,
+
               if (widget.tasks != null && widget.tasks!.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 const Text(
                   "Available Tasks",
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                )
+                    .animate()
+                    .fadeIn(duration: 400.ms)
+                    .slideX(begin: -0.2, end: 0),
                 const Divider(),
-                ...widget.tasks!.map(
-                  (task) => ListTile(
-                    leading: const Icon(Icons.check_circle_outline),
-                    title: Text(task),
-                  ),
-                ),
+                ...widget.tasks!
+                    .asMap()
+                    .entries
+                    .map(
+                      (entry) => ListTile(
+                        leading: const Icon(Icons.check_circle_outline,
+                            color: Colors.indigo),
+                        title: Text(entry.value),
+                      )
+                          .animate(delay: (entry.key * 100).ms)
+                          .fadeIn(duration: 400.ms)
+                          .slideX(begin: 0.2, end: 0),
+                    )
+                    .toList(),
               ],
             ],
           ),
         ),
       ),
 
-      // ✅ Floating Back Button
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: widget.color,
-        onPressed: () {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text("Log Out"),
-              content: const Text(
-                  "Are you sure you want to log out and return to the login screen?"),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text("Cancel"),
+      // 💬 Animated Floating AI Chat Button
+      floatingActionButton: ScaleTransition(
+        scale: Tween(begin: 1.0, end: 1.1)
+            .animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut)),
+        child: GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              PageRouteBuilder(
+                transitionDuration: const Duration(milliseconds: 600),
+                pageBuilder: (_, __, ___) => const ChatBotScreen(),
+                transitionsBuilder: (_, animation, __, child) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: child,
+                  );
+                },
+              ),
+            );
+          },
+          child: Hero(
+            tag: "aiChatButton",
+            child: Container(
+              width: 75,
+              height: 75,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0078FF), Color(0xFF00C6FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    Navigator.pushNamedAndRemoveUntil(
-                        context, '/', (route) => false);
-                  },
-                  child: const Text("Yes, Log Out"),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blueAccent.withOpacity(0.6),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.network(
+                      "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
+                      width: 30,
+                      height: 30,
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "JRMSU AI",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          );
-        },
-        child: const Icon(Icons.logout),
+          ),
+        ),
       ),
     );
   }
 }
+

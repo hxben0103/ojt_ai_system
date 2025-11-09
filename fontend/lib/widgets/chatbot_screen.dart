@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ChatBotScreen extends StatefulWidget {
   const ChatBotScreen({super.key});
@@ -13,8 +15,14 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
   final List<Map<String, String>> _messages = [];
   bool _isTyping = false;
 
-  void _sendMessage() {
+  // 🌐 Change this to your computer's IP (from Flask logs)
+  // Example: "http://11.11.1.132:5000/chat"
+  // If using Android emulator, use: "http://10.0.2.2:5000/chat"
+  final String apiUrl = "http://11.11.1.132:5000/chat";
+
+  Future<void> _sendMessage() async {
     if (_controller.text.trim().isEmpty) return;
+
     setState(() {
       _messages.add({"sender": "user", "text": _controller.text.trim()});
       _isTyping = true;
@@ -23,16 +31,37 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     String userMessage = _controller.text.trim();
     _controller.clear();
 
-    // 💬 Simulate AI typing delay
-    Future.delayed(const Duration(seconds: 1), () {
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: json.encode({"message": userMessage}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          _messages.add({"sender": "bot", "text": data["response"]});
+        });
+      } else {
+        setState(() {
+          _messages.add({
+            "sender": "bot",
+            "text": "⚠️ Server error: ${response.statusCode}"
+          });
+        });
+      }
+    } catch (e) {
       setState(() {
         _messages.add({
           "sender": "bot",
-          "text":
-              "Hello! 👋 I'm *AI JRMSU OJT Assistant.*\nYou said: \"$userMessage\""
+          "text": "🚫 Unable to connect to the server. ($e)"
         });
-        _isTyping = false;
       });
+    }
+
+    setState(() {
+      _isTyping = false;
     });
   }
 
@@ -73,7 +102,6 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
       ),
       body: Column(
         children: [
-          // 🗨️ Chat messages
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(12),
@@ -147,8 +175,8 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                     textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(
                       hintText: "Type your message...",
-                      prefixIcon:
-                          const Icon(Icons.chat_bubble_outline, color: Colors.grey),
+                      prefixIcon: const Icon(Icons.chat_bubble_outline,
+                          color: Colors.grey),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(30),
                         borderSide: BorderSide.none,
@@ -158,6 +186,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 20, vertical: 10),
                     ),
+                    onSubmitted: (_) => _sendMessage(),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -184,12 +213,12 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     );
   }
 
-  // 🕒 Typing indicator animation
+  // 🕒 Typing indicator animation (three dots pulsing)
   Widget _buildTypingIndicator() {
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 5),
+        margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: const Color.fromARGB(255, 235, 237, 241),
@@ -199,18 +228,30 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
           mainAxisSize: MainAxisSize.min,
           children: List.generate(3, (index) {
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: Colors.grey,
-                  shape: BoxShape.circle,
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: Animate(
+                effects: [
+                  FadeEffect(
+                      duration: 400.ms,
+                      delay: (index * 150).ms,
+                      curve: Curves.easeInOut),
+                  ScaleEffect(
+                      duration: 400.ms,
+                      delay: (index * 150).ms,
+                      begin: const Offset(0.8, 0.8),
+                      end: const Offset(1.0, 1.0),
+                      curve: Curves.easeInOut)
+                ],
+                onPlay: (controller) => controller.repeat(reverse: true),
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Colors.grey,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              )
-                  .animate(onPlay: (controller) => controller.repeat())
-                  .fadeIn(duration: 300.ms, delay: (index * 150).ms)
-                  .fadeOut(duration: 300.ms, delay: (index * 150 + 300).ms),
+              ),
             );
           }),
         ),

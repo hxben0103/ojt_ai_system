@@ -33,6 +33,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/ojt.png
+    - assets/images/logo.gif
 
 
 

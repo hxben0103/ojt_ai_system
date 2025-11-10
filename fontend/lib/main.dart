@@ -102,21 +102,9 @@ class _SplashScreenState extends State<SplashScreen>
               children: [
                 // 🔹 Your actual logo image
                 Image.asset(
-                  'assets/images/ojt.png',
-                  width: 140,
-                  height: 140,
-                ),
+                  'assets/images/logo.gif', height: 220),
                 const SizedBox(height: 25),
                 
-                const SizedBox(height: 10),
-                const Text(
-                  "Empowering Smarter Internships",
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                    letterSpacing: 0.8,
-                  ),
-                ),
               ],
             ),
           ),

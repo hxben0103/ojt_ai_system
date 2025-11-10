@@ -13,11 +13,10 @@ class ChatBotScreen extends StatefulWidget {
 class _ChatBotScreenState extends State<ChatBotScreen> {
   final TextEditingController _controller = TextEditingController();
   final List<Map<String, String>> _messages = [];
+  final ScrollController _scrollController = ScrollController();
   bool _isTyping = false;
 
-  // 🌐 Change this to your computer's IP (from Flask logs)
-  // Example: "http://11.11.1.132:5000/chat"
-  // If using Android emulator, use: "http://10.0.2.2:5000/chat"
+  // 🌐 Update to your Flask server IP
   final String apiUrl = "http://11.11.1.132:5000/chat";
 
   Future<void> _sendMessage() async {
@@ -28,6 +27,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
       _isTyping = true;
     });
 
+    _scrollToBottom();
     String userMessage = _controller.text.trim();
     _controller.clear();
 
@@ -63,6 +63,20 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     setState(() {
       _isTyping = false;
     });
+
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
@@ -77,10 +91,9 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
           children: [
             CircleAvatar(
               backgroundImage: const NetworkImage(
-                "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
-              ),
+                  "assets/images/logo.gif"),
               backgroundColor: Colors.blue.shade100,
-              radius: 18,
+              radius: 30,
             ),
             const SizedBox(width: 10),
             const Column(
@@ -104,6 +117,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
         children: [
           Expanded(
             child: ListView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(12),
               itemCount: _messages.length + (_isTyping ? 1 : 0),
               itemBuilder: (context, index) {
@@ -113,6 +127,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
 
                 final msg = _messages[index];
                 bool isUser = msg["sender"] == "user";
+
                 return Align(
                   alignment:
                       isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -162,50 +177,51 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
               },
             ),
           ),
+          _buildMessageInput(),
+        ],
+      ),
+    );
+  }
 
-          // 💬 Message Input Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      hintText: "Type your message...",
-                      prefixIcon: const Icon(Icons.chat_bubble_outline,
-                          color: Colors.grey),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide.none,
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey.shade100,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 10),
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
+  Widget _buildMessageInput() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      color: Colors.white,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                hintText: "Type your message...",
+                prefixIcon: const Icon(Icons.chat_bubble_outline, color: Colors.grey),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide.none,
                 ),
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: _sendMessage,
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF0078FF), Color(0xFF00C6FF)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: const Icon(Icons.send, color: Colors.white),
-                  ),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              ),
+              onSubmitted: (_) => _sendMessage(),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _sendMessage,
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [Color(0xFF0078FF), Color(0xFF00C6FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              ],
+              ),
+              child: const Icon(Icons.send, color: Colors.white),
             ),
           ),
         ],
@@ -213,7 +229,6 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     );
   }
 
-  // 🕒 Typing indicator animation (three dots pulsing)
   Widget _buildTypingIndicator() {
     return Align(
       alignment: Alignment.centerLeft,
@@ -232,15 +247,17 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
               child: Animate(
                 effects: [
                   FadeEffect(
-                      duration: 400.ms,
-                      delay: (index * 150).ms,
-                      curve: Curves.easeInOut),
+                    duration: 400.ms,
+                    delay: (index * 150).ms,
+                    curve: Curves.easeInOut,
+                  ),
                   ScaleEffect(
-                      duration: 400.ms,
-                      delay: (index * 150).ms,
-                      begin: const Offset(0.8, 0.8),
-                      end: const Offset(1.0, 1.0),
-                      curve: Curves.easeInOut)
+                    duration: 400.ms,
+                    delay: (index * 150).ms,
+                    begin: const Offset(0.8, 0.8),
+                    end: const Offset(1.0, 1.0),
+                    curve: Curves.easeInOut,
+                  ),
                 ],
                 onPlay: (controller) => controller.repeat(reverse: true),
                 child: Container(

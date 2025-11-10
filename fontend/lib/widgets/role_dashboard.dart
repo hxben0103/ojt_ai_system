@@ -58,24 +58,12 @@ class _RoleDashboardState extends State<RoleDashboard>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Image.asset('assets/images/ojt.png', height: 120)
+              Image.asset('assets/images/logo.gif', height: 200)
                   .animate()
-                  .fadeIn(duration: 500.ms)
-                  .scale(duration: 700.ms),
+                  .fadeIn(duration: 900.ms)
+                  .scale(duration: 900.ms),
               const SizedBox(height: 30),
-              const CircularProgressIndicator(
-                color: Colors.indigo,
-                strokeWidth: 4,
-              ).animate().scale(duration: 800.ms),
-              const SizedBox(height: 20),
-              const Text(
-                "Loading Dashboard...",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.indigo,
-                ),
-              ).animate().fadeIn(duration: 1000.ms),
+
             ],
           ),
         ),

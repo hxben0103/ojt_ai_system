@@ -217,8 +217,8 @@ class _LoginScreenState extends State<LoginScreen>
                             scale: 1.1,
                             duration: const Duration(seconds: 1),
                             curve: Curves.elasticOut,
-                            child: Image.asset('assets/images/ojt.png',
-                                height: 100),
+                            child: Image.asset('assets/images/logo.gif',
+                                height: 150),
                           ),
                           const SizedBox(height: 20),
 

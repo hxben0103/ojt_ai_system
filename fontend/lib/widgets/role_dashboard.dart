@@ -23,14 +23,13 @@ class RoleDashboard extends StatefulWidget {
 class _RoleDashboardState extends State<RoleDashboard>
     with SingleTickerProviderStateMixin {
   bool _isLoading = true;
-
   late AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
 
-    // Simulate loading delay
+    // Simulate initial dashboard loading delay
     Future.delayed(const Duration(seconds: 2), () {
       setState(() => _isLoading = false);
     });
@@ -50,7 +49,7 @@ class _RoleDashboardState extends State<RoleDashboard>
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Loading Screen
+    // ✅ Loading Screen (white background)
     if (_isLoading) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -63,7 +62,6 @@ class _RoleDashboardState extends State<RoleDashboard>
                   .fadeIn(duration: 900.ms)
                   .scale(duration: 900.ms),
               const SizedBox(height: 30),
-
             ],
           ),
         ),
@@ -117,25 +115,55 @@ class _RoleDashboardState extends State<RoleDashboard>
         ),
       ),
 
-      // 💬 Animated Floating AI Chat Button
+      // 💬 Animated Floating AI Chat Button with Loading Animation
       floatingActionButton: ScaleTransition(
         scale: Tween(begin: 1.0, end: 1.1)
             .animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut)),
         child: GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                transitionDuration: const Duration(milliseconds: 600),
-                pageBuilder: (_, __, ___) => const ChatBotScreen(),
-                transitionsBuilder: (_, animation, __, child) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: child,
-                  );
-                },
+          onTap: () async {
+            // ✅ Show loading animation (white background)
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => Scaffold(
+                backgroundColor: Colors.white,
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset(
+                        'assets/images/logo.gif', // your loading logo
+                        height: 200,
+                      )
+                          .animate()
+                          .fadeIn(duration: 900.ms)
+                          .scale(duration: 900.ms),
+                      const SizedBox(height: 30),
+                    ],
+                  ),
+                ),
               ),
             );
+
+            // Simulate a short delay before opening chatbot
+            await Future.delayed(const Duration(seconds: 2));
+
+            if (context.mounted) {
+              Navigator.pop(context); // close loading screen
+              Navigator.push(
+                context,
+                PageRouteBuilder(
+                  transitionDuration: const Duration(milliseconds: 600),
+                  pageBuilder: (_, __, ___) => const ChatBotScreen(),
+                  transitionsBuilder: (_, animation, __, child) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: child,
+                    );
+                  },
+                ),
+              );
+            }
           },
           child: Hero(
             tag: "aiChatButton",
@@ -187,4 +215,3 @@ class _RoleDashboardState extends State<RoleDashboard>
     );
   }
 }
-

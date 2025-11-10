@@ -5,8 +5,15 @@ import '../widgets/role_dashboard.dart';
 import 'coordinator_student_monitor.dart';
 import 'package:flutter_application_1/screens/login_screen.dart';
 
-class CoordinatorDashboard extends StatelessWidget {
+class CoordinatorDashboard extends StatefulWidget {
   const CoordinatorDashboard({super.key});
+
+  @override
+  State<CoordinatorDashboard> createState() => _CoordinatorDashboardState();
+}
+
+class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
+  bool _isLoading = false;
 
   // Coordinator profile info
   final String fullName = "Ms. Angela Reyes";
@@ -16,6 +23,25 @@ class CoordinatorDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Loading Screen
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset('assets/images/logo.gif', height: 200)
+                  .animate()
+                  .fadeIn(duration: 900.ms)
+                  .scale(duration: 900.ms),
+              const SizedBox(height: 30),
+            ],
+          ),
+        ),
+      );
+    }
+
     return RoleDashboard(
       title: "OJT Coordinator Dashboard",
       color: Colors.deepPurple,
@@ -45,7 +71,8 @@ class CoordinatorDashboard extends StatelessWidget {
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                    content: Text("Navigating to supervisor feedback screen...")),
+                    content:
+                        Text("Navigating to supervisor feedback screen...")),
               );
             },
           ),
@@ -59,7 +86,8 @@ class CoordinatorDashboard extends StatelessWidget {
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                    content: Text("Navigating to performance analysis screen...")),
+                    content:
+                        Text("Navigating to performance analysis screen...")),
               );
             },
           ),
@@ -73,7 +101,8 @@ class CoordinatorDashboard extends StatelessWidget {
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                    content: Text("Navigating to account & supervisor approval...")),
+                    content: Text(
+                        "Navigating to account & supervisor approval...")),
               );
             },
           ),
@@ -83,11 +112,13 @@ class CoordinatorDashboard extends StatelessWidget {
           _buildFeatureCard(
             iconUrl: 'https://cdn-icons-png.flaticon.com/512/893/893257.png',
             title: "Communicate with Users",
-            subtitle: "Send announcements or messages to students and supervisors",
+            subtitle:
+                "Send announcements or messages to students and supervisors",
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                    content: Text("Messaging functionality coming soon...")),
+                    content:
+                        Text("Messaging functionality coming soon...")),
               );
             },
           ),
@@ -97,7 +128,8 @@ class CoordinatorDashboard extends StatelessWidget {
           _buildFeatureCard(
             iconUrl: 'https://cdn-icons-png.flaticon.com/512/942/942748.png',
             title: "Create Reports",
-            subtitle: "Generate reports on OJT activities, attendance, and evaluations",
+            subtitle:
+                "Generate reports on OJT activities, attendance, and evaluations",
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -176,11 +208,14 @@ class CoordinatorDashboard extends StatelessWidget {
                         color: Colors.white)),
                 const SizedBox(height: 6),
                 Text("ID Number: $idNumber",
-                    style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 14)),
                 Text("Office: $office",
-                    style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 14)),
                 Text("Position: $position",
-                    style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 14)),
               ],
             ),
           ),
@@ -257,8 +292,8 @@ class CoordinatorDashboard extends StatelessWidget {
             context: context,
             builder: (ctx) => AlertDialog(
               title: const Text("Confirm Logout"),
-              content:
-                  const Text("Are you sure you want to log out of your account?"),
+              content: const Text(
+                  "Are you sure you want to log out of your account?"),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
@@ -275,10 +310,14 @@ class CoordinatorDashboard extends StatelessWidget {
           );
 
           if (confirm == true) {
+            setState(() => _isLoading = true); // ✅ Show loading animation
+
             final prefs = await SharedPreferences.getInstance();
             await prefs.clear();
 
-            if (context.mounted) {
+            await Future.delayed(const Duration(seconds: 2)); // Simulate delay
+
+            if (mounted) {
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginScreen()),

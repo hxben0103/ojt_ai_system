@@ -113,6 +113,8 @@ class SupervisorDashboard extends StatelessWidget {
     );
   }
 
+  
+
   // --- Animated Wrapper ---
   Widget _buildAnimated(Widget child, int delay) {
     return Animate(
@@ -236,7 +238,7 @@ class SupervisorDashboard extends StatelessWidget {
     ).animate().fadeIn(duration: 500.ms).scale(delay: 100.ms);
   }
 
-  // --- Logout Card (with Network Icon) ---
+      // --- Logout Card (with White Background Loading Animation) ---
   Widget _buildLogoutCard(BuildContext context) {
     return Card(
       elevation: 6,
@@ -250,7 +252,8 @@ class SupervisorDashboard extends StatelessWidget {
             context: context,
             builder: (ctx) => AlertDialog(
               title: const Text("Confirm Logout"),
-              content: const Text("Are you sure you want to log out of your account?"),
+              content:
+                  const Text("Are you sure you want to log out of your account?"),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
@@ -266,10 +269,38 @@ class SupervisorDashboard extends StatelessWidget {
           );
 
           if (confirm == true) {
+            // ✅ Show loading animation dialog with white background
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => Scaffold(
+                backgroundColor: Colors.white, // White background
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset(
+                        'assets/images/logo.gif', // your logo or loading GIF
+                        height: 200,
+                      )
+                          .animate()
+                          .fadeIn(duration: 900.ms)
+                          .scale(duration: 900.ms),
+                      const SizedBox(height: 30),
+                    ],
+                  ),
+                ),
+              ),
+            );
+
+            // Simulate delay for logout
+            await Future.delayed(const Duration(seconds: 2));
+
             final prefs = await SharedPreferences.getInstance();
             await prefs.clear();
 
             if (context.mounted) {
+              Navigator.pop(context); // Close loading dialog
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginScreen()),

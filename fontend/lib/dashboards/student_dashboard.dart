@@ -39,6 +39,8 @@ class _StudentDashboardState extends State<StudentDashboard>
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
 
+  bool _isLoading = false; // ✅ Added loading flag
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +118,25 @@ class _StudentDashboardState extends State<StudentDashboard>
   // ------------------- UI -------------------
   @override
   Widget build(BuildContext context) {
+    // ✅ Show loading animation if logging out
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset('assets/images/logo.gif', height: 180)
+                  .animate()
+                  .fadeIn(duration: 900.ms)
+                  .scale(duration: 900.ms),
+              const SizedBox(height: 25),
+            ],
+          ),
+        ),
+      );
+    }
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: RoleDashboard(
@@ -249,9 +270,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-
-
-    // ------------------- Last Attendance Record -------------------
+  // ------------------- Last Attendance Record -------------------
   Widget _buildLastRecordCard() {
     return Card(
       elevation: 5,
@@ -264,7 +283,7 @@ class _StudentDashboardState extends State<StudentDashboard>
             Row(
               children: [
                 Image.network(
-                  'https://cdn-icons-png.flaticon.com/512/747/747310.png', // calendar icon
+                  'https://cdn-icons-png.flaticon.com/512/747/747310.png',
                   height: 26,
                 ),
                 const SizedBox(width: 8),
@@ -279,7 +298,7 @@ class _StudentDashboardState extends State<StudentDashboard>
               Row(
                 children: [
                   Image.network(
-                    'https://cdn-icons-png.flaticon.com/512/2088/2088617.png', // clock icon
+                    'https://cdn-icons-png.flaticon.com/512/2088/2088617.png',
                     height: 22,
                   ),
                   const SizedBox(width: 8),
@@ -431,8 +450,12 @@ class _StudentDashboardState extends State<StudentDashboard>
         );
 
         if (confirm == true) {
+          setState(() => _isLoading = true); // ✅ Show loading animation
+
           final prefs = await SharedPreferences.getInstance();
           await prefs.clear();
+
+          await Future.delayed(const Duration(seconds: 2)); // Simulated delay
 
           if (!mounted) return;
           Navigator.pushAndRemoveUntil(

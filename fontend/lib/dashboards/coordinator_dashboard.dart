@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/role_dashboard.dart';
 import 'coordinator_student_monitor.dart';
 import 'package:flutter_application_1/screens/login_screen.dart';
+import '../services/auth_service.dart';
+import '../models/user.dart';
 
 class CoordinatorDashboard extends StatefulWidget {
   const CoordinatorDashboard({super.key});
@@ -14,16 +16,52 @@ class CoordinatorDashboard extends StatefulWidget {
 
 class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
   bool _isLoading = false;
+  bool _isLoadingProfile = true;
 
-  // Coordinator profile info
-  final String fullName = "Ms. Angela Reyes";
-  final String idNumber = "COORD001";
-  final String office = "OJT Office";
-  final String position = "OJT Coordinator";
+  // Coordinator profile info - will be loaded from API
+  String fullName = "Loading...";
+  String idNumber = "N/A";
+  String office = "N/A";
+  String position = "OJT Coordinator";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (user != null) {
+        setState(() {
+          fullName = user.fullName;
+          idNumber = user.studentId ?? user.email;
+          office = user.course ?? "OJT Office";
+          position = user.role;
+          _isLoadingProfile = false;
+        });
+      } else {
+        setState(() {
+          _isLoadingProfile = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingProfile = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     // ✅ Loading Screen
+    if (_isLoadingProfile) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     if (_isLoading) {
       return Scaffold(
         backgroundColor: Colors.white,

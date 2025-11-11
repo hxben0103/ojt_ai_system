@@ -38,46 +38,57 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create report
+// Create report - Using stored procedure
 router.post('/', async (req, res) => {
   try {
-    const { report_type, generated_by, content } = req.body;
+    const { report_type, generated_by, content, report_period_start, report_period_end } = req.body;
 
     const result = await query(
-      `INSERT INTO system_reports (report_type, generated_by, content)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [report_type, generated_by, JSON.stringify(content)]
+      'SELECT create_system_report($1, $2, $3, $4, $5) as result',
+      [
+        report_type, generated_by, JSON.stringify(content),
+        report_period_start || null, report_period_end || null
+      ]
     );
 
-    res.status(201).json({
-      message: 'Report created successfully',
-      report: result.rows[0]
-    });
+    const response = result.rows[0].result;
+
+    if (response.success) {
+      // Get the created report
+      const reportResult = await query(
+        'SELECT get_system_report($1) as report',
+        [response.report_id]
+      );
+      
+      res.status(201).json({
+        message: 'Report created successfully',
+        report: reportResult.rows[0].report
+      });
+    } else {
+      res.status(400).json({
+        error: 'Failed to create report',
+        errors: response.errors || []
+      });
+    }
   } catch (error) {
     console.error('Create report error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Get report by ID
+// Get report by ID - Using stored procedure
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await query(
-      `SELECT r.*, u.full_name AS generated_by_name
-       FROM system_reports r
-       JOIN users u ON r.generated_by = u.user_id
-       WHERE r.report_id = $1`,
-      [id]
-    );
+    const result = await query('SELECT get_system_report($1) as report', [id]);
+    const report = result.rows[0].report;
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Report not found' });
+    if (report.error) {
+      return res.status(404).json(report);
     }
 
-    res.json({ report: result.rows[0] });
+    res.json({ report });
   } catch (error) {
     console.error('Get report error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -137,22 +148,42 @@ router.get('/ojt/records', async (req, res) => {
   }
 });
 
-// Create OJT record
+// Create OJT record - Using stored procedure
 router.post('/ojt/records', async (req, res) => {
   try {
-    const { student_id, company_name, coordinator_id, supervisor_id, start_date, end_date, status } = req.body;
+    const { 
+      student_id, company_name, coordinator_id, supervisor_id, 
+      start_date, end_date, required_hours, company_address, company_contact 
+    } = req.body;
 
     const result = await query(
-      `INSERT INTO ojt_records (student_id, company_name, coordinator_id, supervisor_id, start_date, end_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *`,
-      [student_id, company_name, coordinator_id, supervisor_id, start_date, end_date, status || 'Ongoing']
+      'SELECT create_ojt_record($1, $2, $3, $4, $5, $6, $7, $8, $9) as result',
+      [
+        student_id, company_name, coordinator_id, supervisor_id,
+        start_date, end_date || null, required_hours || 300,
+        company_address || null, company_contact || null
+      ]
     );
 
-    res.status(201).json({
-      message: 'OJT record created successfully',
-      record: result.rows[0]
-    });
+    const response = result.rows[0].result;
+
+    if (response.success) {
+      // Get the created OJT record
+      const recordResult = await query(
+        'SELECT get_ojt_record($1) as record',
+        [response.record_id]
+      );
+      
+      res.status(201).json({
+        message: 'OJT record created successfully',
+        record: recordResult.rows[0].record
+      });
+    } else {
+      res.status(400).json({
+        error: 'Validation failed',
+        errors: response.errors
+      });
+    }
   } catch (error) {
     console.error('Create OJT record error:', error);
     res.status(500).json({ error: 'Internal server error' });

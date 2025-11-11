@@ -35,7 +35,9 @@ class OjtService {
     required int supervisorId,
     DateTime? startDate,
     DateTime? endDate,
-    String? status,
+    int? requiredHours,
+    String? companyAddress,
+    String? companyContact,
   }) async {
     try {
       final response = await ApiService.post(
@@ -49,9 +51,16 @@ class OjtService {
             'start_date': startDate.toIso8601String().split('T')[0],
           if (endDate != null)
             'end_date': endDate.toIso8601String().split('T')[0],
-          if (status != null) 'status': status,
+          if (requiredHours != null) 'required_hours': requiredHours,
+          if (companyAddress != null) 'company_address': companyAddress,
+          if (companyContact != null) 'company_contact': companyContact,
         },
       );
+
+      // Handle validation errors from stored procedure
+      if (response.containsKey('errors')) {
+        throw Exception(response['errors']?.join(', ') ?? 'Validation failed');
+      }
 
       return OjtRecord.fromJson(response['record']);
     } catch (e) {

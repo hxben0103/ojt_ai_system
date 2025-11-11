@@ -41,77 +41,102 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create evaluation
+// Create evaluation - Using stored procedure
 router.post('/', async (req, res) => {
   try {
-    const { student_id, supervisor_id, criteria, total_score, feedback } = req.body;
+    const { 
+      student_id, supervisor_id, criteria, total_score, feedback,
+      evaluation_period_start, evaluation_period_end 
+    } = req.body;
 
     const result = await query(
-      `INSERT INTO evaluations (student_id, supervisor_id, criteria, total_score, feedback)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [student_id, supervisor_id, JSON.stringify(criteria), total_score, feedback]
+      'SELECT create_evaluation($1, $2, $3, $4, $5, $6, $7) as result',
+      [
+        student_id, supervisor_id, JSON.stringify(criteria), total_score, feedback,
+        evaluation_period_start || null, evaluation_period_end || null
+      ]
     );
 
-    res.status(201).json({
-      message: 'Evaluation created successfully',
-      evaluation: result.rows[0]
-    });
+    const response = result.rows[0].result;
+
+    if (response.success) {
+      // Get the created evaluation
+      const evalResult = await query(
+        'SELECT get_evaluation($1) as evaluation',
+        [response.eval_id]
+      );
+      
+      res.status(201).json({
+        message: 'Evaluation created successfully',
+        evaluation: evalResult.rows[0].evaluation
+      });
+    } else {
+      res.status(400).json({
+        error: 'Validation failed',
+        errors: response.errors
+      });
+    }
   } catch (error) {
     console.error('Create evaluation error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Update evaluation
+// Update evaluation - Using stored procedure
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { criteria, total_score, feedback } = req.body;
+    const { criteria, total_score, feedback, status } = req.body;
 
     const result = await query(
-      `UPDATE evaluations 
-       SET criteria = $1, total_score = $2, feedback = $3
-       WHERE eval_id = $4
-       RETURNING *`,
-      [JSON.stringify(criteria), total_score, feedback, id]
+      'SELECT update_evaluation($1, $2, $3, $4, $5) as result',
+      [
+        id,
+        criteria ? JSON.stringify(criteria) : null,
+        total_score || null,
+        feedback || null,
+        status || null
+      ]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Evaluation not found' });
-    }
+    const response = result.rows[0].result;
 
-    res.json({
-      message: 'Evaluation updated successfully',
-      evaluation: result.rows[0]
-    });
+    if (response.success) {
+      // Get the updated evaluation
+      const evalResult = await query(
+        'SELECT get_evaluation($1) as evaluation',
+        [id]
+      );
+      
+      res.json({
+        message: 'Evaluation updated successfully',
+        evaluation: evalResult.rows[0].evaluation
+      });
+    } else {
+      res.status(400).json({
+        error: response.error || 'Evaluation not found',
+        errors: response.errors || []
+      });
+    }
   } catch (error) {
     console.error('Update evaluation error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Get evaluation by ID
+// Get evaluation by ID - Using stored procedure
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await query(
-      `SELECT e.*, 
-              u1.full_name AS student_name,
-              u2.full_name AS supervisor_name
-       FROM evaluations e
-       JOIN users u1 ON e.student_id = u1.user_id
-       JOIN users u2 ON e.supervisor_id = u2.user_id
-       WHERE e.eval_id = $1`,
-      [id]
-    );
+    const result = await query('SELECT get_evaluation($1) as evaluation', [id]);
+    const evaluation = result.rows[0].evaluation;
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Evaluation not found' });
+    if (evaluation.error) {
+      return res.status(404).json(evaluation);
     }
 
-    res.json({ evaluation: result.rows[0] });
+    res.json({ evaluation });
   } catch (error) {
     console.error('Get evaluation error:', error);
     res.status(500).json({ error: 'Internal server error' });

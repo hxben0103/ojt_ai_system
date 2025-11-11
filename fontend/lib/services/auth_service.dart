@@ -26,6 +26,11 @@ class AuthService {
         },
       );
 
+      // Check for error in response (for 400 status codes)
+      if (response['error'] != null) {
+        throw Exception(response['error']);
+      }
+
       if (response['token'] != null) {
         await _saveToken(response['token']);
         await _saveUser(response['user']);
@@ -34,6 +39,10 @@ class AuthService {
 
       return response;
     } catch (e) {
+      // If it's already an Exception with a message, rethrow it
+      if (e is Exception) {
+        rethrow;
+      }
       throw Exception('Registration failed: $e');
     }
   }

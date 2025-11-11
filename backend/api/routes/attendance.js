@@ -38,94 +38,118 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create attendance record (Time In)
+// Create attendance record (Time In) - Using stored procedure
 router.post('/time-in', async (req, res) => {
   try {
     const { student_id, date, time_in } = req.body;
 
+    const currentDate = date || new Date().toISOString().split('T')[0];
+    const currentTime = time_in || new Date().toTimeString().split(' ')[0];
+
     const result = await query(
-      `INSERT INTO attendance (student_id, date, time_in)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [student_id, date || new Date().toISOString().split('T')[0], time_in || new Date().toTimeString().split(' ')[0]]
+      'SELECT create_attendance($1, $2, $3, NULL, NULL, NULL, NULL, NULL) as result',
+      [student_id, currentDate, currentTime]
     );
 
-    res.status(201).json({
-      message: 'Time in recorded successfully',
-      attendance: result.rows[0]
-    });
+    const response = result.rows[0].result;
+
+    if (response.success) {
+      // Get the created attendance record
+      const attendanceResult = await query(
+        'SELECT get_attendance($1) as attendance',
+        [response.attendance_id]
+      );
+      
+      res.status(201).json({
+        message: 'Time in recorded successfully',
+        attendance: attendanceResult.rows[0].attendance
+      });
+    } else {
+      res.status(400).json({
+        error: 'Validation failed',
+        errors: response.errors
+      });
+    }
   } catch (error) {
     console.error('Time in error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Update attendance record (Time Out)
+// Update attendance record (Time Out) - Using stored procedure
 router.put('/time-out', async (req, res) => {
   try {
     const { attendance_id, time_out } = req.body;
 
-    // Get existing record
-    const existing = await query(
-      'SELECT * FROM attendance WHERE attendance_id = $1',
-      [attendance_id]
-    );
-
-    if (existing.rows.length === 0) {
-      return res.status(404).json({ error: 'Attendance record not found' });
+    if (!attendance_id || !time_out) {
+      return res.status(400).json({ error: 'attendance_id and time_out are required' });
     }
 
-    const attendance = existing.rows[0];
-    const timeIn = new Date(`2000-01-01 ${attendance.time_in}`);
-    const timeOut = new Date(`2000-01-01 ${time_out}`);
-    const diffMs = timeOut - timeIn;
-    const totalHours = (diffMs / (1000 * 60 * 60)).toFixed(2);
-
     const result = await query(
-      `UPDATE attendance 
-       SET time_out = $1, total_hours = $2
-       WHERE attendance_id = $3
-       RETURNING *`,
-      [time_out, totalHours, attendance_id]
+      'SELECT update_attendance($1, NULL, $2, NULL, NULL, NULL, NULL) as result',
+      [attendance_id, time_out]
     );
 
-    res.json({
-      message: 'Time out recorded successfully',
-      attendance: result.rows[0]
-    });
+    const response = result.rows[0].result;
+
+    if (response.success) {
+      // Get the updated attendance record
+      const attendanceResult = await query(
+        'SELECT get_attendance($1) as attendance',
+        [attendance_id]
+      );
+      
+      res.json({
+        message: 'Time out recorded successfully',
+        attendance: attendanceResult.rows[0].attendance
+      });
+    } else {
+      res.status(404).json({
+        error: response.error || 'Attendance record not found'
+      });
+    }
   } catch (error) {
     console.error('Time out error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Get attendance summary
+// Get attendance summary - Using stored procedure
 router.get('/summary', async (req, res) => {
   try {
     const { student_id } = req.query;
 
-    let sql = `
-      SELECT 
-        u.full_name,
-        COUNT(a.date) AS total_days,
-        SUM(a.total_hours) AS total_hours,
-        AVG(a.total_hours) AS avg_hours_per_day
-      FROM attendance a
-      JOIN users u ON a.student_id = u.user_id
-      WHERE 1=1
-    `;
-    const params = [];
-
     if (student_id) {
-      sql += ' AND a.student_id = $1';
-      params.push(student_id);
-      sql += ' GROUP BY u.full_name';
+      // Use stored procedure for single student
+      const result = await query(
+        'SELECT get_attendance_statistics($1, NULL, NULL) as statistics',
+        [student_id]
+      );
+      
+      // Get student name separately
+      const studentResult = await query(
+        'SELECT full_name FROM users WHERE user_id = $1',
+        [student_id]
+      );
+      
+      const stats = result.rows[0].statistics;
+      const studentName = studentResult.rows[0]?.full_name || 'N/A';
+      
+      res.json({ 
+        summary: [{
+          full_name: studentName,
+          total_days: parseInt(stats.summary?.total_days || 0),
+          total_hours: parseFloat(stats.summary?.total_hours || 0),
+          avg_hours_per_day: parseFloat(stats.summary?.avg_hours_per_day || 0)
+        }]
+      });
     } else {
-      sql += ' GROUP BY u.full_name';
+      // For multiple students, use view (keep existing logic for compatibility)
+      const result = await query(
+        'SELECT * FROM view_attendance_summary'
+      );
+      res.json({ summary: result.rows });
     }
-
-    const result = await query(sql, params);
-    res.json({ summary: result.rows });
   } catch (error) {
     console.error('Get summary error:', error);
     res.status(500).json({ error: 'Internal server error' });

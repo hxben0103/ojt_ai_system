@@ -28,6 +28,8 @@ class ReportService {
     required String reportType,
     required int generatedBy,
     required Map<String, dynamic> content,
+    DateTime? reportPeriodStart,
+    DateTime? reportPeriodEnd,
   }) async {
     try {
       final response = await ApiService.post(
@@ -36,8 +38,17 @@ class ReportService {
           'report_type': reportType,
           'generated_by': generatedBy,
           'content': content,
+          if (reportPeriodStart != null)
+            'report_period_start': reportPeriodStart.toIso8601String().split('T')[0],
+          if (reportPeriodEnd != null)
+            'report_period_end': reportPeriodEnd.toIso8601String().split('T')[0],
         },
       );
+
+      // Handle errors from stored procedure
+      if (response.containsKey('errors')) {
+        throw Exception(response['errors']?.join(', ') ?? 'Failed to create report');
+      }
 
       return SystemReport.fromJson(response['report']);
     } catch (e) {

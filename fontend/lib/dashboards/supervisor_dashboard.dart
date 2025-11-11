@@ -4,25 +4,61 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/role_dashboard.dart';
 import 'supervisor_student_monitor.dart';
 import 'package:flutter_application_1/screens/login_screen.dart';
+import '../services/auth_service.dart';
+import '../models/user.dart';
 
-class SupervisorDashboard extends StatelessWidget {
+class SupervisorDashboard extends StatefulWidget {
   const SupervisorDashboard({super.key});
 
-  // Sample supervisor profile info
-  final String fullName = "Engr. Carlos Mendoza";
-  final String idNumber = "SUP001";
-  final String office = "IT Department";
-  final String position = "Industry Supervisor";
+  @override
+  State<SupervisorDashboard> createState() => _SupervisorDashboardState();
+}
 
-  // Sample student data (for monitoring)
-  final List<Map<String, dynamic>> students = const [
-    {"name": "Juan Dela Cruz", "completedHours": 300, "requiredHours": 300},
-    {"name": "Maria Santos", "completedHours": 150, "requiredHours": 300},
-    {"name": "Pedro Reyes", "completedHours": 280, "requiredHours": 300},
-  ];
+class _SupervisorDashboardState extends State<SupervisorDashboard> {
+  // Profile info will be loaded from API
+  String fullName = "Loading...";
+  String idNumber = "N/A";
+  String office = "N/A";
+  String position = "Industry Supervisor";
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (user != null) {
+        setState(() {
+          fullName = user.fullName;
+          idNumber = user.studentId ?? user.email;
+          office = user.course ?? "N/A";
+          position = user.role;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return RoleDashboard(
       title: "Industry Supervisor Dashboard",
       color: Colors.teal,
@@ -34,36 +70,11 @@ class SupervisorDashboard extends StatelessWidget {
           title: "Auto Check Completed OJT Hours",
           subtitle: "Tap to see students who have completed their required hours",
           onTap: () {
-            List<String> completedStudents = students
-                .where((s) => s['completedHours'] >= s['requiredHours'])
-                .map((s) => s['name'] as String)
-                .toList();
-
-            showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text("Completed Students"),
-                content: completedStudents.isNotEmpty
-                    ? Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: completedStudents
-                            .map((name) => ListTile(
-                                  leading: Image.network(
-                                    "https://cdn-icons-png.flaticon.com/512/845/845646.png",
-                                    height: 24,
-                                    width: 24,
-                                  ),
-                                  title: Text(name),
-                                ))
-                            .toList(),
-                      )
-                    : const Text("No students have completed their OJT hours yet."),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text("Close"),
-                  )
-                ],
+            // Navigate to student monitor to see completed students
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const SupervisorStudentMonitorScreen(),
               ),
             );
           },

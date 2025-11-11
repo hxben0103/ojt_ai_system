@@ -7,6 +7,9 @@ class SystemReport {
   final String? generatedByName;
   final Map<String, dynamic> content;
   final DateTime? createdAt;
+  final String? status;
+  final DateTime? reportPeriodStart;
+  final DateTime? reportPeriodEnd;
 
   SystemReport({
     this.reportId,
@@ -15,6 +18,9 @@ class SystemReport {
     this.generatedByName,
     required this.content,
     this.createdAt,
+    this.status,
+    this.reportPeriodStart,
+    this.reportPeriodEnd,
   });
 
   factory SystemReport.fromJson(Map<String, dynamic> json) {
@@ -30,6 +36,13 @@ class SystemReport {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      status: json['status'] as String?,
+      reportPeriodStart: json['report_period_start'] != null
+          ? DateTime.parse(json['report_period_start'])
+          : null,
+      reportPeriodEnd: json['report_period_end'] != null
+          ? DateTime.parse(json['report_period_end'])
+          : null,
     );
   }
 
@@ -39,6 +52,11 @@ class SystemReport {
       'report_type': reportType,
       'generated_by': generatedBy,
       'content': content,
+      if (status != null) 'status': status,
+      if (reportPeriodStart != null)
+        'report_period_start': reportPeriodStart!.toIso8601String().split('T')[0],
+      if (reportPeriodEnd != null)
+        'report_period_end': reportPeriodEnd!.toIso8601String().split('T')[0],
     };
   }
 }

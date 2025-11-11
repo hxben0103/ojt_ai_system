@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -20,11 +21,10 @@ class _LoginScreenState extends State<LoginScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  final Map<String, Map<String, String>> _accounts = {
-    "Admin": {"id": "admin", "password": "admin"},
-    "Student": {"id": "1", "password": "1"},
-    "OJT Coordinator": {"id": "1", "password": "1"},
-    "Industry Supervisor": {"id": "1", "password": "1"},
+  // Keep only admin demo account for testing
+  final Map<String, String> _adminAccount = {
+    "id": "admin",
+    "password": "admin",
   };
 
   @override
@@ -97,27 +97,38 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (id.isEmpty || pass.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter ID number and password")),
+        const SnackBar(content: Text("Please enter email and password")),
       );
       return;
     }
 
-    if (id == _accounts["Admin"]!["id"] &&
-        pass == _accounts["Admin"]!["password"]) {
+    // Admin demo account (for testing only)
+    if (id == _adminAccount["id"] && pass == _adminAccount["password"]) {
       await _saveRememberedID();
       _navigateToDashboard("Admin");
       return;
     }
 
-    final roleAccount = _accounts[_selectedRole];
-    if (roleAccount != null &&
-        id == roleAccount["id"] &&
-        pass == roleAccount["password"]) {
-      await _saveRememberedID();
-      _navigateToDashboard(_selectedRole);
-    } else {
+    // For all other users, use real API authentication
+    try {
+      // Use email for login (id field is used as email)
+      final response = await AuthService.login(
+        email: id, // Using id field as email
+        password: pass,
+      );
+
+      if (response['user'] != null) {
+        final userRole = response['user']['role'] as String;
+        await _saveRememberedID();
+        _navigateToDashboard(userRole);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Login failed. Please check your credentials.")),
+        );
+      }
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Invalid ID number or password")),
+        SnackBar(content: Text("Login error: ${e.toString()}")),
       );
     }
   }
@@ -250,10 +261,11 @@ class _LoginScreenState extends State<LoginScreen>
                           TextField(
                             controller: _idController,
                             decoration: const InputDecoration(
-                              labelText: 'ID Number',
-                              hintText: 'Enter your ID number',
+                              labelText: 'Email',
+                              hintText: 'Enter your email address',
                               border: OutlineInputBorder(),
                             ),
+                            keyboardType: TextInputType.emailAddress,
                           ),
                           const SizedBox(height: 16),
 

@@ -9,6 +9,32 @@ router.post('/register', async (req, res) => {
   try {
     const { full_name, email, password, role } = req.body;
 
+    // Validate required fields
+    if (!full_name || !email || !password || !role) {
+      return res.status(400).json({ 
+        error: 'Missing required fields. Please provide full_name, email, password, and role.' 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    // Validate role
+    const validRoles = ['Admin', 'Coordinator', 'Supervisor', 'Student'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ 
+        error: `Invalid role. Must be one of: ${validRoles.join(', ')}` 
+      });
+    }
+
     // Check if user already exists
     const existingUser = await query(
       'SELECT * FROM users WHERE email = $1',
@@ -52,7 +78,21 @@ router.post('/register', async (req, res) => {
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    
+    // Return more detailed error message in development
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? error.message || 'Internal server error'
+      : 'Internal server error';
+    
+    res.status(500).json({ 
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 

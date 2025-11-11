@@ -1,39 +1,105 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../services/ojt_service.dart';
+import '../services/attendance_service.dart';
+import '../services/auth_service.dart';
 
-class CoordinatorStudentMonitor extends StatelessWidget {
+class CoordinatorStudentMonitor extends StatefulWidget {
   const CoordinatorStudentMonitor({super.key});
 
-  // Example student data
-  final List<Map<String, dynamic>> students = const [
-    {
-      "name": "Juan Dela Cruz",
-      "idNumber": "STU001",
-      "department": "IT Department",
-      "position": "Student",
-      "completedHours": 280,
-      "requiredHours": 300,
-      "lastDutyDate": "2025-10-28", // YYYY-MM-DD
-    },
-    {
-      "name": "Maria Santos",
-      "idNumber": "STU002",
-      "department": "Computer Science",
-      "position": "Student",
-      "completedHours": 150,
-      "requiredHours": 300,
-      "lastDutyDate": "2025-10-27",
-    },
-    {
-      "name": "Pedro Reyes",
-      "idNumber": "STU003",
-      "department": "IT Department",
-      "position": "Student",
-      "completedHours": 300,
-      "requiredHours": 300,
-      "lastDutyDate": "2025-10-28",
-    },
-  ];
+  @override
+  State<CoordinatorStudentMonitor> createState() => _CoordinatorStudentMonitorState();
+}
+
+class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
+  List<Map<String, dynamic>> students = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStudents();
+  }
+
+  Future<void> _loadStudents() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      // Get current user to find coordinator_id
+      final currentUser = await AuthService.getCurrentUser();
+      if (currentUser == null) {
+        setState(() {
+          _error = 'User not logged in';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // Get OJT records for this coordinator
+      final ojtRecords = await OjtService.getOjtRecords(
+        coordinatorId: currentUser.userId,
+      );
+
+      // Get attendance summary for each student
+      final List<Map<String, dynamic>> studentList = [];
+      for (final record in ojtRecords) {
+        try {
+          final summary = await AttendanceService.getSummary(
+            studentId: record.studentId,
+          );
+
+          int completedHours = 0;
+          String? lastDutyDate;
+          if (summary.isNotEmpty) {
+            completedHours = summary.first['total_hours']?.toInt() ?? 0;
+            // Get last attendance date
+            final attendanceList = await AttendanceService.getAttendance(
+              studentId: record.studentId,
+            );
+            if (attendanceList.isNotEmpty) {
+              attendanceList.sort((a, b) => b.date.compareTo(a.date));
+              lastDutyDate = attendanceList.first.date.toIso8601String().split('T')[0];
+            }
+          }
+
+          studentList.add({
+            'name': record.studentName ?? 'Unknown',
+            'idNumber': record.studentId.toString(),
+            'department': record.companyName ?? 'N/A',
+            'position': 'Student',
+            'completedHours': completedHours,
+            'requiredHours': record.requiredHours ?? 300,
+            'lastDutyDate': lastDutyDate ?? 'N/A',
+          });
+        } catch (e) {
+          // If attendance summary fails, still add student with 0 hours
+          studentList.add({
+            'name': record.studentName ?? 'Unknown',
+            'idNumber': record.studentId.toString(),
+            'department': record.companyName ?? 'N/A',
+            'position': 'Student',
+            'completedHours': 0,
+            'requiredHours': record.requiredHours ?? 300,
+            'lastDutyDate': 'N/A',
+          });
+        }
+      }
+
+      setState(() {
+        students = studentList;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to load students: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,8 +109,39 @@ class CoordinatorStudentMonitor extends StatelessWidget {
       appBar: AppBar(
         title: const Text("Student Tasks & Attendance"),
         backgroundColor: Colors.deepPurple,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadStudents,
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
-      body: ListView.builder(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadStudents,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : students.isEmpty
+                  ? const Center(
+                      child: Text('No students assigned to you yet.'),
+                    )
+                  : ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: students.length,
         itemBuilder: (context, index) {

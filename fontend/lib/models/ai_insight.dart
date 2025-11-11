@@ -9,6 +9,7 @@ class AiInsight {
   final Map<String, dynamic> result;
   final double? confidence;
   final DateTime? createdAt;
+  final Map<String, dynamic>? inputData;
 
   AiInsight({
     this.insightId,
@@ -19,6 +20,7 @@ class AiInsight {
     required this.result,
     this.confidence,
     this.createdAt,
+    this.inputData,
   });
 
   factory AiInsight.fromJson(Map<String, dynamic> json) {
@@ -37,6 +39,11 @@ class AiInsight {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
+      inputData: json['input_data'] != null
+          ? (json['input_data'] is String
+              ? Map<String, dynamic>.from(jsonDecode(json['input_data'] as String))
+              : Map<String, dynamic>.from(json['input_data'] as Map))
+          : null,
     );
   }
 
@@ -48,6 +55,7 @@ class AiInsight {
       'insight_type': insightType,
       'result': result,
       if (confidence != null) 'confidence': confidence,
+      if (inputData != null) 'input_data': inputData,
     };
   }
 }

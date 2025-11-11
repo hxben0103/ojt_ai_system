@@ -41,6 +41,11 @@ class AttendanceService {
         },
       );
 
+      // Handle validation errors from stored procedure
+      if (response.containsKey('errors')) {
+        throw Exception(response['errors']?.join(', ') ?? 'Validation failed');
+      }
+
       return Attendance.fromJson(response['attendance']);
     } catch (e) {
       throw Exception('Failed to record time in: $e');
@@ -60,6 +65,11 @@ class AttendanceService {
           'time_out': timeOut,
         },
       );
+
+      // Handle errors from stored procedure
+      if (response.containsKey('error')) {
+        throw Exception(response['error'] ?? 'Failed to record time out');
+      }
 
       return Attendance.fromJson(response['attendance']);
     } catch (e) {

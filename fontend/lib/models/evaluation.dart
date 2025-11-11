@@ -10,6 +10,9 @@ class Evaluation {
   final double? totalScore;
   final String? feedback;
   final DateTime? dateEvaluated;
+  final String? status;
+  final DateTime? evaluationPeriodStart;
+  final DateTime? evaluationPeriodEnd;
 
   Evaluation({
     this.evalId,
@@ -21,6 +24,9 @@ class Evaluation {
     this.totalScore,
     this.feedback,
     this.dateEvaluated,
+    this.status,
+    this.evaluationPeriodStart,
+    this.evaluationPeriodEnd,
   });
 
   factory Evaluation.fromJson(Map<String, dynamic> json) {
@@ -41,6 +47,13 @@ class Evaluation {
       dateEvaluated: json['date_evaluated'] != null
           ? DateTime.parse(json['date_evaluated'])
           : null,
+      status: json['status'] as String?,
+      evaluationPeriodStart: json['evaluation_period_start'] != null
+          ? DateTime.parse(json['evaluation_period_start'])
+          : null,
+      evaluationPeriodEnd: json['evaluation_period_end'] != null
+          ? DateTime.parse(json['evaluation_period_end'])
+          : null,
     );
   }
 
@@ -52,6 +65,11 @@ class Evaluation {
       'criteria': criteria,
       if (totalScore != null) 'total_score': totalScore,
       if (feedback != null) 'feedback': feedback,
+      if (status != null) 'status': status,
+      if (evaluationPeriodStart != null)
+        'evaluation_period_start': evaluationPeriodStart!.toIso8601String().split('T')[0],
+      if (evaluationPeriodEnd != null)
+        'evaluation_period_end': evaluationPeriodEnd!.toIso8601String().split('T')[0],
     };
   }
 }

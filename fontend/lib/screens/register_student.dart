@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../services/auth_service.dart';
 
 class RegisterStudent extends StatefulWidget {
   const RegisterStudent({super.key});
@@ -82,17 +83,47 @@ class _RegisterStudentState extends State<RegisterStudent>
     }
 
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 3));
-    setState(() => _isLoading = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-            "Registration submitted successfully! Please wait for OJT Coordinator approval."),
-      ),
-    );
+    try {
+      final fullName = _fullNameController.text.trim();
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
 
-    Navigator.pop(context);
+      if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
+        throw Exception('Please fill in all required fields');
+      }
+
+      await AuthService.register(
+        fullName: fullName,
+        email: email,
+        password: password,
+        role: 'Student',
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                "Registration submitted successfully! Please wait for OJT Coordinator approval."),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Registration failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override

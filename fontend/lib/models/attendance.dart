@@ -41,7 +41,8 @@ class Attendance {
     return Attendance(
       attendanceId: json['attendance_id'] as int?,
       studentId: json['student_id'] as int,
-      studentName: json['full_name'] as String?,
+      // Handle both 'student_name' (from stored procedure) and 'full_name' (from direct query)
+      studentName: json['student_name'] as String? ?? json['full_name'] as String?,
       date: DateTime.parse(json['date'] as String),
       timeIn: json['time_in'] as String?,
       timeOut: json['time_out'] as String?,

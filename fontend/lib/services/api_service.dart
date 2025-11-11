@@ -89,8 +89,25 @@ class ApiService {
       }
       return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
-      final error = jsonDecode(response.body) as Map<String, dynamic>;
-      throw Exception(error['error'] ?? 'Request failed');
+      // For 400 (Bad Request) and 404 (Not Found), return the error response
+      // so services can handle validation errors and specific error messages
+      if (response.statusCode == 400 || response.statusCode == 404) {
+        try {
+          final errorResponse = jsonDecode(response.body) as Map<String, dynamic>;
+          // Return the error response so services can check for 'errors' or 'error' fields
+          return errorResponse;
+        } catch (e) {
+          throw Exception('Request failed with status ${response.statusCode}');
+        }
+      } else {
+        // For other errors (500, etc.), throw exception
+        try {
+          final error = jsonDecode(response.body) as Map<String, dynamic>;
+          throw Exception(error['error'] ?? 'Request failed');
+        } catch (e) {
+          throw Exception('Request failed with status ${response.statusCode}');
+        }
+      }
     }
   }
 }

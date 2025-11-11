@@ -30,6 +30,8 @@ class EvaluationService {
     required Map<String, dynamic> criteria,
     double? totalScore,
     String? feedback,
+    DateTime? evaluationPeriodStart,
+    DateTime? evaluationPeriodEnd,
   }) async {
     try {
       final response = await ApiService.post(
@@ -40,8 +42,17 @@ class EvaluationService {
           'criteria': criteria,
           if (totalScore != null) 'total_score': totalScore,
           if (feedback != null) 'feedback': feedback,
+          if (evaluationPeriodStart != null)
+            'evaluation_period_start': evaluationPeriodStart.toIso8601String().split('T')[0],
+          if (evaluationPeriodEnd != null)
+            'evaluation_period_end': evaluationPeriodEnd.toIso8601String().split('T')[0],
         },
       );
+
+      // Handle validation errors from stored procedure
+      if (response.containsKey('errors')) {
+        throw Exception(response['errors']?.join(', ') ?? 'Validation failed');
+      }
 
       return Evaluation.fromJson(response['evaluation']);
     } catch (e) {
@@ -52,19 +63,26 @@ class EvaluationService {
   // Update evaluation
   static Future<Evaluation> updateEvaluation({
     required int evalId,
-    required Map<String, dynamic> criteria,
+    Map<String, dynamic>? criteria,
     double? totalScore,
     String? feedback,
+    String? status,
   }) async {
     try {
       final response = await ApiService.put(
         '${ApiConfig.evaluation}/$evalId',
         {
-          'criteria': criteria,
+          if (criteria != null) 'criteria': criteria,
           if (totalScore != null) 'total_score': totalScore,
           if (feedback != null) 'feedback': feedback,
+          if (status != null) 'status': status,
         },
       );
+
+      // Handle errors from stored procedure
+      if (response.containsKey('errors')) {
+        throw Exception(response['errors']?.join(', ') ?? 'Validation failed');
+      }
 
       return Evaluation.fromJson(response['evaluation']);
     } catch (e) {

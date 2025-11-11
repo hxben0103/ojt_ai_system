@@ -10,6 +10,7 @@ import 'student_checklist_screen.dart';
 import 'student_attendance_screen.dart';
 import 'student_dtr_view_screen.dart';
 import 'package:flutter_application_1/screens/login_screen.dart';
+import '../services/attendance_service.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -99,20 +100,51 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   Future<void> _loadDTRRecords() async {
-    setState(() {
-      _dtrRecords = [
-        {
-          'date': '2025-11-03',
-          'amIn': '08:00 AM',
-          'amOut': '12:00 PM',
-          'pmIn': '01:00 PM',
-          'pmOut': '05:00 PM',
-          'otIn': '-',
-          'otOut': '-',
-          'totalHours': '8',
-        },
-      ];
-    });
+    try {
+      // Get student ID from preferences
+      final prefs = await SharedPreferences.getInstance();
+      final studentIdStr = prefs.getString('student_id');
+      
+      if (studentIdStr != null) {
+        final studentId = int.tryParse(studentIdStr);
+        if (studentId != null) {
+          // Fetch attendance records from API
+          final attendanceList = await AttendanceService.getAttendance(
+            studentId: studentId,
+          );
+
+          // Convert to DTR format
+          final List<Map<String, dynamic>> dtrList = [];
+          for (final attendance in attendanceList) {
+            dtrList.add({
+              'date': attendance.date.toIso8601String().split('T')[0],
+              'amIn': attendance.morningIn ?? '-',
+              'amOut': attendance.morningOut ?? '-',
+              'pmIn': attendance.afternoonIn ?? '-',
+              'pmOut': attendance.afternoonOut ?? '-',
+              'otIn': attendance.overtimeIn ?? '-',
+              'otOut': attendance.overtimeOut ?? '-',
+              'totalHours': attendance.totalHours?.toStringAsFixed(1) ?? '0',
+            });
+          }
+
+          setState(() {
+            _dtrRecords = dtrList;
+          });
+          return;
+        }
+      }
+
+      // If no student ID, set empty list
+      setState(() {
+        _dtrRecords = [];
+      });
+    } catch (e) {
+      // On error, set empty list
+      setState(() {
+        _dtrRecords = [];
+      });
+    }
   }
 
   // ------------------- UI -------------------

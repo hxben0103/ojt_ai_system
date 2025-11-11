@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import '../services/ojt_service.dart';
+import '../services/attendance_service.dart';
+import '../services/auth_service.dart';
+import '../models/user.dart';
 
 class SupervisorStudentMonitorScreen extends StatefulWidget {
   const SupervisorStudentMonitorScreen({super.key});
@@ -10,15 +14,81 @@ class SupervisorStudentMonitorScreen extends StatefulWidget {
 
 class _SupervisorStudentMonitorScreenState
     extends State<SupervisorStudentMonitorScreen> {
-  // Sample student data
-  final List<Map<String, dynamic>> students = [
-    {"name": "Juan Dela Cruz", "completedHours": 300, "requiredHours": 300},
-    {"name": "Maria Santos", "completedHours": 150, "requiredHours": 300},
-    {"name": "Pedro Reyes", "completedHours": 280, "requiredHours": 300},
-  ];
-
+  List<Map<String, dynamic>> students = [];
+  bool _isLoading = true;
+  String? _error;
   final Map<String, String> feedbacks = {};
   final Map<String, int> ratings = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStudents();
+  }
+
+  Future<void> _loadStudents() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      // Get current user to find supervisor_id
+      final currentUser = await AuthService.getCurrentUser();
+      if (currentUser == null) {
+        setState(() {
+          _error = 'User not logged in';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // Get OJT records for this supervisor
+      final ojtRecords = await OjtService.getOjtRecords(
+        supervisorId: currentUser.userId,
+      );
+
+      // Get attendance summary for each student
+      final List<Map<String, dynamic>> studentList = [];
+      for (final record in ojtRecords) {
+        try {
+          final summary = await AttendanceService.getSummary(
+            studentId: record.studentId,
+          );
+
+          int completedHours = 0;
+          if (summary.isNotEmpty) {
+            completedHours = summary.first['total_hours']?.toInt() ?? 0;
+          }
+
+          studentList.add({
+            'studentId': record.studentId,
+            'name': record.studentName ?? 'Unknown',
+            'completedHours': completedHours,
+            'requiredHours': record.requiredHours ?? 300,
+          });
+        } catch (e) {
+          // If attendance summary fails, still add student with 0 hours
+          studentList.add({
+            'studentId': record.studentId,
+            'name': record.studentName ?? 'Unknown',
+            'completedHours': 0,
+            'requiredHours': record.requiredHours ?? 300,
+          });
+        }
+      }
+
+      setState(() {
+        students = studentList;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to load students: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
+  }
 
   void _openFeedbackDialog(Map<String, dynamic> student) {
     // ✅ Check if student has completed OJT hours
@@ -103,8 +173,39 @@ class _SupervisorStudentMonitorScreenState
       appBar: AppBar(
         title: const Text("Monitor Student OJT Progress"),
         backgroundColor: Colors.teal,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadStudents,
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
-      body: ListView.builder(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadStudents,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : students.isEmpty
+                  ? const Center(
+                      child: Text('No students assigned to you yet.'),
+                    )
+                  : ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: students.length,
         itemBuilder: (context, index) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 
 class RegisterCoordinator extends StatefulWidget {
   const RegisterCoordinator({super.key});
@@ -11,6 +12,8 @@ class RegisterCoordinator extends StatefulWidget {
 class _RegisterCoordinatorState extends State<RegisterCoordinator>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
+  final _fullNameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _idController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -35,6 +38,8 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
   @override
   void dispose() {
     _animController.dispose();
+    _fullNameController.dispose();
+    _emailController.dispose();
     _idController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -53,17 +58,47 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
     }
 
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 2));
-    setState(() => _isLoading = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-            "OJT Coordinator registered successfully! Please wait for admin approval."),
-      ),
-    );
+    try {
+      final fullName = _fullNameController.text.trim();
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
 
-    Navigator.pop(context);
+      if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
+        throw Exception('Please fill in all required fields');
+      }
+
+      await AuthService.register(
+        fullName: fullName,
+        email: email,
+        password: password,
+        role: 'Coordinator',
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                "OJT Coordinator registered successfully! Please wait for admin approval."),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Registration failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   // 🧩 Helper widget for fade animation
@@ -150,6 +185,43 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                             ),
                             const SizedBox(height: 20),
 
+                            // 👤 Full Name
+                            animatedField(
+                              TextFormField(
+                                controller: _fullNameController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Full Name',
+                                  border: OutlineInputBorder(),
+                                ),
+                                validator: (value) => value!.isEmpty
+                                    ? "Please enter your full name"
+                                    : null,
+                              ),
+                              1,
+                            ),
+
+                            // 📧 Email
+                            animatedField(
+                              TextFormField(
+                                controller: _emailController,
+                                keyboardType: TextInputType.emailAddress,
+                                decoration: const InputDecoration(
+                                  labelText: 'Email Address',
+                                  border: OutlineInputBorder(),
+                                ),
+                                validator: (value) {
+                                  if (value!.isEmpty) {
+                                    return "Please enter your email";
+                                  }
+                                  if (!value.contains('@')) {
+                                    return "Please enter a valid email";
+                                  }
+                                  return null;
+                                },
+                              ),
+                              2,
+                            ),
+
                             // 🔢 ID number
                             animatedField(
                               TextFormField(
@@ -162,7 +234,7 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                                     ? "Please enter your ID number"
                                     : null,
                               ),
-                              1,
+                              3,
                             ),
 
                             // 🔐 Password
@@ -188,7 +260,7 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                                     ? "Please enter a password"
                                     : null,
                               ),
-                              2,
+                              4,
                             ),
 
                             // 🔐 Confirm Password
@@ -214,7 +286,7 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                                     ? "Please confirm your password"
                                     : null,
                               ),
-                              3,
+                              5,
                             ),
 
                             const SizedBox(height: 25),

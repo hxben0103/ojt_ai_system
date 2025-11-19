@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -6,11 +8,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../widgets/role_dashboard.dart';
+import '../widgets/role_guard.dart';
 import 'student_checklist_screen.dart';
 import 'student_attendance_screen.dart';
 import 'student_dtr_view_screen.dart';
 import 'package:flutter_application_1/screens/login_screen.dart';
 import '../services/attendance_service.dart';
+import '../screens/student/student_progress_report_screen.dart';
+import '../services/auth_service.dart';
+import '../services/ojt_service.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -23,12 +29,14 @@ class _StudentDashboardState extends State<StudentDashboard>
     with SingleTickerProviderStateMixin {
   File? _attendanceImage;
   File? _profileImage;
+  Uint8List? _profileImageBytes;
   bool _isTimedIn = false;
   String? _lastActionTime;
   int _completedHours = 0;
   int _requiredHours = 300;
   final picker = ImagePicker();
 
+  int? _studentUserId;
   String? _studentName;
   String? _studentId;
   String? _course;
@@ -45,9 +53,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   @override
   void initState() {
     super.initState();
-    _loadStudentData();
-    _loadAttendanceData();
-    _loadDTRRecords();
+    _initDashboardData();
 
     _controller = AnimationController(
       vsync: this,
@@ -64,35 +70,103 @@ class _StudentDashboardState extends State<StudentDashboard>
     super.dispose();
   }
 
+  Future<void> _initDashboardData() async {
+    await _loadStudentData();
+    await _loadAttendanceData();
+    await _loadDTRRecords();
+  }
+
   // ------------------- Loaders -------------------
   Future<void> _loadStudentData() async {
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (user != null) {
+        final imageBytes = _decodeProfilePhoto(user.profilePhoto);
+        setState(() {
+          _studentUserId = user.userId;
+          _studentName = user.fullName;
+          _studentId =
+              user.studentId ?? (user.userId != null ? '${user.userId}' : 'N/A');
+          _course = user.course ?? 'N/A';
+          _requiredHours = user.requiredHours ?? _requiredHours;
+          _profileImageBytes = imageBytes;
+          _profileImage = null;
+        });
+
+        if (user.userId != null) {
+          try {
+            final records =
+                await OjtService.getOjtRecords(studentId: user.userId);
+            if (records.isNotEmpty) {
+              final record = records.first;
+              setState(() {
+                _coordinator = record.coordinatorName ?? _coordinator;
+                _supervisor = record.supervisorName ?? _supervisor;
+                if (record.requiredHours != null) {
+                  _requiredHours = record.requiredHours!;
+                }
+              });
+            }
+          } catch (_) {
+            // ignore OJT fetch errors
+          }
+        }
+        return;
+      }
+    } catch (_) {
+      // ignore errors and use local data instead
+    }
+
+    await _loadStudentDataFromPrefs();
+  }
+
+  Future<void> _loadStudentDataFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
+      _studentUserId ??= prefs.getInt('student_user_id');
       _studentName = prefs.getString('student_name') ?? "Unknown";
       _studentId = prefs.getString('student_id') ?? "N/A";
       _course = prefs.getString('student_course') ?? "N/A";
       _coordinator = prefs.getString('student_coordinator') ?? "Pending";
       _supervisor = prefs.getString('student_supervisor') ?? "Pending";
-      _requiredHours = prefs.getInt('student_required_hours') ?? 300;
+      _requiredHours = prefs.getInt('student_required_hours') ?? _requiredHours;
 
       final profilePath = prefs.getString('student_photo');
       if (profilePath != null && File(profilePath).existsSync()) {
         _profileImage = File(profilePath);
+        _profileImageBytes = null;
+      } else {
+        _profileImage = null;
+        _profileImageBytes = null;
       }
     });
   }
 
   Future<void> _loadAttendanceData() async {
+    int calculatedHours = _completedHours;
+    if (_studentUserId != null) {
+      try {
+        final summary =
+            await AttendanceService.getAttendanceSummary(_studentUserId!);
+        final totalHours = summary['total_hours_completed'];
+        if (totalHours is num) {
+          calculatedHours = totalHours.round();
+        }
+      } catch (_) {
+        // ignore summary errors
+      }
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final imagePath = prefs.getString('attendance_image');
     final isTimedIn = prefs.getBool('is_timed_in') ?? false;
     final lastTime = prefs.getString('last_action_time');
-    final completedHours = prefs.getInt('completed_hours') ?? 0;
+    final localHours = prefs.getInt('completed_hours');
 
     setState(() {
       _isTimedIn = isTimedIn;
       _lastActionTime = lastTime;
-      _completedHours = completedHours;
+      _completedHours = localHours ?? calculatedHours;
       if (imagePath != null && File(imagePath).existsSync()) {
         _attendanceImage = File(imagePath);
       }
@@ -101,38 +175,37 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   Future<void> _loadDTRRecords() async {
     try {
-      // Get student ID from preferences
-      final prefs = await SharedPreferences.getInstance();
-      final studentIdStr = prefs.getString('student_id');
-      
-      if (studentIdStr != null) {
-        final studentId = int.tryParse(studentIdStr);
-        if (studentId != null) {
-          // Fetch attendance records from API
-          final attendanceList = await AttendanceService.getAttendance(
-            studentId: studentId,
-          );
-
-          // Convert to DTR format
-          final List<Map<String, dynamic>> dtrList = [];
-          for (final attendance in attendanceList) {
-            dtrList.add({
-              'date': attendance.date.toIso8601String().split('T')[0],
-              'amIn': attendance.morningIn ?? '-',
-              'amOut': attendance.morningOut ?? '-',
-              'pmIn': attendance.afternoonIn ?? '-',
-              'pmOut': attendance.afternoonOut ?? '-',
-              'otIn': attendance.overtimeIn ?? '-',
-              'otOut': attendance.overtimeOut ?? '-',
-              'totalHours': attendance.totalHours?.toStringAsFixed(1) ?? '0',
-            });
-          }
-
-          setState(() {
-            _dtrRecords = dtrList;
-          });
-          return;
+      int? studentId = _studentUserId;
+      if (studentId == null) {
+        final prefs = await SharedPreferences.getInstance();
+        final studentIdStr = prefs.getString('student_id');
+        if (studentIdStr != null) {
+          studentId = int.tryParse(studentIdStr);
         }
+      }
+
+      if (studentId != null) {
+        final attendanceList = await AttendanceService.getAttendance(
+          studentId: studentId,
+        );
+
+        final List<Map<String, dynamic>> dtrList = attendanceList
+            .map((attendance) => {
+                  'date': attendance.date.toIso8601String().split('T')[0],
+                  'amIn': attendance.morningIn ?? '-',
+                  'amOut': attendance.morningOut ?? '-',
+                  'pmIn': attendance.afternoonIn ?? '-',
+                  'pmOut': attendance.afternoonOut ?? '-',
+                  'otIn': attendance.overtimeIn ?? '-',
+                  'otOut': attendance.overtimeOut ?? '-',
+                  'totalHours': attendance.totalHours?.toStringAsFixed(1) ?? '0',
+                })
+            .toList();
+
+        setState(() {
+          _dtrRecords = dtrList;
+        });
+        return;
       }
 
       // If no student ID, set empty list
@@ -150,6 +223,13 @@ class _StudentDashboardState extends State<StudentDashboard>
   // ------------------- UI -------------------
   @override
   Widget build(BuildContext context) {
+    return RoleGuard(
+      allowedRoles: const ['student'],
+      builder: (ctx, user) => _buildDashboardContent(ctx),
+    );
+  }
+
+  Widget _buildDashboardContent(BuildContext context) {
     // ✅ Show loading animation if logging out
     if (_isLoading) {
       return Scaffold(
@@ -209,6 +289,13 @@ class _StudentDashboardState extends State<StudentDashboard>
         ? 1
         : _completedHours / _requiredHours;
 
+    ImageProvider? profileImageProvider;
+    if (_profileImage != null) {
+      profileImageProvider = FileImage(_profileImage!);
+    } else if (_profileImageBytes != null) {
+      profileImageProvider = MemoryImage(_profileImageBytes!);
+    }
+
     return Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -231,10 +318,9 @@ class _StudentDashboardState extends State<StudentDashboard>
             tag: 'profile-photo',
             child: CircleAvatar(
               radius: 45,
-              backgroundImage:
-                  _profileImage != null ? FileImage(_profileImage!) : null,
+              backgroundImage: profileImageProvider,
               backgroundColor: Colors.white,
-              child: _profileImage == null
+              child: profileImageProvider == null
                   ? Image.network(
                       'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
                       height: 45,
@@ -364,12 +450,12 @@ class _StudentDashboardState extends State<StudentDashboard>
       title: "Upload Progress Report",
       subtitle: "Submit your daily report after duty ends",
       onTap: () {
-        if (_lastActionTime == null) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content:
-                  Text("⚠️ Please record your attendance before uploading.")));
-          return;
-        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const StudentProgressReportScreen(),
+          ),
+        );
       },
     );
   }
@@ -554,5 +640,16 @@ class _StudentDashboardState extends State<StudentDashboard>
         );
       },
     );
+  }
+
+  Uint8List? _decodeProfilePhoto(String? photo) {
+    if (photo == null || photo.isEmpty) return null;
+    try {
+      final sanitized =
+          photo.contains(',') ? photo.split(',').last.trim() : photo.trim();
+      return base64Decode(sanitized);
+    } catch (_) {
+      return null;
+    }
   }
 }

@@ -63,16 +63,19 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
       final fullName = _fullNameController.text.trim();
       final email = _emailController.text.trim();
       final password = _passwordController.text;
+      final coordinatorId = _idController.text.trim();
 
       if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
         throw Exception('Please fill in all required fields');
       }
 
+      // Store coordinator ID in student_id field (reusing existing field)
       await AuthService.register(
         fullName: fullName,
         email: email,
         password: password,
         role: 'Coordinator',
+        studentId: coordinatorId.isNotEmpty ? coordinatorId : null,
       );
 
       if (mounted) {

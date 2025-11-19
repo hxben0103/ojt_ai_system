@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../services/auth_service.dart';
 
 class RegisterSupervisor extends StatefulWidget {
@@ -59,16 +60,33 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
       final fullName = _fullNameController.text.trim();
       final email = _emailController.text.trim();
       final password = _passwordController.text;
+      final supervisorId = _idController.text.trim();
+      final gender = _selectedGender ?? '';
+      final phoneNumber = _phoneController.text.trim();
+      final office = _officeController.text.trim();
+      final position = _positionController.text.trim();
+      final location = _locationController.text.trim();
 
       if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
         throw Exception('Please fill in all required fields');
       }
+
+      // Combine office, position, and location into address field
+      final addressParts = <String>[];
+      if (office.isNotEmpty) addressParts.add('Office: $office');
+      if (position.isNotEmpty) addressParts.add('Position: $position');
+      if (location.isNotEmpty) addressParts.add('Location: $location');
+      final combinedAddress = addressParts.isNotEmpty ? addressParts.join('\n') : null;
 
       await AuthService.register(
         fullName: fullName,
         email: email,
         password: password,
         role: 'Supervisor',
+        studentId: supervisorId.isNotEmpty ? supervisorId : null,
+        gender: gender.isNotEmpty ? gender : null,
+        contactNumber: phoneNumber.isNotEmpty ? phoneNumber : null,
+        address: combinedAddress,
       );
 
       if (mounted) {

@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/role_dashboard.dart';
+import '../widgets/role_guard.dart';
 import 'supervisor_student_monitor.dart';
 import 'package:flutter_application_1/screens/login_screen.dart';
 import '../services/auth_service.dart';
 import '../models/user.dart';
+import '../screens/supervisor/supervisor_evaluation_form_screen.dart';
 
 class SupervisorDashboard extends StatefulWidget {
   const SupervisorDashboard({super.key});
@@ -53,6 +55,13 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    return RoleGuard(
+      allowedRoles: const ['supervisor', 'industry supervisor'],
+      builder: (ctx, user) => _buildSupervisorDashboard(ctx),
+    );
+  }
+
+  Widget _buildSupervisorDashboard(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -70,7 +79,6 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
           title: "Auto Check Completed OJT Hours",
           subtitle: "Tap to see students who have completed their required hours",
           onTap: () {
-            // Navigate to student monitor to see completed students
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -87,7 +95,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const SupervisorStudentMonitorScreen(),
+                builder: (context) => const SupervisorEvaluationFormScreen(),
               ),
             );
           },
@@ -162,7 +170,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             radius: 42,
             backgroundColor: Colors.white,
             child: Text(
-              fullName.split(" ").map((e) => e[0]).take(2).join(),
+              fullName.split(" ").where((e) => e.isNotEmpty).map((e) => e[0]).take(2).join(),
               style: const TextStyle(
                 color: Colors.teal,
                 fontSize: 22,

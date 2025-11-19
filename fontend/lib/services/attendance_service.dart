@@ -1,6 +1,7 @@
 import '../models/attendance.dart';
 import 'api_service.dart';
 import '../core/config.dart';
+import '../core/attendance_constants.dart';
 
 class AttendanceService {
   // Get all attendance records
@@ -25,7 +26,24 @@ class AttendanceService {
     }
   }
 
-  // Record time in
+  // Get today's attendance for a student
+  static Future<Attendance?> getTodayAttendance(int studentId) async {
+    try {
+      final response = await ApiService.get(
+        '${ApiConfig.attendance}/today/$studentId',
+      );
+
+      if (response['attendance'] == null) {
+        return null;
+      }
+
+      return Attendance.fromJson(response['attendance']);
+    } catch (e) {
+      throw Exception('Failed to fetch today\'s attendance: $e');
+    }
+  }
+
+  // Record time in (legacy support)
   static Future<Attendance> timeIn({
     required int studentId,
     String? date,
@@ -52,7 +70,7 @@ class AttendanceService {
     }
   }
 
-  // Record time out
+  // Record time out (legacy support)
   static Future<Attendance> timeOut({
     required int attendanceId,
     required String timeOut,
@@ -77,6 +95,70 @@ class AttendanceService {
     }
   }
 
+  // Log time in with segment (new method)
+  static Future<Attendance> logTimeIn({
+    required int studentId,
+    int? ojtRecordId,
+    required String segment,
+    String? date,
+  }) async {
+    try {
+      final response = await ApiService.post(
+        '${ApiConfig.attendance}/time-in',
+        {
+          'student_id': studentId,
+          if (ojtRecordId != null) 'ojt_record_id': ojtRecordId,
+          'segment': segment,
+          if (date != null) 'date': date,
+        },
+      );
+
+      // Handle validation errors
+      if (response.containsKey('errors')) {
+        throw Exception(response['errors']?.join(', ') ?? 'Validation failed');
+      }
+      if (response.containsKey('error')) {
+        throw Exception(response['error'] ?? 'Failed to record time in');
+      }
+
+      return Attendance.fromJson(response['attendance']);
+    } catch (e) {
+      throw Exception('Failed to record time in: $e');
+    }
+  }
+
+  // Log time out with segment (new method)
+  static Future<Attendance> logTimeOut({
+    required int studentId,
+    required String segment,
+    String? date,
+    int? attendanceId,
+  }) async {
+    try {
+      final response = await ApiService.put(
+        '${ApiConfig.attendance}/time-out',
+        {
+          if (attendanceId != null) 'attendance_id': attendanceId,
+          'student_id': studentId,
+          'segment': segment,
+          if (date != null) 'date': date,
+        },
+      );
+
+      // Handle errors
+      if (response.containsKey('errors')) {
+        throw Exception(response['errors']?.join(', ') ?? 'Validation failed');
+      }
+      if (response.containsKey('error')) {
+        throw Exception(response['error'] ?? 'Failed to record time out');
+      }
+
+      return Attendance.fromJson(response['attendance']);
+    } catch (e) {
+      throw Exception('Failed to record time out: $e');
+    }
+  }
+
   // Get attendance summary
   static Future<List<Map<String, dynamic>>> getSummary({
     int? studentId,
@@ -89,6 +171,19 @@ class AttendanceService {
 
       final response = await ApiService.get(endpoint);
       return List<Map<String, dynamic>>.from(response['summary'] ?? []);
+    } catch (e) {
+      throw Exception('Failed to fetch attendance summary: $e');
+    }
+  }
+
+  // Get attendance summary for a specific student (returns single summary object)
+  static Future<Map<String, dynamic>> getAttendanceSummary(int studentId) async {
+    try {
+      final response = await ApiService.get(
+        '${ApiConfig.attendance}/summary/$studentId',
+      );
+
+      return Map<String, dynamic>.from(response);
     } catch (e) {
       throw Exception('Failed to fetch attendance summary: $e');
     }

@@ -11,7 +11,7 @@ class OjtService {
     String? status,
   }) async {
     try {
-      String endpoint = '${ApiConfig.reports}/ojt/records';
+      String endpoint = '${ApiConfig.ojt}/records';
       final params = <String>[];
       if (studentId != null) params.add('student_id=$studentId');
       if (coordinatorId != null) params.add('coordinator_id=$coordinatorId');
@@ -20,9 +20,23 @@ class OjtService {
       if (params.isNotEmpty) endpoint += '?${params.join('&')}';
 
       final response = await ApiService.get(endpoint);
+      
+      // Check for error in response
+      if (response.containsKey('error')) {
+        final error = response['error'];
+        if (error is Map) {
+          throw Exception(error['message'] ?? 'Failed to fetch OJT records');
+        } else {
+          throw Exception(error.toString());
+        }
+      }
+      
       final List<dynamic> data = response['records'] ?? [];
       return data.map((json) => OjtRecord.fromJson(json)).toList();
     } catch (e) {
+      if (e is Exception) {
+        rethrow;
+      }
       throw Exception('Failed to fetch OJT records: $e');
     }
   }
@@ -41,7 +55,7 @@ class OjtService {
   }) async {
     try {
       final response = await ApiService.post(
-        '${ApiConfig.reports}/ojt/records',
+        '${ApiConfig.ojt}/records',
         {
           'student_id': studentId,
           if (companyName != null) 'company_name': companyName,

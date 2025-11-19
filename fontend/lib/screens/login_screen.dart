@@ -76,18 +76,26 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _navigateToDashboard(String role) {
-    switch (role) {
-      case "OJT Coordinator":
-        Navigator.pushReplacementNamed(context, '/coordinator');
-        break;
-      case "Industry Supervisor":
-        Navigator.pushReplacementNamed(context, '/supervisor');
-        break;
-      case "Admin":
-        Navigator.pushReplacementNamed(context, '/admin');
-        break;
-      default:
-        Navigator.pushReplacementNamed(context, '/student');
+    final normalizedRole = role.trim().toLowerCase();
+
+    if (normalizedRole.contains('admin')) {
+      Navigator.pushReplacementNamed(context, '/admin');
+    } else if (normalizedRole.contains('coordinator')) {
+      // Supports both "Coordinator" and "OJT Coordinator"
+      Navigator.pushReplacementNamed(context, '/coordinator');
+    } else if (normalizedRole.contains('supervisor')) {
+      // Supports "Supervisor" and "Industry Supervisor"
+      Navigator.pushReplacementNamed(context, '/supervisor');
+    } else if (normalizedRole.contains('student')) {
+      Navigator.pushReplacementNamed(context, '/student');
+    } else {
+      // Fallback to student dashboard but notify for unknown role
+      Navigator.pushReplacementNamed(context, '/student');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Unknown role '$role'. Loaded student dashboard."),
+        ),
+      );
     }
   }
 
@@ -104,9 +112,19 @@ class _LoginScreenState extends State<LoginScreen>
 
     // Admin demo account (for testing only)
     if (id == _adminAccount["id"] && pass == _adminAccount["password"]) {
-      await _saveRememberedID();
-      _navigateToDashboard("Admin");
-      return;
+      try {
+        // Create a mock admin user session for demo account
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('user_data', '{"user_id":0,"full_name":"Admin User","email":"admin@ojt.system","role":"Admin","status":"Active"}');
+        await _saveRememberedID();
+        _navigateToDashboard("Admin");
+        return;
+      } catch (e) {
+        // If saving fails, still navigate (fallback)
+        await _saveRememberedID();
+        _navigateToDashboard("Admin");
+        return;
+      }
     }
 
     // For all other users, use real API authentication

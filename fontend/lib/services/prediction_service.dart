@@ -102,5 +102,18 @@ class PredictionService {
       throw Exception('Failed to save chatbot log: $e');
     }
   }
+
+  // Get daily risk prediction for a student
+  static Future<Map<String, dynamic>> getDailyPrediction(int studentId) async {
+    try {
+      final response = await ApiService.get(
+        '${ApiConfig.prediction}/daily/$studentId',
+      );
+
+      return Map<String, dynamic>.from(response);
+    } catch (e) {
+      throw Exception('Failed to load daily prediction: $e');
+    }
+  }
 }
 

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const { query } = require('../../config/db');
 
 // Get AI insights
@@ -181,6 +182,142 @@ router.post('/batch', async (req, res) => {
   }
 });
 
+// Daily risk prediction for a student
+router.get('/daily/:studentId', async (req, res) => {
+  const studentId = req.params.studentId;
+
+  try {
+    // 1) Build DAILY snapshot from DB
+    //    Use today's date (CURRENT_DATE) for attendance today,
+    //    and cumulative data for to-date values.
+
+    const snapshotResult = await query(`
+      WITH coordinator_evals AS (
+        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+        FROM evaluations e
+        JOIN users u ON e.supervisor_id = u.user_id
+        WHERE e.student_id = $1 AND u.role = 'Coordinator'
+      ),
+      partner_evals AS (
+        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+        FROM evaluations e
+        JOIN users u ON e.supervisor_id = u.user_id
+        WHERE e.student_id = $1 AND u.role = 'Supervisor'
+      ),
+      narrative_evals AS (
+        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+        FROM evaluations e
+        WHERE e.student_id = $1
+      ),
+      attendance_stats AS (
+        SELECT 
+          COALESCE(COUNT(DISTINCT a.date), 0) AS days_present,
+          COALESCE(SUM(a.total_hours), 0) AS total_hours_completed,
+          COALESCE(SUM(CASE WHEN a.date = CURRENT_DATE THEN a.total_hours ELSE 0 END), 0) AS attendance_today_hours
+        FROM attendance a
+        WHERE a.student_id = $1
+      )
+      SELECT 
+        (SELECT avg_score FROM coordinator_evals) AS coord_eval_score,
+        (SELECT avg_score FROM narrative_evals) AS narrative_score,
+        (SELECT avg_score FROM partner_evals) AS partner_eval_score,
+        (SELECT days_present FROM attendance_stats) AS days_present,
+        (SELECT total_hours_completed FROM attendance_stats) AS total_hours_completed,
+        (SELECT attendance_today_hours FROM attendance_stats) AS attendance_today_hours
+    `, [studentId]);
+
+    if (!snapshotResult.rows || snapshotResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No data for this student' });
+    }
+
+    const snap = snapshotResult.rows[0];
+
+    // Use coordinator eval as daily progress if available, otherwise use narrative
+    const dailyProgressScore = parseFloat(snap.coord_eval_score) || parseFloat(snap.narrative_score) || 0;
+
+    const payload = {
+      daily_progress_score: dailyProgressScore,
+      narrative_score: parseFloat(snap.narrative_score) || 0,
+      coord_eval_score: parseFloat(snap.coord_eval_score) || 0,
+      partner_eval_score: parseFloat(snap.partner_eval_score) || 0,
+      attendance_days_present: parseFloat(snap.days_present) || 0,
+      attendance_today_hours: parseFloat(snap.attendance_today_hours) || 0,
+      total_hours_completed: parseFloat(snap.total_hours_completed) || 0
+    };
+
+    // 2) Call Python Flask AI
+    // Replace with your Flask server URL (use environment variable in production)
+    const flaskUrl = process.env.FLASK_AI_URL || 'http://localhost:5000';
+    
+    let aiRes;
+    try {
+      aiRes = await axios.post(`${flaskUrl}/predict`, payload, {
+        timeout: 10000, // 10 second timeout
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (axiosError) {
+      console.error('Flask AI service error:', axiosError.message);
+      if (axiosError.code === 'ECONNREFUSED' || axiosError.code === 'ETIMEDOUT') {
+        return res.status(503).json({ 
+          error: 'AI prediction service unavailable',
+          message: 'Cannot connect to Flask AI service. Please ensure it is running.',
+          snapshot: payload
+        });
+      }
+      throw axiosError;
+    }
+
+    const prediction = aiRes.data;
+
+    // 3) Optional: insert into ai_insights table
+    try {
+      await query(
+        `INSERT INTO ai_insights (student_id, model_name, insight_type, result, confidence, input_data)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING insight_id`,
+        [
+          studentId,
+          'Daily Risk Prediction Ensemble',
+          'daily_risk_prediction',
+          JSON.stringify(prediction.prediction),
+          prediction.prediction.probability || 0,
+          JSON.stringify(payload)
+        ]
+      );
+    } catch (insertError) {
+      // Log but don't fail the request if insert fails
+      console.warn('Failed to save prediction to ai_insights:', insertError.message);
+    }
+
+    return res.json({
+      student_id: parseInt(studentId),
+      snapshot: payload,
+      ai_prediction: prediction,
+      generated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Daily prediction error:', err);
+    
+    // Log critical errors to database
+    try {
+      await query(
+        `INSERT INTO api_error_logs (route, method, status_code, error_message)
+         VALUES ($1, $2, $3, $4)`,
+        ['/api/prediction/daily/:studentId', 'GET', 500, err.message || 'Unknown error']
+      );
+    } catch (logError) {
+      console.error('Failed to log error to database:', logError);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: err.message 
+    });
+  }
+});
+
 // Chatbot logs
 router.get('/chatbot/logs', async (req, res) => {
   try {
@@ -214,11 +351,18 @@ router.post('/chatbot/logs', async (req, res) => {
   try {
     const { user_id, query, response, model_used } = req.body;
 
+    // Validation
+    if (!user_id || !query || !response) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: user_id, query, and response are required' 
+      });
+    }
+
     const result = await query(
       `INSERT INTO chatbot_logs (user_id, query, response, model_used)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [user_id, query, response, model_used]
+      [user_id, query, response, model_used || 'rule-based']
     );
 
     res.status(201).json({
@@ -227,6 +371,39 @@ router.post('/chatbot/logs', async (req, res) => {
     });
   } catch (error) {
     console.error('Save chatbot log error:', error);
+    
+    // Log critical errors to database
+    try {
+      await query(
+        `INSERT INTO api_error_logs (route, method, status_code, error_message)
+         VALUES ($1, $2, $3, $4)`,
+        ['/api/prediction/chatbot/logs', 'POST', 500, error.message || 'Unknown error']
+      );
+    } catch (logError) {
+      console.error('Failed to log error to database:', logError);
+    }
+    
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get chatbot logs for a specific user
+router.get('/chatbot/logs/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    const result = await query(
+      `SELECT chat_id, user_id, query, response, model_used, timestamp
+       FROM chatbot_logs
+       WHERE user_id = $1
+       ORDER BY timestamp DESC
+       LIMIT 100`,
+      [userId]
+    );
+
+    res.json({ logs: result.rows });
+  } catch (error) {
+    console.error('Get chatbot logs error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

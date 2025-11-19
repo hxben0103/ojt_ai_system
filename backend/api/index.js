@@ -45,6 +45,27 @@ app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// API Response Time Logging Middleware
+app.use('/api', (req, res, next) => {
+  const start = Date.now();
+  
+  // Log request
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  
+  // Capture response finish event
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const statusColor = res.statusCode >= 500 ? '🔴' : 
+                       res.statusCode >= 400 ? '🟡' : '🟢';
+    
+    console.log(
+      `${statusColor} [API] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`
+    );
+  });
+  
+  next();
+});
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const attendanceRoutes = require('./routes/attendance');
@@ -52,12 +73,25 @@ const evaluationRoutes = require('./routes/evaluation');
 const predictionRoutes = require('./routes/prediction');
 const reportsRoutes = require('./routes/reports');
 
+// Import OJT routes with error handling
+let ojtRoutes;
+try {
+  ojtRoutes = require('./routes/ojt');
+  console.log('✅ OJT routes loaded successfully');
+} catch (error) {
+  console.error('❌ Error loading OJT routes:', error);
+  throw error;
+}
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/evaluation', evaluationRoutes);
 app.use('/api/prediction', predictionRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/ojt', ojtRoutes);
+
+console.log('✅ All API routes registered');
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -78,6 +112,16 @@ app.get('/api/health', async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+});
+
+// 404 handler for unmatched routes
+app.use('/api/*', (req, res) => {
+  res.status(404).json({
+    error: {
+      message: `Route not found: ${req.method} ${req.originalUrl}`,
+      status: 404
+    }
+  });
 });
 
 // Error handling middleware

@@ -106,6 +106,22 @@ CREATE TABLE IF NOT EXISTS chatbot_logs (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_chatbot_logs_user_id ON chatbot_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_chatbot_logs_timestamp ON chatbot_logs(timestamp);
+
+-- ========== API ERROR LOGS ==========
+CREATE TABLE IF NOT EXISTS api_error_logs (
+    id SERIAL PRIMARY KEY,
+    route TEXT,
+    method TEXT,
+    status_code INT,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_error_logs_created_at ON api_error_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_api_error_logs_status_code ON api_error_logs(status_code);
+
 -- ========== SYSTEM REPORTS ==========
 CREATE TABLE IF NOT EXISTS system_reports (
     report_id SERIAL PRIMARY KEY,

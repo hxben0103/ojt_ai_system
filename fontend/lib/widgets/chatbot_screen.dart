@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../services/prediction_service.dart';
+import '../services/auth_service.dart';
 
 class ChatBotScreen extends StatefulWidget {
   const ChatBotScreen({super.key});
@@ -40,9 +42,14 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        final botReply = data["response"] as String;
+        
         setState(() {
-          _messages.add({"sender": "bot", "text": data["response"]});
+          _messages.add({"sender": "bot", "text": botReply});
         });
+
+        // Log the interaction to backend (non-blocking)
+        _logChatbotInteraction(userMessage, botReply);
       } else {
         setState(() {
           _messages.add({
@@ -274,5 +281,25 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
         ),
       ),
     );
+  }
+
+  // Log chatbot interaction to backend
+  Future<void> _logChatbotInteraction(String query, String response) async {
+    try {
+      final currentUser = await AuthService.getCurrentUser();
+      if (currentUser?.userId != null) {
+        // Call the service method to save the log
+        // Use a try-catch to ensure logging failures don't break the UI
+        await PredictionService.saveChatbotLog(
+          userId: currentUser!.userId!,
+          query: query,
+          response: response,
+          modelUsed: 'rule-based',
+        );
+      }
+    } catch (e) {
+      // Silently fail - logging should not break the user experience
+      print('Failed to save chatbot log: $e');
+    }
   }
 }

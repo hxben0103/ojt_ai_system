@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/role_dashboard.dart';
+import '../widgets/role_guard.dart';
 import 'coordinator_student_monitor.dart';
 import 'package:flutter_application_1/screens/login_screen.dart';
 import '../services/auth_service.dart';
 import '../models/user.dart';
+import '../screens/coordinator/coordinator_supervisor_feedback_screen.dart';
+import '../screens/coordinator/coordinator_performance_analysis_screen.dart';
+import '../screens/coordinator/coordinator_user_approvals_screen.dart';
+import '../screens/coordinator/coordinator_reports_screen.dart';
+import '../screens/coordinator/coordinator_ojt_management_screen.dart';
 
 class CoordinatorDashboard extends StatefulWidget {
   const CoordinatorDashboard({super.key});
@@ -55,6 +61,13 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    return RoleGuard(
+      allowedRoles: const ['coordinator', 'ojt coordinator'],
+      builder: (ctx, user) => _buildCoordinatorDashboard(ctx),
+    );
+  }
+
+  Widget _buildCoordinatorDashboard(BuildContext context) {
     // ✅ Loading Screen
     if (_isLoadingProfile) {
       return const Scaffold(
@@ -107,10 +120,12 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             title: "Review Supervisor Feedback",
             subtitle: "Check evaluations and feedback given by supervisors",
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content:
-                        Text("Navigating to supervisor feedback screen...")),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      const CoordinatorSupervisorFeedbackScreen(),
+                ),
               );
             },
           ),
@@ -122,10 +137,12 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             title: "Identify High/Low Performers",
             subtitle: "Analyze student performance metrics",
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content:
-                        Text("Navigating to performance analysis screen...")),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      const CoordinatorPerformanceAnalysisScreen(),
+                ),
               );
             },
           ),
@@ -137,14 +154,31 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             title: "Approve OJT Accounts & Supervisors",
             subtitle: "Approve new student accounts and assigned supervisors",
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text(
-                        "Navigating to account & supervisor approval...")),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CoordinatorUserApprovalsScreen(),
+                ),
               );
             },
           ),
           delay: 800,
+        ),
+        _buildAnimatedCard(
+          _buildFeatureCard(
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+            title: "Manage OJT Records",
+            subtitle: "Create and manage OJT records for students",
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CoordinatorOjtManagementScreen(),
+                ),
+              );
+            },
+          ),
+          delay: 1000,
         ),
         _buildAnimatedCard(
           _buildFeatureCard(
@@ -160,7 +194,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
               );
             },
           ),
-          delay: 1000,
+          delay: 1200,
         ),
         _buildAnimatedCard(
           _buildFeatureCard(
@@ -169,19 +203,21 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             subtitle:
                 "Generate reports on OJT activities, attendance, and evaluations",
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text("Report generation screen coming soon...")),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CoordinatorReportsScreen(),
+                ),
               );
             },
           ),
-          delay: 1200,
+          delay: 1400,
         ),
 
         // ✅ LOGOUT CARD
         _buildAnimatedCard(
           _buildLogoutCard(context),
-          delay: 1400,
+          delay: 1600,
         ),
       ],
     );
@@ -227,7 +263,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             radius: 42,
             backgroundColor: Colors.white,
             child: Text(
-              fullName.split(" ").map((e) => e[0]).take(2).join(),
+              fullName.split(" ").where((e) => e.isNotEmpty).map((e) => e[0]).take(2).join(),
               style: const TextStyle(
                   color: Colors.deepPurple,
                   fontSize: 22,

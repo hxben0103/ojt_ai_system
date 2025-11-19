@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../services/ojt_service.dart';
 import '../services/attendance_service.dart';
 import '../services/auth_service.dart';
+import '../services/prediction_service.dart';
 
 class CoordinatorStudentMonitor extends StatefulWidget {
   const CoordinatorStudentMonitor({super.key});
@@ -44,26 +45,30 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         coordinatorId: currentUser.userId,
       );
 
-      // Get attendance summary for each student
+      // Get attendance summary for each student using the new optimized endpoint
       final List<Map<String, dynamic>> studentList = [];
       for (final record in ojtRecords) {
         try {
-          final summary = await AttendanceService.getSummary(
-            studentId: record.studentId,
-          );
+          // Use the new getAttendanceSummary method which returns all needed data in one call
+          final summary = await AttendanceService.getAttendanceSummary(record.studentId);
 
-          int completedHours = 0;
-          String? lastDutyDate;
-          if (summary.isNotEmpty) {
-            completedHours = summary.first['total_hours']?.toInt() ?? 0;
-            // Get last attendance date
-            final attendanceList = await AttendanceService.getAttendance(
-              studentId: record.studentId,
-            );
-            if (attendanceList.isNotEmpty) {
-              attendanceList.sort((a, b) => b.date.compareTo(a.date));
-              lastDutyDate = attendanceList.first.date.toIso8601String().split('T')[0];
+          int completedHours = (summary['total_hours_completed'] ?? 0).toInt();
+          String? lastDutyDate = summary['last_duty_date'] as String?;
+
+          // Get daily risk prediction
+          Map<String, dynamic>? predictionData;
+          String? riskLevel;
+          double? riskProbability;
+          try {
+            predictionData = await PredictionService.getDailyPrediction(record.studentId);
+            if (predictionData['ai_prediction'] != null &&
+                predictionData['ai_prediction']['prediction'] != null) {
+              riskLevel = predictionData['ai_prediction']['prediction']['risk_level'] as String?;
+              riskProbability = (predictionData['ai_prediction']['prediction']['probability'] as num?)?.toDouble();
             }
+          } catch (e) {
+            print('Error loading prediction for student ${record.studentId}: $e');
+            // Continue without prediction data
           }
 
           studentList.add({
@@ -74,9 +79,12 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
             'completedHours': completedHours,
             'requiredHours': record.requiredHours ?? 300,
             'lastDutyDate': lastDutyDate ?? 'N/A',
+            'riskLevel': riskLevel,
+            'riskProbability': riskProbability,
           });
         } catch (e) {
           // If attendance summary fails, still add student with 0 hours
+          print('Error loading attendance for student ${record.studentId}: $e');
           studentList.add({
             'name': record.studentName ?? 'Unknown',
             'idNumber': record.studentId.toString(),
@@ -85,6 +93,8 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
             'completedHours': 0,
             'requiredHours': record.requiredHours ?? 300,
             'lastDutyDate': 'N/A',
+            'riskLevel': null,
+            'riskProbability': null,
           });
         }
       }
@@ -163,7 +173,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
                     radius: 35,
                     backgroundColor: onDutyToday ? Colors.green : Colors.red,
                     child: Text(
-                      student['name'].split(" ").map((e) => e[0]).take(2).join(),
+                      (student['name'] as String).split(" ").where((e) => e.isNotEmpty).map((e) => e[0]).take(2).join(),
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -188,6 +198,50 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
+                        // Risk Level Badge
+                        if (student['riskLevel'] != null) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _getRiskColor(student['riskLevel']).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _getRiskColor(student['riskLevel']),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _getRiskIcon(student['riskLevel']),
+                                  size: 16,
+                                  color: _getRiskColor(student['riskLevel']),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Risk: ${student['riskLevel']}',
+                                  style: TextStyle(
+                                    color: _getRiskColor(student['riskLevel']),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                if (student['riskProbability'] != null) ...[
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '(${(student['riskProbability'] * 100).toStringAsFixed(0)}%)',
+                                    style: TextStyle(
+                                      color: _getRiskColor(student['riskLevel']),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 6),
                         // Progress bar
                         LinearProgressIndicator(
@@ -205,5 +259,31 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         },
       ),
     );
+  }
+
+  Color _getRiskColor(String? riskLevel) {
+    switch (riskLevel?.toUpperCase()) {
+      case 'HIGH':
+        return Colors.red;
+      case 'MEDIUM':
+        return Colors.orange;
+      case 'LOW':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getRiskIcon(String? riskLevel) {
+    switch (riskLevel?.toUpperCase()) {
+      case 'HIGH':
+        return Icons.warning;
+      case 'MEDIUM':
+        return Icons.info;
+      case 'LOW':
+        return Icons.check_circle;
+      default:
+        return Icons.help_outline;
+    }
   }
 }

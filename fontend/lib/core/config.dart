@@ -16,6 +16,7 @@ class ApiConfig {
   static const String evaluation = '/evaluation';
   static const String prediction = '/prediction';
   static const String reports = '/reports';
+  static const String ojt = '/ojt';
   static const String health = '/health';
 
   // Timeout duration

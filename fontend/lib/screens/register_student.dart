@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
@@ -88,9 +89,27 @@ class _RegisterStudentState extends State<RegisterStudent>
       final fullName = _fullNameController.text.trim();
       final email = _emailController.text.trim();
       final password = _passwordController.text;
+      final studentId = _idController.text.trim();
+      final course = _selectedCourse ?? '';
+      final age = _ageController.text.trim().isNotEmpty 
+          ? int.tryParse(_ageController.text.trim()) 
+          : null;
+      final gender = _selectedGender ?? '';
+      final contactNumber = _contactController.text.trim();
+      final address = _addressController.text.trim();
+      final requiredHours = _ojtHoursController.text.trim().isNotEmpty
+          ? int.tryParse(_ojtHoursController.text.trim())
+          : 300;
 
       if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
         throw Exception('Please fill in all required fields');
+      }
+
+      // Convert profile image to base64
+      String? profilePhotoBase64;
+      if (_profileImage != null) {
+        final imageBytes = await _profileImage!.readAsBytes();
+        profilePhotoBase64 = base64Encode(imageBytes);
       }
 
       await AuthService.register(
@@ -98,6 +117,14 @@ class _RegisterStudentState extends State<RegisterStudent>
         email: email,
         password: password,
         role: 'Student',
+        studentId: studentId.isNotEmpty ? studentId : null,
+        course: course.isNotEmpty ? course : null,
+        age: age,
+        gender: gender.isNotEmpty ? gender : null,
+        contactNumber: contactNumber.isNotEmpty ? contactNumber : null,
+        address: address.isNotEmpty ? address : null,
+        requiredHours: requiredHours,
+        profilePhoto: profilePhotoBase64,
       );
 
       if (mounted) {

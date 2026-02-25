@@ -1,0 +1,1 @@
+The Daily Time Record is the official attendance log during OJT. It includes the date, morning in and out, afternoon in and out, and the total hours rendered. It must be signed by the supervisor and validated by the OJT Coordinator and compiled in the narrative report appendices.

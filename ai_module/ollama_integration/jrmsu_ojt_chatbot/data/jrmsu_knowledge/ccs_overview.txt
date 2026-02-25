@@ -1,0 +1,4 @@
+The College of Computing Studies (CCS) offers the Bachelor of Science in Information Systems and the Bachelor of Science in Computer Science programs. Its core focus areas include software development, system analysis, database administration, and IT project management.
+
+Practicum and OJT requirements:
+BSCS requires a minimum of 200 hours of OJT in an IT-related organization. BSIS requires 480 hours. Training is overseen by the Practicum Coordinator and Associate Dean and requires an approved Memorandum of Agreement from the University President.

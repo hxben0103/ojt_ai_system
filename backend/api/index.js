@@ -1,0 +1,154 @@
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+require('dotenv').config({ path: './config/env/.env' });
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Enhanced CORS configuration for Flutter Web
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, or curl)
+    if (!origin) return callback(null, true);
+    
+    // Allow ALL localhost origins (any port) - covers Flutter web random ports
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    
+    // In production, specify allowed origins
+    if (process.env.NODE_ENV === 'production') {
+      const allowedOrigins = [
+        'http://localhost:8080',
+        'http://localhost:3000',
+        'http://127.0.0.1:8080',
+        // Add your production domain here
+      ];
+      
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    } else {
+      // Development: allow all localhost origins
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+
+app.use(cors(corsOptions));
+app.use(bodyParser.json({ limit: '15mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '15mb' }));
+
+// API Response Time Logging Middleware
+app.use('/api', (req, res, next) => {
+  const start = Date.now();
+  
+  // Log request
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  
+  // Capture response finish event
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const statusColor = res.statusCode >= 500 ? '🔴' : 
+                       res.statusCode >= 400 ? '🟡' : '🟢';
+    
+    console.log(
+      `${statusColor} [API] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`
+    );
+  });
+  
+  next();
+});
+
+// Import routes
+const authRoutes = require('./routes/auth');
+const attendanceRoutes = require('./routes/attendance');
+const evaluationRoutes = require('./routes/evaluation');
+const predictionRoutes = require('./routes/prediction');
+const coordinatorAnalyticsRoutes = require('./routes/coordinatorAnalytics');
+const reportsRoutes = require('./routes/reports');
+
+// Import OJT routes with error handling
+let ojtRoutes;
+try {
+  ojtRoutes = require('./routes/ojt');
+  console.log('✅ OJT routes loaded successfully');
+} catch (error) {
+  console.error('❌ Error loading OJT routes:', error);
+  throw error;
+}
+
+// Import Daily Tasks routes
+const dailyTasksRoutes = require('./routes/dailyTasks');
+const ojtSitesRoutes = require('./routes/ojtSites');
+
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/evaluation', evaluationRoutes);
+app.use('/api/prediction', predictionRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/ojt', ojtRoutes);
+app.use('/api/ojt-sites', ojtSitesRoutes);
+app.use('/api', dailyTasksRoutes); // Daily tasks routes use /api prefix directly
+app.use('/api', coordinatorAnalyticsRoutes); // Coordinator analytics endpoints
+
+console.log('✅ All API routes registered');
+
+// Health check endpoint
+app.get('/api/health', async (req, res) => {
+  try {
+    const { query } = require('../config/db');
+    // Test database connection
+    await query('SELECT 1');
+    res.json({ 
+      status: 'OK', 
+      message: 'OJT AI System API is running',
+      database: 'connected'
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: 'ERROR', 
+      message: 'OJT AI System API is running but database connection failed',
+      database: 'disconnected',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// 404 handler for unmatched routes
+app.use('/api/*', (req, res) => {
+  res.status(404).json({
+    error: {
+      message: `Route not found: ${req.method} ${req.originalUrl}`,
+      status: 404
+    }
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(err.status || 500).json({
+    error: {
+      message: err.message || 'Internal Server Error',
+      status: err.status || 500
+    }
+  });
+});
+
+// Start server - Listen on all interfaces (0.0.0.0) to allow network access
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📡 API available at http://localhost:${PORT}/api`);
+  console.log(`🌐 Network access: Use your computer's IP address to access from other devices`);
+  console.log(`   Example: http://192.168.x.x:${PORT}/api`);
+});
+
+module.exports = app;

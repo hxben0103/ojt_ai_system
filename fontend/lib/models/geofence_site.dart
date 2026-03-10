@@ -8,6 +8,7 @@ class GeofenceSite {
   final double radiusMeters;
   final int? companyId;
   final String? companyName;
+  final String? address;
   final DateTime? createdAt;
 
   GeofenceSite({
@@ -18,6 +19,7 @@ class GeofenceSite {
     required this.radiusMeters,
     this.companyId,
     this.companyName,
+    this.address,
     this.createdAt,
   });
 
@@ -30,6 +32,7 @@ class GeofenceSite {
       radiusMeters: _toDouble(json['radius_meters']) ?? 100.0,
       companyId: json['company_id'] as int?,
       companyName: json['company_name'] as String?,
+      address: json['address'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
@@ -52,6 +55,7 @@ class GeofenceSite {
       'radius_meters': radiusMeters,
       if (companyId != null) 'company_id': companyId,
       if (companyName != null) 'company_name': companyName,
+      if (address != null) 'address': address,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
   }

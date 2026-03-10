@@ -41,9 +41,30 @@ class OjtService {
     }
   }
 
+
+  /// Look up students by alphanumeric school ID (e.g. "2021-00123").
+  /// Returns a list of matching active students.
+  static Future<List<Map<String, dynamic>>> lookupStudentBySchoolId(String schoolId) async {
+    try {
+      final response = await ApiService.get(
+        '${ApiConfig.ojt}/lookup-student?school_id=${Uri.encodeComponent(schoolId.trim())}',
+      );
+      if (response.containsKey('error')) {
+        throw Exception(response['error'].toString());
+      }
+      final List<dynamic> data = response['students'] ?? [];
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e) {
+      throw Exception('Student lookup failed: $e');
+    }
+  }
+
   // Create OJT record
   static Future<OjtRecord> createOjtRecord({
-    required int studentId,
+    // Prefer schoolId (alphanumeric) — backend resolves to user_id automatically.
+    // Provide studentId (integer) as fallback for backward compatibility.
+    String? schoolId,
+    int? studentId,
     String? companyName,
     required int coordinatorId,
     required int supervisorId,
@@ -53,11 +74,14 @@ class OjtService {
     String? companyAddress,
     String? companyContact,
   }) async {
+    assert(schoolId != null || studentId != null,
+        'Either schoolId or studentId must be provided');
     try {
       final response = await ApiService.post(
         '${ApiConfig.ojt}/records',
         {
-          'student_id': studentId,
+          if (schoolId != null) 'school_id': schoolId,
+          if (studentId != null && schoolId == null) 'student_id': studentId,
           if (companyName != null) 'company_name': companyName,
           'coordinator_id': coordinatorId,
           'supervisor_id': supervisorId,

@@ -1,27 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
 const { query } = require('../../config/db');
+const { uploadAttendancePhoto } = require('../../config/supabaseClient');
 const jwt = require('jsonwebtoken');
 
-// Photo upload: store under backend/uploads/attendance_photos/
-const uploadDir = path.join(__dirname, '../../uploads/attendance_photos');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const studentId = (req.body && req.body.student_id) || '0';
-    const type = (req.body && req.body.photo_type) || 'checkin';
-    const ts = Date.now();
-    const ext = (file.originalname && path.extname(file.originalname)) || '.jpg';
-    cb(null, `attendance_${studentId}_${ts}_${type}${ext}`);
-  }
-});
-const uploadPhoto = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }).single('photo');
+// Photo upload: use memory storage (no local disk writes)
+const uploadPhoto = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).single('photo');
 
 // Helper: compute verification_status from optional geo/trust (default threshold 60)
 function computeVerificationStatus(insideGeofence, trustScore, threshold = 60) {
@@ -66,7 +55,12 @@ router.get('/', async (req, res) => {
     const { student_id, date, verification_status } = req.query;
 
     let sql = `
-      SELECT a.*, u.full_name
+      SELECT 
+        a.attendance_id, a.student_id, a.date, a.time_in, a.time_out, 
+        a.status, a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng, 
+        a.verification_status, a.distance_m, a.trust_score, a.trust_flags,
+        a.checkin_photo_path, (a.attendance_image IS NOT NULL) AS has_base64_image,
+        u.full_name
       FROM attendance a
       JOIN users u ON a.student_id = u.user_id
       WHERE 1=1
@@ -75,17 +69,17 @@ router.get('/', async (req, res) => {
     let paramCount = 1;
 
     if (student_id) {
-      sql += ` AND a.student_id = $${paramCount}`;
+      sql += ` AND a.student_id = $${paramCount} `;
       params.push(student_id);
       paramCount++;
     }
     if (date) {
-      sql += ` AND a.date = $${paramCount}`;
+      sql += ` AND a.date = $${paramCount} `;
       params.push(date);
       paramCount++;
     }
     if (verification_status) {
-      sql += ` AND a.verification_status = $${paramCount}`;
+      sql += ` AND a.verification_status = $${paramCount} `;
       params.push(verification_status);
       paramCount++;
     }
@@ -113,7 +107,7 @@ router.get('/today/:studentId', async (req, res) => {
        WHERE a.student_id = $1 AND a.date = CURRENT_DATE`,
       [studentId]
     );
-    
+
     if (result.rows.length > 0) {
       res.json({ attendance: result.rows[0] });
     } else {
@@ -125,14 +119,53 @@ router.get('/today/:studentId', async (req, res) => {
   }
 });
 
-// Upload attendance photo (multipart); returns relative path for checkin_photo_path / checkout_photo_path
-router.post('/upload-photo', uploadPhoto, (req, res) => {
+// Get specific attendance image (lazy loading)
+router.get('/:id/image', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      'SELECT attendance_image FROM attendance WHERE attendance_id = $1',
+      [id]
+    );
+
+    if (result.rows.length > 0) {
+      res.json({ attendance_image: result.rows[0].attendance_image });
+    } else {
+      res.status(404).json({ error: 'Attendance record not found' });
+    }
+  } catch (error) {
+    console.error('Get attendance image error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Upload attendance photo to Supabase Storage
+router.post('/upload-photo', uploadPhoto, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No photo file provided' });
     }
-    const relativePath = path.join('attendance_photos', req.file.filename).replace(/\\/g, '/');
-    res.status(201).json({ path: relativePath, filename: req.file.filename });
+
+    // Build unique filename
+    const studentId = (req.body && req.body.student_id) || '0';
+    const type = (req.body && req.body.photo_type) || 'checkin';
+    const ts = Date.now();
+    const ext = (req.file.originalname && path.extname(req.file.originalname)) || '.jpg';
+    const fileName = `attendance_${studentId}_${ts}_${type}${ext} `;
+
+    // Upload to Supabase Storage
+    const result = await uploadAttendancePhoto(req.file.buffer, fileName, req.file.mimetype);
+
+    if (result.error) {
+      console.error('Photo upload failed:', result.error);
+      return res.status(500).json({ error: result.error });
+    }
+
+    res.status(201).json({
+      path: result.path,
+      publicUrl: result.publicUrl,
+      filename: fileName,
+    });
   } catch (error) {
     console.error('Upload photo error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -159,8 +192,38 @@ router.post('/time-in', async (req, res) => {
       return res.status(400).json({ error: 'student_id is required' });
     }
 
+    // Fetch supervisor_id for auto-verification
+    const supervisorCheck = await query(
+      `SELECT supervisor_id FROM ojt_records WHERE student_id = $1 AND status IN('Active', 'Ongoing') LIMIT 1`,
+      [student_id]
+    );
+    const supervisorId = supervisorCheck.rows.length > 0 ? supervisorCheck.rows[0].supervisor_id : null;
+
     const currentDate = date || new Date().toISOString().split('T')[0];
     const currentTime = time_in || new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS format
+
+    // STRICT OJT ENROLLMENT CHECK
+    // Students can only time-in if they have an active OJT record linked to a coordinator and supervisor
+    const routeRole = req.user ? req.user.role : 'Student'; // fallback if authenticateToken is skipped somehow, but it shouldn't be
+
+    // We only enforce this for students submitting their own attendance
+    if (routeRole === 'Student') {
+      const activeOjtCheck = await query(
+        `SELECT record_id 
+         FROM ojt_records 
+         WHERE student_id = $1 
+         AND status IN('Active', 'Ongoing')
+         AND coordinator_id IS NOT NULL 
+         AND supervisor_id IS NOT NULL`,
+        [student_id]
+      );
+
+      if (activeOjtCheck.rows.length === 0) {
+        return res.status(403).json({
+          error: 'You cannot perform this action because your OJT setup is incomplete. Coordinator or Supervisor assignment is missing.'
+        });
+      }
+    }
 
     // Check if attendance record exists for this date
     const existingRecord = await query(
@@ -197,29 +260,29 @@ router.post('/time-in', async (req, res) => {
     if (existingRecord.rows.length > 0) {
       // Update existing record
       attendanceId = existingRecord.rows[0].attendance_id;
-      
+
       // Build update query dynamically based on which segment is being logged
       let updateFields = [];
       let updateValues = [];
       let paramCount = 1;
 
       if (morningIn !== null) {
-        updateFields.push(`morning_in = $${paramCount}`);
+        updateFields.push(`morning_in = $${paramCount} `);
         updateValues.push(morningIn);
         paramCount++;
       }
       if (afternoonIn !== null) {
-        updateFields.push(`afternoon_in = $${paramCount}`);
+        updateFields.push(`afternoon_in = $${paramCount} `);
         updateValues.push(afternoonIn);
         paramCount++;
       }
       if (overtimeIn !== null) {
-        updateFields.push(`overtime_in = $${paramCount}`);
+        updateFields.push(`overtime_in = $${paramCount} `);
         updateValues.push(overtimeIn);
         paramCount++;
       }
       if (timeInValue !== null && !morningIn && !afternoonIn && !overtimeIn) {
-        updateFields.push(`time_in = $${paramCount}`);
+        updateFields.push(`time_in = $${paramCount} `);
         updateValues.push(timeInValue);
         paramCount++;
       }
@@ -234,12 +297,12 @@ router.post('/time-in', async (req, res) => {
         [attendanceId]
       );
       const existing = checkRecord.rows[0];
-      
-      if ((morningIn && existing.morning_in) || 
-          (afternoonIn && existing.afternoon_in) || 
-          (overtimeIn && existing.overtime_in) ||
-          (timeInValue && existing.time_in && !morningIn && !afternoonIn && !overtimeIn)) {
-        return res.status(400).json({ 
+
+      if ((morningIn && existing.morning_in) ||
+        (afternoonIn && existing.afternoon_in) ||
+        (overtimeIn && existing.overtime_in) ||
+        (timeInValue && existing.time_in && !morningIn && !afternoonIn && !overtimeIn)) {
+        return res.status(400).json({
           error: 'Time in already recorded for this segment',
           errors: [`${segment || 'time_in'} already exists for this date`]
         });
@@ -247,11 +310,28 @@ router.post('/time-in', async (req, res) => {
 
       // Add attendance_image if provided
       if (attendance_image) {
-        updateFields.push(`attendance_image = $${paramCount}`);
+        updateFields.push(`attendance_image = $${paramCount} `);
         updateValues.push(attendance_image);
         paramCount++;
       }
-      
+
+      // Auto-approve
+      updateFields.push(`status = $${paramCount} `);
+      updateValues.push('Approved');
+      paramCount++;
+
+      updateFields.push(`verified = $${paramCount} `);
+      updateValues.push(true);
+      paramCount++;
+
+      if (supervisorId) {
+        updateFields.push(`verified_by = $${paramCount} `);
+        updateValues.push(supervisorId);
+        paramCount++;
+      }
+
+      updateFields.push(`verified_at = CURRENT_TIMESTAMP`);
+
       updateValues.push(attendanceId);
       const updateSql = `
         UPDATE attendance 
@@ -259,8 +339,10 @@ router.post('/time-in', async (req, res) => {
         WHERE attendance_id = $${paramCount}
         RETURNING attendance_id
       `;
-      
+
+
       await query(updateSql, updateValues);
+
     } else {
       // Create new record
       const result = await query(
@@ -294,6 +376,17 @@ router.post('/time-in', async (req, res) => {
           [attendance_image, attendanceId]
         );
       }
+
+      // Auto-approve new record
+      await query(
+        `UPDATE attendance 
+         SET status = 'Approved',
+  verified = true,
+  verified_by = $1,
+  verified_at = CURRENT_TIMESTAMP 
+         WHERE attendance_id = $2`,
+        [supervisorId, attendanceId]
+      );
     }
 
     // Optional geofence/trust/photo/verification: store if columns exist (backward compatible)
@@ -301,30 +394,32 @@ router.post('/time-in', async (req, res) => {
     const geoVals = [];
     let p = 1;
     const clat = safeFloat(checkin_lat); const clng = safeFloat(checkin_lng);
-    if (clat != null) { geoParts.push(`checkin_lat = $${p++}`); geoVals.push(clat); }
-    if (clng != null) { geoParts.push(`checkin_lng = $${p++}`); geoVals.push(clng); }
+    if (clat != null) { geoParts.push(`checkin_lat = $${p++} `); geoVals.push(clat); }
+    if (clng != null) { geoParts.push(`checkin_lng = $${p++} `); geoVals.push(clng); }
     const acc = safeFloat(accuracy_m); const dist = safeFloat(distance_m);
-    if (acc != null) { geoParts.push(`accuracy_m = $${p++}`); geoVals.push(acc); }
-    if (dist != null) { geoParts.push(`distance_m = $${p++}`); geoVals.push(dist); }
-    if (inside_geofence != null) { geoParts.push(`inside_geofence = $${p++}`); geoVals.push(inside_geofence); }
+    if (acc != null) { geoParts.push(`accuracy_m = $${p++} `); geoVals.push(acc); }
+    if (dist != null) { geoParts.push(`distance_m = $${p++} `); geoVals.push(dist); }
+    if (inside_geofence != null) { geoParts.push(`inside_geofence = $${p++} `); geoVals.push(inside_geofence); }
     const tscore = safeInt(trust_score);
-    if (tscore != null) { geoParts.push(`trust_score = $${p++}`); geoVals.push(tscore); }
+    if (tscore != null) { geoParts.push(`trust_score = $${p++} `); geoVals.push(tscore); }
     if (trust_flags != null) {
       const trustFlagsStr = Array.isArray(trust_flags) ? JSON.stringify(trust_flags) : String(trust_flags);
-      geoParts.push(`trust_flags = $${p++}`); geoVals.push(trustFlagsStr);
+      geoParts.push(`trust_flags = $${p++} `); geoVals.push(trustFlagsStr);
     }
     if (checkin_photo_path != null && String(checkin_photo_path).trim()) {
-      geoParts.push(`checkin_photo_path = $${p++}`); geoVals.push(String(checkin_photo_path).trim());
+      geoParts.push(`checkin_photo_path = $${p++} `); geoVals.push(String(checkin_photo_path).trim());
     }
     if (checkin_photo_captured_at != null && String(checkin_photo_captured_at).trim()) {
-      geoParts.push(`checkin_photo_captured_at = $${p++}`); geoVals.push(String(checkin_photo_captured_at).trim());
+      geoParts.push(`checkin_photo_captured_at = $${p++} `); geoVals.push(String(checkin_photo_captured_at).trim());
     }
     const verStatus = bodyVerificationStatus || computeVerificationStatus(inside_geofence, tscore ?? trust_score, 60);
-    geoParts.push(`verification_status = $${p++}`); geoVals.push(verStatus);
+    const finalVerStatus = verStatus === 'AUTO_VERIFIED' ? 'AUTO_APPROVED' : verStatus;
+    geoParts.push(`verification_status = $${p++} `); geoVals.push(finalVerStatus);
+
     geoVals.push(attendanceId);
     try {
       await query(
-        `UPDATE attendance SET ${geoParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${p}`,
+        `UPDATE attendance SET ${geoParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${p} `,
         geoVals
       );
     } catch (err) {
@@ -336,7 +431,7 @@ router.post('/time-in', async (req, res) => {
       'SELECT get_attendance($1) as attendance',
       [attendanceId]
     );
-    
+
     const savedAttendance = attendanceResult.rows[0].attendance;
     console.log("✅ [Attendance POST /time-in] Attendance saved:", {
       attendance_id: savedAttendance?.attendance_id,
@@ -345,7 +440,7 @@ router.post('/time-in', async (req, res) => {
       status: savedAttendance?.status || 'Pending',
       time_in: savedAttendance?.time_in || savedAttendance?.morning_in || savedAttendance?.afternoon_in
     });
-    
+
     res.status(201).json({
       success: true,
       message: 'Time in recorded successfully',
@@ -386,6 +481,35 @@ router.put('/time-out', async (req, res) => {
       return res.status(400).json({ error: 'attendance_id or (student_id and date) is required' });
     }
 
+    // STRICT OJT ENROLLMENT CHECK
+    // Extract student_id from existing attendance record if not provided in body
+    let targetStudentId = student_id;
+    if (!targetStudentId) {
+      const studentIdResult = await query('SELECT student_id FROM attendance WHERE attendance_id = $1', [attendanceId]);
+      if (studentIdResult.rows.length > 0) {
+        targetStudentId = studentIdResult.rows[0].student_id;
+      }
+    }
+
+    const routeRole = req.user ? req.user.role : 'Student';
+    if (routeRole === 'Student' && targetStudentId) {
+      const activeOjtCheck = await query(
+        `SELECT record_id 
+         FROM ojt_records 
+         WHERE student_id = $1 
+         AND status IN('Active', 'Ongoing')
+         AND coordinator_id IS NOT NULL 
+         AND supervisor_id IS NOT NULL`,
+        [targetStudentId]
+      );
+
+      if (activeOjtCheck.rows.length === 0) {
+        return res.status(403).json({
+          error: 'You cannot perform this action because your OJT setup is incomplete. Coordinator or Supervisor assignment is missing.'
+        });
+      }
+    }
+
     let morningOut = null;
     let afternoonOut = null;
     let overtimeOut = null;
@@ -416,22 +540,29 @@ router.put('/time-out', async (req, res) => {
       'SELECT morning_out, afternoon_out, overtime_out, time_out FROM attendance WHERE attendance_id = $1',
       [attendanceId]
     );
-    
+
     if (checkRecord.rows.length === 0) {
       return res.status(404).json({ error: 'Attendance record not found' });
     }
 
     const existing = checkRecord.rows[0];
-    
-    if ((morningOut && existing.morning_out) || 
-        (afternoonOut && existing.afternoon_out) || 
-        (overtimeOut && existing.overtime_out) ||
-        (timeOutValue && existing.time_out && !morningOut && !afternoonOut && !overtimeOut)) {
-      return res.status(400).json({ 
+
+    if ((morningOut && existing.morning_out) ||
+      (afternoonOut && existing.afternoon_out) ||
+      (overtimeOut && existing.overtime_out) ||
+      (timeOutValue && existing.time_out && !morningOut && !afternoonOut && !overtimeOut)) {
+      return res.status(400).json({
         error: 'Time out already recorded for this segment',
         errors: [`${segment || 'time_out'} already exists for this record`]
       });
     }
+
+    // Fetch supervisor_id for auto-verification
+    const supervisorCheck = await query(
+      `SELECT supervisor_id FROM ojt_records WHERE student_id = $1 AND status IN('Active', 'Ongoing') LIMIT 1`,
+      [targetStudentId]
+    );
+    const supervisorId = supervisorCheck.rows.length > 0 ? supervisorCheck.rows[0].supervisor_id : null;
 
     // Build update query dynamically
     let updateFields = [];
@@ -439,22 +570,22 @@ router.put('/time-out', async (req, res) => {
     let paramCount = 1;
 
     if (morningOut !== null) {
-      updateFields.push(`morning_out = $${paramCount}`);
+      updateFields.push(`morning_out = $${paramCount} `);
       updateValues.push(morningOut);
       paramCount++;
     }
     if (afternoonOut !== null) {
-      updateFields.push(`afternoon_out = $${paramCount}`);
+      updateFields.push(`afternoon_out = $${paramCount} `);
       updateValues.push(afternoonOut);
       paramCount++;
     }
     if (overtimeOut !== null) {
-      updateFields.push(`overtime_out = $${paramCount}`);
+      updateFields.push(`overtime_out = $${paramCount} `);
       updateValues.push(overtimeOut);
       paramCount++;
     }
     if (timeOutValue !== null && !morningOut && !afternoonOut && !overtimeOut) {
-      updateFields.push(`time_out = $${paramCount}`);
+      updateFields.push(`time_out = $${paramCount} `);
       updateValues.push(timeOutValue);
       paramCount++;
     }
@@ -465,19 +596,37 @@ router.put('/time-out', async (req, res) => {
 
     // Add attendance_image if provided
     if (attendance_image) {
-      updateFields.push(`attendance_image = $${paramCount}`);
+      updateFields.push(`attendance_image = $${paramCount} `);
       updateValues.push(attendance_image);
       paramCount++;
     }
 
+    // Auto-approve
+    updateFields.push(`status = $${paramCount} `);
+    updateValues.push('Approved');
+    paramCount++;
+
+    updateFields.push(`verified = $${paramCount} `);
+    updateValues.push(true);
+    paramCount++;
+
+    if (supervisorId) {
+      updateFields.push(`verified_by = $${paramCount} `);
+      updateValues.push(supervisorId);
+      paramCount++;
+    }
+
+    updateFields.push(`verified_at = CURRENT_TIMESTAMP`);
+
     updateValues.push(attendanceId);
     const updateSql = `
-      UPDATE attendance 
-      SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
-      WHERE attendance_id = $${paramCount}
-      RETURNING attendance_id
-    `;
-    
+        UPDATE attendance 
+        SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+        WHERE attendance_id = $${paramCount}
+        RETURNING attendance_id
+      `;
+
+
     await query(updateSql, updateValues);
 
     // Optional geofence/trust/checkout/photo/verification (time-out)
@@ -485,33 +634,35 @@ router.put('/time-out', async (req, res) => {
     const geoVals = [];
     let p = 1;
     const clat = safeFloat(checkin_lat); const clng = safeFloat(checkin_lng);
-    if (clat != null) { geoParts.push(`checkin_lat = $${p++}`); geoVals.push(clat); }
-    if (clng != null) { geoParts.push(`checkin_lng = $${p++}`); geoVals.push(clng); }
+    if (clat != null) { geoParts.push(`checkin_lat = $${p++} `); geoVals.push(clat); }
+    if (clng != null) { geoParts.push(`checkin_lng = $${p++} `); geoVals.push(clng); }
     const outLat = safeFloat(checkout_lat); const outLng = safeFloat(checkout_lng);
-    if (outLat != null) { geoParts.push(`checkout_lat = $${p++}`); geoVals.push(outLat); }
-    if (outLng != null) { geoParts.push(`checkout_lng = $${p++}`); geoVals.push(outLng); }
+    if (outLat != null) { geoParts.push(`checkout_lat = $${p++} `); geoVals.push(outLat); }
+    if (outLng != null) { geoParts.push(`checkout_lng = $${p++} `); geoVals.push(outLng); }
     const acc = safeFloat(accuracy_m); const dist = safeFloat(distance_m);
-    if (acc != null) { geoParts.push(`accuracy_m = $${p++}`); geoVals.push(acc); }
-    if (dist != null) { geoParts.push(`distance_m = $${p++}`); geoVals.push(dist); }
-    if (inside_geofence != null) { geoParts.push(`inside_geofence = $${p++}`); geoVals.push(inside_geofence); }
+    if (acc != null) { geoParts.push(`accuracy_m = $${p++} `); geoVals.push(acc); }
+    if (dist != null) { geoParts.push(`distance_m = $${p++} `); geoVals.push(dist); }
+    if (inside_geofence != null) { geoParts.push(`inside_geofence = $${p++} `); geoVals.push(inside_geofence); }
     const tscore = safeInt(trust_score);
-    if (tscore != null) { geoParts.push(`trust_score = $${p++}`); geoVals.push(tscore); }
+    if (tscore != null) { geoParts.push(`trust_score = $${p++} `); geoVals.push(tscore); }
     if (trust_flags != null) {
       const trustFlagsStr = Array.isArray(trust_flags) ? JSON.stringify(trust_flags) : String(trust_flags);
-      geoParts.push(`trust_flags = $${p++}`); geoVals.push(trustFlagsStr);
+      geoParts.push(`trust_flags = $${p++} `); geoVals.push(trustFlagsStr);
     }
     if (checkout_photo_path != null && String(checkout_photo_path).trim()) {
-      geoParts.push(`checkout_photo_path = $${p++}`); geoVals.push(String(checkout_photo_path).trim());
+      geoParts.push(`checkout_photo_path = $${p++} `); geoVals.push(String(checkout_photo_path).trim());
     }
     if (checkout_photo_captured_at != null && String(checkout_photo_captured_at).trim()) {
-      geoParts.push(`checkout_photo_captured_at = $${p++}`); geoVals.push(String(checkout_photo_captured_at).trim());
+      geoParts.push(`checkout_photo_captured_at = $${p++} `); geoVals.push(String(checkout_photo_captured_at).trim());
     }
     const verStatus = bodyVerificationStatus || computeVerificationStatus(inside_geofence, tscore ?? trust_score, 60);
-    geoParts.push(`verification_status = $${p++}`); geoVals.push(verStatus);
+    const finalVerStatus = verStatus === 'AUTO_VERIFIED' ? 'AUTO_APPROVED' : verStatus;
+    geoParts.push(`verification_status = $${p++} `); geoVals.push(finalVerStatus);
+
     geoVals.push(attendanceId);
     try {
       await query(
-        `UPDATE attendance SET ${geoParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${p}`,
+        `UPDATE attendance SET ${geoParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${p} `,
         geoVals
       );
     } catch (err) {
@@ -523,28 +674,28 @@ router.put('/time-out', async (req, res) => {
     await query(`
       UPDATE attendance
       SET total_hours = CASE
-        -- Segment-based: morning + afternoon segments
+--Segment - based: morning + afternoon segments
         WHEN morning_in IS NOT NULL AND morning_out IS NOT NULL 
              AND afternoon_in IS NOT NULL AND afternoon_out IS NOT NULL THEN
-          (EXTRACT(EPOCH FROM (morning_out - morning_in)) / 3600.0) +
-          (EXTRACT(EPOCH FROM (afternoon_out - afternoon_in)) / 3600.0)
-        -- Segment-based: morning_in to afternoon_out (if afternoon_in is missing)
+  (EXTRACT(EPOCH FROM(morning_out - morning_in)) / 3600.0) +
+  (EXTRACT(EPOCH FROM(afternoon_out - afternoon_in)) / 3600.0)
+--Segment - based: morning_in to afternoon_out(if afternoon_in is missing)
         WHEN morning_in IS NOT NULL AND afternoon_out IS NOT NULL THEN
-          EXTRACT(EPOCH FROM (afternoon_out - morning_in)) / 3600.0
-        -- Legacy: time_in to time_out
+EXTRACT(EPOCH FROM(afternoon_out - morning_in)) / 3600.0
+--Legacy: time_in to time_out
         WHEN time_in IS NOT NULL AND time_out IS NOT NULL THEN
-          EXTRACT(EPOCH FROM (time_out - time_in)) / 3600.0
+EXTRACT(EPOCH FROM(time_out - time_in)) / 3600.0
         ELSE total_hours
-      END
+END
       WHERE attendance_id = $1
-    `, [attendanceId]);
+  `, [attendanceId]);
 
     // Get the updated attendance record
     const attendanceResult = await query(
       'SELECT get_attendance($1) as attendance',
       [attendanceId]
     );
-    
+
     res.json({
       message: 'Time out recorded successfully',
       attendance: attendanceResult.rows[0].attendance
@@ -566,24 +717,24 @@ router.get('/summary', async (req, res) => {
         'SELECT get_attendance_statistics($1, NULL, NULL) as statistics',
         [student_id]
       );
-      
+
       // Get student name separately
       const studentResult = await query(
         'SELECT full_name FROM users WHERE user_id = $1',
         [student_id]
       );
-      
+
       // Get last duty date
       const lastDutyResult = await query(
         'SELECT MAX(date) as last_duty_date FROM attendance WHERE student_id = $1',
         [student_id]
       );
-      
+
       const stats = result.rows[0].statistics;
       const studentName = studentResult.rows[0]?.full_name || 'N/A';
       const lastDutyDate = lastDutyResult.rows[0]?.last_duty_date || null;
-      
-      res.json({ 
+
+      res.json({
         summary: [{
           full_name: studentName,
           total_days: parseInt(stats.summary?.total_days || 0),
@@ -617,27 +768,27 @@ router.get('/summary/:studentId', async (req, res) => {
     try {
       // Compute summary directly from attendance table, using only APPROVED records.
       const summaryResult = await query(
-        `SELECT 
-           COALESCE(SUM(total_hours), 0)          AS total_hours_completed,
-           COALESCE(COUNT(DISTINCT date), 0)      AS total_days_present,
-           CASE 
-             WHEN COALESCE(COUNT(DISTINCT date),0) > 0 
-               THEN COALESCE(SUM(total_hours),0) / COALESCE(NULLIF(COUNT(DISTINCT date),0),1)
+        `SELECT
+COALESCE(SUM(total_hours), 0)          AS total_hours_completed,
+  COALESCE(COUNT(DISTINCT date), 0)      AS total_days_present,
+    CASE 
+             WHEN COALESCE(COUNT(DISTINCT date), 0) > 0 
+               THEN COALESCE(SUM(total_hours), 0) / COALESCE(NULLIF(COUNT(DISTINCT date), 0), 1)
              ELSE 0
            END                                    AS avg_hours_per_day
          FROM attendance
          WHERE student_id = $1
            AND status = 'Approved'`,
-      [studentId]
-    );
-    
+        [studentId]
+      );
+
       statsRow = summaryResult.rows[0] || {};
-    
-    // CRITICAL: Only get last duty date from approved attendance
-    const lastDutyResult = await query(
-      'SELECT MAX(date) as last_duty_date FROM attendance WHERE student_id = $1 AND status = \'Approved\'',
-      [studentId]
-    );
+
+      // CRITICAL: Only get last duty date from approved attendance
+      const lastDutyResult = await query(
+        'SELECT MAX(date) as last_duty_date FROM attendance WHERE student_id = $1 AND status = \'Approved\'',
+        [studentId]
+      );
       lastDutyDate = lastDutyResult.rows[0]?.last_duty_date || null;
     } catch (dbErr) {
       // If the attendance table or columns are missing in the current DB,
@@ -657,8 +808,8 @@ router.get('/summary/:studentId', async (req, res) => {
       console.error('Student lookup error (using default name):', dbErr);
       studentName = 'N/A';
     }
-    
-    res.json({ 
+
+    res.json({
       total_hours_completed: parseFloat(statsRow.total_hours_completed || 0),
       total_days_present: parseInt(statsRow.total_days_present || 0),
       last_duty_date: lastDutyDate ? lastDutyDate.toISOString().split('T')[0] : null,
@@ -680,8 +831,8 @@ router.put('/verify/:id', authenticateToken, async (req, res) => {
 
     // Only Supervisor and Admin can verify attendance
     if (userRole !== 'Supervisor' && userRole !== 'Admin') {
-      return res.status(403).json({ 
-        error: 'Only supervisors and administrators can verify attendance' 
+      return res.status(403).json({
+        error: 'Only supervisors and administrators can verify attendance'
       });
     }
 
@@ -704,18 +855,18 @@ router.put('/verify/:id', authenticateToken, async (req, res) => {
     const result = await query(
       `UPDATE attendance 
        SET verified = true,
-           status = 'Approved',
-           verified_by = $1,
-           verified_at = CURRENT_TIMESTAMP
+  status = 'Approved',
+  verified_by = $1,
+  verified_at = CURRENT_TIMESTAMP
        WHERE attendance_id = $2
-       RETURNING *`,
+RETURNING * `,
       [supervisorId, id]
     );
 
     // Get updated record with student name
     const updatedResult = await query(
       `SELECT a.*, u.full_name as student_name,
-              verifier.full_name as verified_by_name
+  verifier.full_name as verified_by_name
        FROM attendance a
        JOIN users u ON a.student_id = u.user_id
        LEFT JOIN users verifier ON a.verified_by = verifier.user_id
@@ -743,15 +894,15 @@ router.put('/status/:id', authenticateToken, async (req, res) => {
 
     // Only Supervisor and Admin can approve/reject attendance
     if (userRole !== 'Supervisor' && userRole !== 'Admin') {
-      return res.status(403).json({ 
-        error: 'Only supervisors and administrators can approve/reject attendance' 
+      return res.status(403).json({
+        error: 'Only supervisors and administrators can approve/reject attendance'
       });
     }
 
     // Validate status
     if (!['Approved', 'Rejected', 'Pending'].includes(status)) {
-      return res.status(400).json({ 
-        error: 'Invalid status. Must be: Approved, Rejected, or Pending' 
+      return res.status(400).json({
+        error: 'Invalid status. Must be: Approved, Rejected, or Pending'
       });
     }
 
@@ -775,7 +926,7 @@ router.put('/status/:id', authenticateToken, async (req, res) => {
 
     if (status === 'Approved') {
       updateFields.push(`verified = true`);
-      updateFields.push(`verified_by = $${paramCount}`);
+      updateFields.push(`verified_by = $${paramCount} `);
       updateFields.push(`verified_at = CURRENT_TIMESTAMP`);
       updateValues.push(supervisorId);
       paramCount++;
@@ -796,14 +947,14 @@ router.put('/status/:id', authenticateToken, async (req, res) => {
       `UPDATE attendance 
        SET ${updateFields.join(', ')}
        WHERE attendance_id = $${paramCount}
-       RETURNING *`,
+RETURNING * `,
       updateValues
     );
 
     // Get updated record with student name
     const updatedResult = await query(
       `SELECT a.*, u.full_name as student_name,
-              verifier.full_name as verified_by_name
+  verifier.full_name as verified_by_name
        FROM attendance a
        JOIN users u ON a.student_id = u.user_id
        LEFT JOIN users verifier ON a.verified_by = verifier.user_id
@@ -830,19 +981,19 @@ router.put('/unverify/:id', authenticateToken, async (req, res) => {
 
     // Only Supervisor and Admin can unverify attendance
     if (userRole !== 'Supervisor' && userRole !== 'Admin') {
-      return res.status(403).json({ 
-        error: 'Only supervisors and administrators can unverify attendance' 
+      return res.status(403).json({
+        error: 'Only supervisors and administrators can unverify attendance'
       });
     }
 
     const result = await query(
       `UPDATE attendance 
        SET verified = false,
-           status = 'Pending',
-           verified_by = NULL,
-           verified_at = NULL
+  status = 'Pending',
+  verified_by = NULL,
+  verified_at = NULL
        WHERE attendance_id = $1
-       RETURNING *`,
+RETURNING * `,
       [id]
     );
 

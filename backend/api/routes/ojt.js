@@ -7,7 +7,7 @@ const { query } = require('../../config/db');
 const authenticateToken = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
@@ -28,7 +28,7 @@ router.get('/records', authenticateToken, async (req, res) => {
       user: req.user
     });
     const { student_id, coordinator_id, supervisor_id, status } = req.query;
-    
+
     let sql = `
       SELECT o.*,
              s.full_name AS student_name,
@@ -37,7 +37,7 @@ router.get('/records', authenticateToken, async (req, res) => {
       FROM ojt_records o
       JOIN users s ON o.student_id = s.user_id
       JOIN users c ON o.coordinator_id = c.user_id
-      JOIN users sup ON o.supervisor_id = sup.user_id
+      LEFT JOIN users sup ON o.supervisor_id = sup.user_id
       WHERE 1=1
     `;
     const params = [];
@@ -81,7 +81,7 @@ router.get('/records', authenticateToken, async (req, res) => {
 router.get('/records/:recordId', authenticateToken, async (req, res) => {
   try {
     const { recordId } = req.params;
-    
+
     const result = await query(
       'SELECT get_ojt_record($1) as record',
       [recordId]
@@ -98,17 +98,66 @@ router.get('/records/:recordId', authenticateToken, async (req, res) => {
   }
 });
 
+// Lookup student by alphanumeric school ID - Requires authentication
+router.get('/lookup-student', authenticateToken, async (req, res) => {
+  try {
+    const { school_id } = req.query;
+    if (!school_id) {
+      return res.status(400).json({ error: 'school_id query parameter is required' });
+    }
+
+    const result = await query(
+      `SELECT user_id, full_name, student_id, course, email, status
+       FROM users
+       WHERE role = 'Student' AND student_id ILIKE $1 AND status = 'Active'
+       LIMIT 5`,
+      [school_id.trim()]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No active student found with that school ID' });
+    }
+
+    res.json({ students: result.rows });
+  } catch (error) {
+    console.error('Lookup student error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create OJT record - Using stored procedure - Requires authentication
 router.post('/records', authenticateToken, async (req, res) => {
   try {
-    const { 
-      student_id, company_name, coordinator_id, supervisor_id, 
-      start_date, end_date, required_hours, company_address, company_contact 
+    const {
+      school_id,          // alphanumeric school ID (preferred)
+      student_id: raw_student_id,  // integer user_id (fallback)
+      company_name, coordinator_id, supervisor_id,
+      start_date, end_date, required_hours, company_address, company_contact
     } = req.body;
 
+    let student_id = raw_student_id;
+
+    // If alphanumeric school_id was provided, resolve it to integer user_id
+    if (school_id && !raw_student_id) {
+      const lookupResult = await query(
+        `SELECT user_id FROM users
+         WHERE role = 'Student' AND student_id ILIKE $1 AND status = 'Active'
+         LIMIT 1`,
+        [school_id.trim()]
+      );
+
+      if (lookupResult.rows.length === 0) {
+        return res.status(404).json({
+          error: `No active student found with school ID: ${school_id}`
+        });
+      }
+
+      student_id = lookupResult.rows[0].user_id;
+    }
+
     if (!student_id || !coordinator_id || !supervisor_id) {
-      return res.status(400).json({ 
-        error: 'student_id, coordinator_id, and supervisor_id are required' 
+      return res.status(400).json({
+        error: 'Either school_id or student_id, plus coordinator_id and supervisor_id, are required'
       });
     }
 
@@ -129,7 +178,7 @@ router.post('/records', authenticateToken, async (req, res) => {
         'SELECT get_ojt_record($1) as record',
         [response.record_id]
       );
-      
+
       res.status(201).json({
         message: 'OJT record created successfully',
         record: recordResult.rows[0].record
@@ -150,9 +199,9 @@ router.post('/records', authenticateToken, async (req, res) => {
 router.put('/records/:recordId', authenticateToken, async (req, res) => {
   try {
     const { recordId } = req.params;
-    const { 
-      company_name, start_date, end_date, required_hours, 
-      status, company_address, company_contact 
+    const {
+      company_name, start_date, end_date, required_hours,
+      status, company_address, company_contact
     } = req.body;
 
     const result = await query(
@@ -170,7 +219,7 @@ router.put('/records/:recordId', authenticateToken, async (req, res) => {
         'SELECT get_ojt_record($1) as record',
         [recordId]
       );
-      
+
       res.json({
         message: 'OJT record updated successfully',
         record: recordResult.rows[0].record
@@ -191,7 +240,7 @@ router.put('/records/:recordId', authenticateToken, async (req, res) => {
 router.delete('/records/:recordId', authenticateToken, async (req, res) => {
   try {
     const { recordId } = req.params;
-    
+
     const result = await query(
       'SELECT delete_ojt_record($1) as result',
       [recordId]
@@ -292,18 +341,20 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
     if (insightResult.rows.length > 0) {
       const insight = insightResult.rows[0];
       try {
-        const resultData = typeof insight.result === 'string' 
-          ? JSON.parse(insight.result) 
+        const resultData = typeof insight.result === 'string'
+          ? JSON.parse(insight.result)
           : insight.result;
-        
+
         aiInsight = {
           insight_id: insight.insight_id,
           model_name: insight.model_name,
           insight_type: insight.insight_type,
-          risk_level: resultData.risk_level || resultData.class_label || null,
-          probability: insight.confidence || resultData.probability || null,
-          top_reasons: resultData.top_reasons || [],
-          recommendation: resultData.recommendation || null,
+          risk_level: resultData.risk_level || resultData.class_label || (resultData.ai_prediction && resultData.ai_prediction.ml_prediction ? resultData.ai_prediction.ml_prediction.risk_level : null),
+          probability: insight.confidence || resultData.probability || (resultData.ai_prediction && resultData.ai_prediction.ml_prediction ? resultData.ai_prediction.ml_prediction.probability : null),
+          top_reasons: resultData.top_reasons || (resultData.ai_prediction && resultData.ai_prediction.ml_prediction ? resultData.ai_prediction.ml_prediction.top_reasons : []),
+          recommendation: resultData.recommendation || (resultData.ai_prediction ? resultData.ai_prediction.recommendation : null),
+          // Include the full raw prediction for the new XAI widgets
+          ai_prediction: resultData.ai_prediction || resultData,
           created_at: insight.created_at
         };
       } catch (e) {
@@ -312,7 +363,7 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
     }
 
     // Calculate progress percentage
-    const progressPercentage = requiredHours > 0 
+    const progressPercentage = requiredHours > 0
       ? Math.min(100, Math.round((completedHours / requiredHours) * 100))
       : 0;
 
@@ -321,7 +372,28 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
 
     // Generate notifications/alerts
     const notifications = [];
-    
+
+    // Derive new strict access control flags
+    const isEnrolled = !!ojtRecord;
+    const hasCoordinator = isEnrolled && !!ojtRecord.coordinator_id;
+    const hasSupervisor = isEnrolled && !!ojtRecord.supervisor_id;
+    const canPerformOjtActions = isEnrolled && hasCoordinator && hasSupervisor;
+    const canUseChecklist = true;
+    const canUseChatbot = true;
+
+    let blockingReason = null;
+    if (!canPerformOjtActions) {
+      if (!isEnrolled) {
+        blockingReason = 'No active or ongoing OJT record found.';
+      } else if (!hasCoordinator && !hasSupervisor) {
+        blockingReason = 'Assigned Coordinator and Supervisor are missing.';
+      } else if (!hasCoordinator) {
+        blockingReason = 'Assigned Coordinator is missing.';
+      } else if (!hasSupervisor) {
+        blockingReason = 'Assigned Supervisor is missing.';
+      }
+    }
+
     // Hours completion alert
     if (progressPercentage >= 90 && progressPercentage < 100) {
       notifications.push({
@@ -409,6 +481,13 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
       })),
       ai_insight: aiInsight,
       notifications: notifications,
+      is_enrolled: isEnrolled,
+      has_coordinator: hasCoordinator,
+      has_supervisor: hasSupervisor,
+      can_perform_ojt_actions: canPerformOjtActions,
+      can_use_checklist: canUseChecklist,
+      can_use_chatbot: canUseChatbot,
+      blocking_reason: blockingReason,
       generated_at: new Date().toISOString()
     };
 
@@ -438,6 +517,13 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
         latest_evaluations: [],
         ai_insight: null,
         notifications: [],
+        is_enrolled: false,
+        has_coordinator: false,
+        has_supervisor: false,
+        can_perform_ojt_actions: false,
+        can_use_checklist: true,
+        can_use_chatbot: true,
+        blocking_reason: 'Failed to compute student status on server',
         generated_at: new Date().toISOString()
       },
       error: 'Failed to compute student status on server'

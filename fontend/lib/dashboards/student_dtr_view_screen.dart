@@ -4,7 +4,11 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-class StudentDTRViewScreen extends StatelessWidget {
+import '../../widgets/restricted_access_screen.dart';
+import '../services/ojt_service.dart';
+import '../services/auth_service.dart';
+
+class StudentDTRViewScreen extends StatefulWidget {
   final String studentName;
   final String studentId;
   final String course;
@@ -21,7 +25,48 @@ class StudentDTRViewScreen extends StatelessWidget {
   });
 
   @override
+  State<StudentDTRViewScreen> createState() => _StudentDTRViewScreenState();
+}
+
+class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
+  bool _isLoading = true;
+  bool _canPerformOjtActions = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkOjtStatus();
+  }
+
+  Future<void> _checkOjtStatus() async {
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (user?.userId != null) {
+        final status = await OjtService.getStudentStatus(user!.userId!);
+        if (mounted) {
+          setState(() {
+            _canPerformOjtActions = status['can_perform_ojt_actions'] == true;
+            _isLoading = false;
+          });
+        }
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (!_canPerformOjtActions) {
+      return const RestrictedAccessScreen();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Student DTR Record"),
@@ -33,7 +78,7 @@ class StudentDTRViewScreen extends StatelessWidget {
         allowSharing: true,
         canChangeOrientation: false,
         canDebug: false,
-        pdfFileName: "DTR_${studentName.replaceAll(' ', '_')}.pdf",
+        pdfFileName: "DTR_${widget.studentName.replaceAll(' ', '_')}.pdf",
       ),
     );
   }
@@ -73,15 +118,15 @@ class StudentDTRViewScreen extends StatelessWidget {
             children: [
               pw.TableRow(children: [
                 _cell("Name:", alignRight: true),
-                _cell(studentName),
+                _cell(widget.studentName),
               ]),
               pw.TableRow(children: [
                 _cell("ID Number:", alignRight: true),
-                _cell(studentId),
+                _cell(widget.studentId),
               ]),
               pw.TableRow(children: [
                 _cell("Course:", alignRight: true),
-                _cell(course),
+                _cell(widget.course),
               ]),
             ],
           ),
@@ -136,7 +181,7 @@ class StudentDTRViewScreen extends StatelessWidget {
           decoration: const pw.BoxDecoration(color: PdfColors.grey300),
           children: headers.map((h) => _headerCell(h)).toList(),
         ),
-        ...dtrRecords.map((record) {
+        ...widget.dtrRecords.map((record) {
           // Use status field if available, otherwise fall back to verified flag
           final status = record['status'] as String? ?? 
                        (record['verified'] == true ? 'Approved' : 'Pending');
@@ -185,7 +230,7 @@ class StudentDTRViewScreen extends StatelessWidget {
           ),
           pw.SizedBox(height: 4),
           pw.Text('Student Trainee', style: const pw.TextStyle(fontSize: 10)),
-          pw.Text(studentName, style: const pw.TextStyle(fontSize: 10)),
+          pw.Text(widget.studentName, style: const pw.TextStyle(fontSize: 10)),
         ]),
         pw.Column(children: [
           pw.Container(
@@ -196,10 +241,10 @@ class StudentDTRViewScreen extends StatelessWidget {
                 bottom: pw.BorderSide(width: 1, color: PdfColors.black),
               ),
             ),
-            child: certSigBytes != null
+            child: widget.certSigBytes != null
                 ? pw.Center(
                     child: pw.Image(
-                      pw.MemoryImage(certSigBytes!),
+                      pw.MemoryImage(widget.certSigBytes!),
                       width: 100,
                       height: 50,
                     ),
@@ -242,7 +287,7 @@ class StudentDTRViewScreen extends StatelessWidget {
 
   double _calculateTotalHours() {
     double total = 0;
-    for (var rec in dtrRecords) {
+    for (var rec in widget.dtrRecords) {
       // Only count hours for Approved records (thesis rule: Approved-only totals)
       final status = rec['status'] as String? ?? 
                     (rec['verified'] == true ? 'Approved' : 'Pending');

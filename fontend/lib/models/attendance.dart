@@ -33,6 +33,7 @@ class Attendance {
   final String? trustFlags; // JSON array string
   final String? checkinPhotoPath;
   final String? checkoutPhotoPath;
+  final bool? hasBase64Image;
 
   Attendance({
     this.attendanceId,
@@ -65,9 +66,11 @@ class Attendance {
     this.trustFlags,
     this.checkinPhotoPath,
     this.checkoutPhotoPath,
+    this.hasBase64Image,
   });
 
-  factory Attendance.fromJson(Map<String, dynamic> json) {
+  factory Attendance.fromJson(Map<dynamic, dynamic> jsonRow) {
+    final json = Map<String, dynamic>.from(jsonRow);
     return Attendance(
       attendanceId: json['attendance_id'] as int?,
       studentId: json['student_id'] as int,
@@ -104,6 +107,7 @@ class Attendance {
       trustFlags: json['trust_flags'] as String?,
       checkinPhotoPath: json['checkin_photo_path'] as String?,
       checkoutPhotoPath: json['checkout_photo_path'] as String?,
+      hasBase64Image: json['has_base64_image'] as bool?,
     );
   }
 
@@ -172,6 +176,7 @@ class Attendance {
     String? trustFlags,
     String? checkinPhotoPath,
     String? checkoutPhotoPath,
+    bool? hasBase64Image,
   }) {
     return Attendance(
       attendanceId: attendanceId ?? this.attendanceId,
@@ -204,6 +209,7 @@ class Attendance {
       trustFlags: trustFlags ?? this.trustFlags,
       checkinPhotoPath: checkinPhotoPath ?? this.checkinPhotoPath,
       checkoutPhotoPath: checkoutPhotoPath ?? this.checkoutPhotoPath,
+      hasBase64Image: hasBase64Image ?? this.hasBase64Image,
     );
   }
 }

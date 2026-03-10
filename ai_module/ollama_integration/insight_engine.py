@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import logging
 from typing import Dict, Any, List, Optional, Tuple
+from integrity_engine import assess_integrity_score
 
 # =========================================================
 # Setup Logging
@@ -234,6 +235,62 @@ def validate_input(snapshot: Dict[str, Any]) -> Tuple[bool, Optional[Dict[str, A
 
 
 # =========================================================
+# Forecasted Grade Calculation
+# =========================================================
+def calculate_forecasted_grade(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Calculates the forecasted final OJT grade based on official university weights:
+    - Weekly Progress Report (WPR): 20%
+    - Narrative Report (NR): 20%
+    - Coordinator Evaluation (CE): 20%
+    - Supervisor Evaluation (SE): 40%
+    
+    If some components are missing (e.g. SE is usually given at the end), 
+    the grade is forecasted by redistributing weights proportionally among available components.
+    """
+    wpr = float(snapshot.get("weekly_progress_grade", 0.0))
+    nr = float(snapshot.get("narrative_report_grade", 0.0))
+    ce = float(snapshot.get("coordinator_eval_grade", 0.0))
+    se = float(snapshot.get("supervisor_eval_grade", 0.0))
+    
+    has_wpr = float(snapshot.get("has_weekly_progress_grade", 0)) > 0
+    has_nr = float(snapshot.get("has_narrative_report_grade", 0)) > 0
+    has_ce = float(snapshot.get("has_coordinator_eval_grade", 0)) > 0
+    has_se = float(snapshot.get("has_supervisor_eval_grade", 0)) > 0
+    
+    # Base weights
+    weights = {
+        "wpr": 0.20 if has_wpr else 0.0,
+        "nr": 0.20 if has_nr else 0.0,
+        "ce": 0.20 if has_ce else 0.0,
+        "se": 0.40 if has_se else 0.0
+    }
+    
+    total_active_weight = sum(weights.values())
+    raw_total = (wpr * 0.20) + (nr * 0.20) + (ce * 0.20) + (se * 0.40)
+    
+    if total_active_weight == 0:
+        forecasted_grade = 0.0
+    else:
+        # Forecasted grade normalizes the active weights to 100%
+        forecasted_grade = ((wpr * weights["wpr"]) + (nr * weights["nr"]) + 
+                           (ce * weights["ce"]) + (se * weights["se"])) / total_active_weight
+                           
+    return {
+        "status": "partial" if total_active_weight < 1.0 else "complete",
+        "raw_score": round(raw_total, 2),
+        "forecasted_grade": round(forecasted_grade, 2),
+        "available_weight_percent": round(total_active_weight * 100),
+        "components": {
+            "weekly_progress": { "score": round(wpr, 2), "weight": "20%", "available": has_wpr },
+            "narrative_report": { "score": round(nr, 2), "weight": "20%", "available": has_nr },
+            "coordinator_eval": { "score": round(ce, 2), "weight": "20%", "available": has_ce },
+            "supervisor_eval": { "score": round(se, 2), "weight": "40%", "available": has_se }
+        }
+    }
+
+
+# =========================================================
 # Feature Mapping from Snapshot
 # =========================================================
 def build_features_from_snapshot(snapshot: Dict[str, Any]) -> Dict[str, float]:
@@ -385,9 +442,9 @@ def generate_top_reasons(
     hours_ratio = features_dict.get('hours_completed_ratio', 0)
     
     if attendance_rate < 60:
-        reasons.append(f"Low attendance rate ({attendance_rate:.1f}%)")
+        reasons.append(f"Low attendance rate ({attendance_rate:.1f}%) - impacts 20% Weekly Progress score")
     elif attendance_rate < 80:
-        reasons.append(f"Attendance rate below target ({attendance_rate:.1f}%)")
+        reasons.append(f"Attendance rate below target ({attendance_rate:.1f}%) - impacts 20% Weekly Progress score")
     
     if hours_ratio < 0.5:
         reasons.append(f"Low completed hours ({total_hours:.0f}/{required_hours:.0f} hours, {hours_ratio*100:.1f}% complete)")
@@ -399,7 +456,7 @@ def generate_top_reasons(
     distinct_competencies = features_dict.get('number_of_distinct_competencies', 0)
     
     if total_tasks < 10:
-        reasons.append(f"Few tasks logged ({total_tasks} tasks)")
+        reasons.append(f"Few tasks logged ({total_tasks} tasks) - impacts 20% Weekly Progress score")
     elif distinct_competencies < 3:
         reasons.append(f"Limited competency diversity ({distinct_competencies} competencies)")
     
@@ -436,20 +493,24 @@ def generate_top_reasons(
     
     # Use feature importances if available
     if feature_importances:
-        top_feature = list(feature_importances.keys())[0]
-        top_importance = feature_importances[top_feature]
-        top_value = features_dict.get(top_feature, 0)
-        
-        # Create reason based on top feature
-        if 'attendance' in top_feature.lower():
-            if top_value < 15:
-                reasons.insert(0, f"Attendance is the most critical factor (only {top_value:.0f} days present)")
-        elif top_value < 70:
-            reasons.insert(0, f"{top_feature} is below satisfactory ({top_value:.1f})")
+        try:
+            iter_keys = iter(feature_importances.keys())
+            top_feature = next(iter_keys)
+            top_importance = feature_importances[top_feature]
+            top_value = features_dict.get(top_feature, 0)
+            
+            # Create reason based on top feature
+            if 'attendance' in top_feature.lower():
+                if top_value < 15:
+                    reasons.insert(0, f"Attendance is the most critical factor (only {top_value:.0f} days present)")
+            elif top_value < 70:
+                reasons.insert(0, f"{top_feature} is below satisfactory ({top_value:.1f})")
+        except StopIteration:
+            pass
     
     # Limit to top 5 reasons
     if len(reasons) > 5:
-        reasons = reasons[:5]
+        reasons = list(reasons)[:5]
     
     # If no specific reasons found, provide generic one
     if not reasons:
@@ -618,14 +679,42 @@ def predict_performance(features_dict: Dict[str, float]) -> Dict[str, Any]:
         top_reasons = generate_top_reasons(features_dict, str(predicted_label), risk_level, RF_MODEL)
         recommendation = generate_recommendation(risk_level, top_reasons, features_dict)
         
+        # Calculate 0-100 Progress Score based on ML probability
+        # If LOW risk: 80 - 100
+        # If MEDIUM risk: 50 - 79
+        # If HIGH risk: 0 - 49
+        
+        # First, ensure probability is for the predicted class
+        # (Usually probability is high for predicted class, so e.g. 0.9 Low Risk => score 98)
+        
+        progress_score = 0
+        if risk_level == "LOW":
+            progress_score = 80 + (probability * 20)  # Maps 0-1 prob to 80-100 range roughly
+        elif risk_level == "MEDIUM":
+            progress_score = 50 + (probability * 29)  # Maps 0-1 prob to 50-79 range roughly
+        else: # HIGH
+            progress_score = max(0.0, 49.0 - (probability * 49.0))  # Higher confidence of HIGH risk = lower score
+
+            
+        progress_score = min(100, max(0, int(progress_score)))
+        
+        # Build unified JSON schema elements (alongside backward-compatible keys)
         return {
             "success": True,
+            # Backward-compatible fields
             "risk_level": risk_level,
             "predicted_label": str(predicted_label),
             "probabilities": probabilities,
-            "probability": probability,
+            "probability": float(probability),
             "top_reasons": top_reasons,
-            "recommendation": recommendation
+            "recommendation": recommendation,
+            
+            # New Unified Schema fields
+            "summary": recommendation,
+            "score": progress_score,
+            "confidence": float(probability),
+            "key_factors": top_reasons,
+            "recommendations": [recommendation] # Overwritten by Gemma if enabled
         }
     
     except Exception as e:
@@ -840,12 +929,89 @@ def predict_with_explanation(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning(f"Input validation failed for snapshot: {snapshot}")
         return error_response
     
+    # Step 1.5: Early-stage detection — return a sensible fallback for students just starting OJT
+    total_hours = float(snapshot.get('total_hours_completed', 0))
+    attendance_rate = float(snapshot.get('attendance_rate', 0))
+    total_tasks = float(snapshot.get('total_tasks_logged', 0))
+    required_hours = float(snapshot.get('required_hours', 300))
+    hours_ratio = total_hours / required_hours if required_hours > 0 else 0.0
+    
+    IS_EARLY_STAGE = total_hours < 10 and total_tasks < 5
+    
+    if IS_EARLY_STAGE:
+        logger.info(f"Early OJT stage detected (hours={total_hours}, tasks={total_tasks}). Returning warm-start prediction.")
+        grading_result = calculate_forecasted_grade(snapshot)
+        integrity_result = assess_integrity_score(
+            inside_geofence=snapshot.get('inside_geofence', True),
+            distance_m=snapshot.get('distance_m', 0.0),
+            accuracy_m=snapshot.get('accuracy_m', 10.0),
+            trust_flags=snapshot.get('trust_flags', ''),
+            has_photo=snapshot.get('has_photo', True),
+            recent_flags_count=snapshot.get('recent_flags_count', 0)
+        )
+        early_summary = (
+            "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. "
+            "Keep logging daily tasks and attendance consistently."
+        )
+        return {
+            "success": True,
+            "early_stage": True,
+            "risk_level": "LOW",
+            "predicted_label": "LOW",
+            "probability": 0.5,
+            "probabilities": {"LOW": 0.5, "MEDIUM": 0.3, "HIGH": 0.2},
+            "top_reasons": ["Student just started OJT. Insufficient data for full prediction."],
+            "recommendation": early_summary,
+            "summary": early_summary,
+            "score": 50,
+            "confidence": 0.5,
+            "key_factors": ["Early OJT stage", f"Hours completed: {total_hours:.0f} / {required_hours:.0f}"],
+            "trend": {"status": "Stable", "reason": "OJT just started"},
+            "integrity": integrity_result,
+            "grading": grading_result,
+            "ml_prediction": {
+                "success": True,
+                "risk_level": "LOW",
+                "probability": 0.5,
+                "score": 50,
+                "key_factors": ["Early OJT stage. Log tasks and attendance to unlock predictions."],
+            },
+            "gemma_explanation": early_summary,
+            "gemma_recommendations": [
+                "Log your daily tasks regularly in the app.",
+                "Ensure each attendance entry is approved by your supervisor.",
+                "Explore multiple OJT competencies early."
+            ]
+        }
+    
     try:
         # Step 2: Convert snapshot to features
         features_dict = build_features_from_snapshot(snapshot)
         
         # Step 3: Run ML prediction (with explainability)
         ml_result = predict_performance(features_dict)
+        
+        # Step 3.5: Run Integrity Assessment and Trend Extraction
+        inside_geofence = snapshot.get("inside_geofence", True)
+        distance_m = snapshot.get("distance_m", 0.0)
+        accuracy_m = snapshot.get("accuracy_m", 10.0)
+        trust_flags = snapshot.get("trust_flags", "")
+        has_photo = snapshot.get("has_photo", True)
+        recent_flags_count = snapshot.get("recent_flags_count", 0)
+        
+        integrity_result = assess_integrity_score(
+            inside_geofence=inside_geofence,
+            distance_m=distance_m,
+            accuracy_m=accuracy_m,
+            trust_flags=trust_flags,
+            has_photo=has_photo,
+            recent_flags_count=recent_flags_count
+        )
+        
+        trend_result = {
+            "status": snapshot.get("trend_status", "stable"),
+            "reason": snapshot.get("trend_reason", "Performance is consistent")
+        }
         
         # If ML prediction failed, return error
         if not ml_result.get("success", False):
@@ -891,13 +1057,26 @@ Keep your total response under 250 words. Format recommendations as numbered or 
             gemma_explanation = f"AI explanation service is currently unavailable. Please refer to the ML prediction recommendations above."
             gemma_recommendations = []
         
-        # Step 6: Return combined result
-        return {
-            "success": True,
-            "ml_prediction": ml_result,
-            "gemma_explanation": gemma_explanation,
-            "gemma_recommendations": gemma_recommendations
-        }
+        # Step 6: Return combined result fitting the Unified Schema
+        unified_response = ml_result.copy()
+        
+        if gemma_explanation:
+            unified_response["summary"] = gemma_explanation
+            # Use Gemma recommendations if we have them, else fall back to ML recommendation format
+            if gemma_recommendations:
+                unified_response["recommendations"] = gemma_recommendations
+                
+        # To maintain exact legacy contract format while supporting unified schema
+        unified_response["ml_prediction"] = ml_result
+        unified_response["gemma_explanation"] = unified_response.get("summary", "")
+        unified_response["gemma_recommendations"] = unified_response.get("recommendations", [])
+        
+        # Inject structural blocks
+        unified_response["trend"] = trend_result
+        unified_response["integrity"] = integrity_result
+        unified_response["grading"] = calculate_forecasted_grade(snapshot)
+                
+        return unified_response
     
     except Exception as e:
         logger.error(f"Error in predict_with_explanation: {e}", exc_info=True)

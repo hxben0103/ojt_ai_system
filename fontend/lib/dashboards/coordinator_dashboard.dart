@@ -5,11 +5,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/role_dashboard.dart';
 import '../widgets/role_guard.dart';
 import '../widgets/stat_card.dart';
+import '../widgets/modern_stat_card.dart';
 import '../widgets/section_header.dart';
 import '../widgets/loading_skeleton.dart';
 import '../core/app_theme.dart';
 import '../widgets/error_state_widget.dart';
 import '../services/cache_service.dart';
+import '../widgets/insight_card.dart';
+import '../widgets/modern_table_card.dart';
+import '../widgets/integrity_badge.dart';
+import '../widgets/explainable_ai_panel.dart';
+import '../widgets/weekly_ai_summary_card.dart';
+import '../widgets/integrity_timeline_card.dart';
 import 'coordinator_student_monitor.dart';
 import '../screens/login_screen.dart';
 import '../services/auth_service.dart';
@@ -20,12 +27,14 @@ import '../services/daily_task_service.dart';
 import '../services/analytics_service.dart';
 import '../models/user.dart';
 import '../models/ojt_record.dart';
+import '../models/attendance.dart';
 import '../models/daily_task.dart';
 import '../screens/coordinator/coordinator_supervisor_feedback_screen.dart';
 import '../screens/coordinator/coordinator_performance_analysis_screen.dart';
 import '../screens/coordinator/coordinator_user_approvals_screen.dart';
 import '../screens/coordinator/coordinator_reports_screen.dart';
 import '../screens/coordinator/coordinator_ojt_management_screen.dart';
+import '../screens/coordinator/coordinator_attendance_map_screen.dart';
 
 class CoordinatorDashboard extends StatefulWidget {
   const CoordinatorDashboard({super.key});
@@ -58,6 +67,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
   int _activeOjt = 0;
   double _averageCompletionRatio = 0;
   double _averageAttendanceRate = 0;
+  double _averageForecastedGrade = 0.0;
   String? _mostCommonCompetency;
 
   List<_CoordinatorStudentSnapshot> _studentSnapshots = [];
@@ -140,7 +150,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
 
       Map<String, dynamic> overview = {};
       try {
-        overview = await AnalyticsService.getCoordinatorOverview();
+        overview = await AnalyticsService.getCoordinatorOverview(coordinatorId: currentUser!.userId);
         _analyticsWarning = null;
       } catch (e) {
         debugPrint('[CoordinatorDashboard] Analytics API failed: $e');
@@ -148,10 +158,17 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       }
       if (!mounted) return;
 
+      // Get today's attendance for all students efficiently
+      final String todayStr = DateTime.now().toIso8601String().split('T')[0];
+      final List<Attendance> todayAttendance = await AttendanceService.getAttendance(date: todayStr);
+      final Map<int, Attendance> todayMap = {
+        for (var a in todayAttendance) a.studentId: a
+      };
+
       // Detailed per-student snapshots (for list & modal views)
       final snapshotFutures = <Future<_CoordinatorStudentSnapshot?>>[];
       for (final record in ojtRecords) {
-        snapshotFutures.add(_buildStudentSnapshot(record));
+        snapshotFutures.add(_buildStudentSnapshot(record, todayRecord: todayMap[record.studentId]));
       }
       final snapshotsRaw = await Future.wait(snapshotFutures);
       if (!mounted) return;
@@ -173,9 +190,11 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
         }
       }
 
-      // Aggregate completion & attendance
+      // Aggregate completion, attendance, and AI forecasting
       double avgCompletionRatio = 0;
       double avgAttendanceRate = 0;
+      double avgForecastedGrade = 0;
+      int studentsWithGrade = 0;
       String? topCompetency;
 
       if (overview.isNotEmpty) {
@@ -215,6 +234,18 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
         }
         topCompetency = _computeMostCommonCompetency(snapshots);
       }
+      
+      if (snapshots.isNotEmpty) {
+        for (final s in snapshots) {
+          if (s.forecastedGrade != null && s.forecastedGrade! > 0) {
+            avgForecastedGrade += s.forecastedGrade!;
+            studentsWithGrade++;
+          }
+        }
+        if (studentsWithGrade > 0) {
+          avgForecastedGrade /= studentsWithGrade;
+        }
+      }
 
       if (!mounted) return;
       _safeSetState(() {
@@ -231,6 +262,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             topCompetency ?? _computeMostCommonCompetency(snapshots);
         _isLoadingStats = false;
         _isFromCache = false;
+        _averageForecastedGrade = avgForecastedGrade;
       });
 
       // Surface warnings to user
@@ -251,6 +283,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
               'active': active,
               'avg_completion': avgCompletionRatio,
               'avg_attendance': avgAttendanceRate,
+              'avg_forecasted_grade': avgForecastedGrade,
             },
             ttl: const Duration(minutes: 15),
           );
@@ -272,6 +305,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
           _activeOjt = (cached['active'] as int?) ?? 0;
           _averageCompletionRatio = (cached['avg_completion'] as num?)?.toDouble() ?? 0;
           _averageAttendanceRate = (cached['avg_attendance'] as num?)?.toDouble() ?? 0;
+          _averageForecastedGrade = (cached['avg_forecasted_grade'] as num?)?.toDouble() ?? 0;
           _isLoadingStats = false;
           _isFromCache = true;
           _errorMessage = null;
@@ -334,7 +368,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
   }
 
   Future<_CoordinatorStudentSnapshot?> _buildStudentSnapshot(
-      OjtRecord record) async {
+      OjtRecord record, {Attendance? todayRecord}) async {
     try {
       final studentId = record.studentId;
       final requiredHours = record.requiredHours ?? 300;
@@ -370,18 +404,60 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       List<String> riskReasons = const [];
       String? recommendation;
 
+      int? aiScore;
+      Map<String, dynamic>? aiTrend;
+      Map<String, dynamic>? aiIntegrity;
+      double? forecastedGrade;
+      String? aiSummary;
+      List<String>? aiRecommendations;
+
       if (prediction is Map<String, dynamic>) {
         final aiPrediction =
             prediction['ai_prediction'] as Map<String, dynamic>? ?? {};
+            
+        // Extract new unified schema fields
+        aiScore = (aiPrediction['score'] as num?)?.toInt();
+        if (aiPrediction.containsKey('trend') && aiPrediction['trend'] != null) {
+          aiTrend = Map<String, dynamic>.from(aiPrediction['trend'] as Map);
+        }
+        if (aiPrediction.containsKey('integrity') && aiPrediction['integrity'] != null) {
+          aiIntegrity = Map<String, dynamic>.from(aiPrediction['integrity'] as Map);
+        }
+        
+        final grading = aiPrediction['grading'];
+        if (grading != null) {
+          forecastedGrade = (grading['forecasted_grade'] as num?)?.toDouble();
+        }
+        
+        aiSummary = aiPrediction['summary'] as String?;
+        
+        // Fallback to older fields if needed
         final mlPrediction =
             aiPrediction['ml_prediction'] as Map<String, dynamic>? ?? {};
         riskLevel = (mlPrediction['risk_level'] as String? ?? 'LOW').toUpperCase();
-        riskConfidence = (mlPrediction['probability'] as num?)?.toDouble();
-        final reasons =
-            (mlPrediction['top_reasons'] as List<dynamic>?)?.cast<String>();
-        riskReasons = reasons ?? const [];
-        recommendation =
-            aiPrediction['recommendation'] as String? ?? mlPrediction['recommendation'] as String?;
+        riskConfidence = (aiPrediction['confidence'] as num?)?.toDouble() ?? (mlPrediction['probability'] as num?)?.toDouble();
+        
+        final reasonsList = (aiPrediction['key_factors'] as List?) ?? (mlPrediction['top_reasons'] as List?);
+        riskReasons = reasonsList?.cast<String>() ?? const [];
+        
+        final recList = aiPrediction['recommendations'] as List?;
+        aiRecommendations = recList?.cast<String>();
+        
+        recommendation = aiPrediction['summary'] as String? ?? 
+                         aiPrediction['recommendation'] as String? ?? 
+                         mlPrediction['recommendation'] as String?;
+      }
+
+      // Determine if flagged out or in
+      bool isFlaggedOut = false;
+      String? verStatus = todayRecord?.verificationStatus;
+      
+      if (todayRecord != null) {
+        // If any "OUT" segment is set, we treat recent action as an "OUT"
+        isFlaggedOut = todayRecord.morningOut != null || 
+                       todayRecord.afternoonOut != null || 
+                       todayRecord.overtimeOut != null || 
+                       todayRecord.timeOut != null;
       }
 
       return _CoordinatorStudentSnapshot(
@@ -401,6 +477,14 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
         riskReasons: riskReasons,
         riskRecommendation: recommendation,
         ojtStatus: record.status,
+        latestVerificationStatus: verStatus,
+        isLatestOut: isFlaggedOut,
+        aiScore: aiScore,
+        aiTrend: aiTrend,
+        aiIntegrity: aiIntegrity,
+        forecastedGrade: forecastedGrade,
+        aiSummary: aiSummary,
+        aiRecommendations: aiRecommendations,
       );
     } catch (e, stack) {
       debugPrint('[CoordinatorDashboard] Failed to load student snapshot: $e');
@@ -449,6 +533,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       tasks: const [],
       customActions: [
         _buildAnimatedCard(_buildProfileHeader(), delay: 0),
+        const SizedBox(height: AppTheme.spacing12),
         
         // Statistics Section
         _buildAnimatedCard(
@@ -459,312 +544,251 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
           delay: 50,
         ),
         _buildAnimatedCard(_buildStatsRow(), delay: 100),
+        const SizedBox(height: AppTheme.spacing24),
+        
+        _buildAnimatedCard(_buildGlobalRiskInsight(), delay: 130),
+        const SizedBox(height: AppTheme.spacing24),
+        
+        // Integrity Timeline (System Wide)
+        _buildAnimatedCard(_buildSystemIntegrityTimeline(), delay: 145),
+        const SizedBox(height: AppTheme.spacing24),
         
         _buildAnimatedCard(
-          SectionHeader(
-            title: 'Student Progress & Risk',
-            icon: Icons.assignment_ind_rounded,
-            trailing: _isLoadingStats ? null : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppTheme.coordinatorPrimary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '$_totalStudents total',
-                style: TextStyle(color: AppTheme.coordinatorPrimary, fontSize: 12, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-          delay: 130,
-        ),
-        _buildAnimatedCard(_buildStudentListSection(), delay: 160),
-        
-        // Quick Actions Section
-        _buildAnimatedCard(
-          SectionHeader(
-            title: 'Management Actions',
-            icon: Icons.bolt_rounded,
-          ),
-          delay: 150,
-        ),
-        _buildAnimatedCard(
-          _buildFeatureCard(
-            icon: Icons.insights_rounded,
-            color: Colors.blue,
-            title: "Track Tasks & Attendance",
-            subtitle: "View students' progress and attendance records",
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const CoordinatorStudentMonitor()),
-              );
-            },
-          ),
-          delay: 200,
-        ),
-        _buildAnimatedCard(
-          _buildFeatureCard(
-            icon: Icons.feedback_rounded,
-            color: Colors.orange,
-            title: "Review Supervisor Feedback",
-            subtitle: "Check evaluations and feedback given by supervisors",
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) =>
-                      const CoordinatorSupervisorFeedbackScreen(),
-                ),
-              );
-            },
-          ),
-          delay: 400,
-        ),
-        _buildAnimatedCard(
-          _buildFeatureCard(
-            icon: Icons.analytics_rounded,
-            color: Colors.purple,
-            title: "Identify Performers",
-            subtitle: "Analyze student performance metrics",
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) =>
-                      const CoordinatorPerformanceAnalysisScreen(),
-                ),
-              );
-            },
-          ),
-          delay: 600,
-        ),
-        _buildAnimatedCard(
-          _buildFeatureCard(
+          ModernTableCard(
+            title: 'Attendance Integrity Monitoring',
             icon: Icons.verified_user_rounded,
-            color: Colors.green,
-            title: "Approve Accounts",
-            subtitle: "Approve new students and assigned supervisors",
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CoordinatorUserApprovalsScreen(),
-                ),
-              );
-            },
+            table: _buildStudentListSection(),
           ),
-          delay: 800,
+          delay: 160,
         ),
-        _buildAnimatedCard(
-          _buildFeatureCard(
-            icon: Icons.folder_shared_rounded,
-            color: Colors.teal,
-            title: "Manage OJT Records",
-            subtitle: "Create and manage OJT records for students",
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CoordinatorOjtManagementScreen(),
-                ),
-              );
-            },
-          ),
-          delay: 1000,
-        ),
-        _buildAnimatedCard(
-          _buildFeatureCard(
-            icon: Icons.message_rounded,
-            color: Colors.indigo,
-            title: "Communicate",
-            subtitle: "Send announcements to students and supervisors",
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content:
-                        Text("Messaging functionality coming soon...")),
-              );
-            },
-          ),
-          delay: 1200,
-        ),
-        _buildAnimatedCard(
-          _buildFeatureCard(
-            icon: Icons.picture_as_pdf_rounded,
-            color: Colors.red,
-            title: "Create Reports",
-            subtitle:
-                "Generate reports on OJT activities and attendance",
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CoordinatorReportsScreen(),
-                ),
-              );
-            },
-          ),
-          delay: 1400,
-        ),
+        const SizedBox(height: AppTheme.spacing24),
+        
+        _buildAnimatedCard(_buildManagementGroup(), delay: 200),
 
-        const SizedBox(height: 12),
+        const SizedBox(height: AppTheme.spacing32),
         _buildAnimatedCard(_buildLogoutCard(context), delay: 1600),
+        const SizedBox(height: AppTheme.spacing48),
       ],
     );
   }
 
-  // --- Statistics Row ---
+  // --- Statistics Row (compact 4-up) ---
   Widget _buildStatsRow() {
     if (_isLoadingStats) {
       return const Padding(
-        padding: EdgeInsets.all(AppTheme.spacing16),
-        child: Center(child: CircularProgressIndicator()),
+        padding: EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+        child: LoadingSkeleton(height: 88),
       );
     }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: 'Total Students',
-                  value: '$_totalStudents',
-                  icon: Icons.people_rounded,
-                  color: AppTheme.coordinatorPrimary,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CoordinatorStudentMonitor(),
-                      ),
-                    );
-                  },
-                ),
+          ModernStatCard(
+            label: 'Students',
+            value: '$_totalStudents',
+            icon: Icons.people_rounded,
+            color: AppTheme.coordinatorPrimary,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CoordinatorStudentMonitor(),
               ),
-              const SizedBox(width: AppTheme.spacing12),
-              Expanded(
-                child: StatCard(
-                  title: 'High Risk',
-                  value: '$_highRiskStudents',
-                  icon: Icons.warning_amber_rounded,
-                  color: AppTheme.errorColor,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const CoordinatorPerformanceAnalysisScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: AppTheme.spacing12),
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: 'Medium Risk',
-                  value: '$_mediumRiskStudents',
-                  icon: Icons.report_problem_rounded,
-                  color: Colors.orangeAccent,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const CoordinatorPerformanceAnalysisScreen(),
-                      ),
-                    );
-                  },
-                ),
+          const SizedBox(width: AppTheme.spacing8),
+          ModernStatCard(
+            label: 'High Risk',
+            value: '$_highRiskStudents',
+            icon: Icons.warning_amber_rounded,
+            color: AppTheme.errorColor,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CoordinatorPerformanceAnalysisScreen(),
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: AppTheme.spacing12),
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: 'Avg Completion %',
-                   value:
-                      '${(_averageCompletionRatio * 100).toStringAsFixed(0)}%',
-                  icon: Icons.timer_rounded,
-                  color: AppTheme.infoColor,
-                ),
-              ),
-              const SizedBox(width: AppTheme.spacing12),
-              Expanded(
-                child: StatCard(
-                  title: 'Avg Attendance %',
-                   value: '${_averageAttendanceRate.toStringAsFixed(0)}%',
-                  icon: Icons.calendar_today_rounded,
-                  color: AppTheme.successColor,
-                ),
-              ),
-              Expanded(
-                child: StatCard(
-                  title: 'Active OJT',
-                   value: '$_activeOjt',
-                  icon: Icons.work_history_rounded,
-                  color: AppTheme.infoColor,
-                ),
-              ),
-            ],
+          const SizedBox(width: AppTheme.spacing8),
+          ModernStatCard(
+            label: 'Avg Forecast',
+            value: _averageForecastedGrade > 0
+                ? _averageForecastedGrade.toStringAsFixed(1)
+                : 'N/A',
+            icon: Icons.analytics_rounded,
+            color: Colors.blue.shade700,
+          ),
+          const SizedBox(width: AppTheme.spacing8),
+          ModernStatCard(
+            label: 'Active OJT',
+            value: '$_activeOjt',
+            icon: Icons.work_history_rounded,
+            color: AppTheme.successColor,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStudentListSection() {
-    if (_isLoadingStats) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-        child: Column(
-          children: [
-            LoadingSkeleton(height: 120),
-            SizedBox(height: 12),
-            LoadingSkeleton(height: 120),
-          ],
-        ),
-      );
-    }
+  Widget _buildGlobalRiskInsight() {
+    if (_isLoadingStats) return const SizedBox.shrink();
+    
+    final riskLevel = _highRiskStudents > 0 ? 'HIGH' : (_mediumRiskStudents > 0 ? 'MEDIUM' : 'LOW');
+    final Color color = riskLevel == 'HIGH' ? AppTheme.errorColor : (riskLevel == 'MEDIUM' ? AppTheme.warningColor : AppTheme.successColor);
+    
+    final List<String> insights = [];
+    if (_highRiskStudents > 0) insights.add("$_highRiskStudents students flagging attendance risks.");
+    if (_predictionFailures > 0) insights.add("AI Prediction unavailable for some students.");
+    if (_averageAttendanceRate < 0.7) insights.add("Average attendance rate is below threshold.");
 
+    return InsightCard(
+      title: "System Risk Overview",
+      subtitle: "Aggregate AI monitoring of all assigned students",
+      icon: Icons.psychology_rounded,
+      statusLabel: riskLevel,
+      statusColor: color,
+      progressValue: _averageCompletionRatio,
+      insights: insights,
+      recommendation: _highRiskStudents > 0 
+          ? "Prioritize reviewing flagged student attendance logs." 
+          : "All monitoring services are active and stable.",
+      onRetry: _loadDashboardStats,
+    );
+  }
+
+  Widget _buildStudentListSection() {
     if (_studentSnapshots.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-        child: Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-          ),
-          child: const Padding(
-            padding: EdgeInsets.all(AppTheme.spacing16),
-            child: Text('No students assigned yet.'),
+        padding: const EdgeInsets.all(AppTheme.spacing24),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.people_outline_rounded, size: 48, color: Colors.grey[300]),
+              const SizedBox(height: 12),
+              Text('No students assigned yet.', style: AppTheme.bodySmall),
+            ],
           ),
         ),
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _studentSnapshots.length,
+      separatorBuilder: (context, index) => const Divider(height: 1, indent: 64),
+      itemBuilder: (context, index) {
+        final snapshot = _studentSnapshots[index];
+        final riskColor = snapshot.riskLevel == 'HIGH' ? AppTheme.errorColor : (snapshot.riskLevel == 'MEDIUM' ? AppTheme.warningColor : AppTheme.successColor);
+        
+        return ListTile(
+          onTap: () => _showStudentDetail(snapshot),
+          leading: CircleAvatar(
+            backgroundColor: riskColor.withOpacity(0.1),
+            child: Text(
+              snapshot.studentName[0].toUpperCase(),
+              style: TextStyle(color: riskColor, fontWeight: FontWeight.bold),
+            ),
+          ),
+          title: Text(snapshot.studentName, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
+          subtitle: Row(
+            children: [
+              Text("${(snapshot.completionRatio * 100).toInt()}% Done", style: AppTheme.bodySmall),
+              const SizedBox(width: 8),
+              if (snapshot.isFlagged)
+                IntegrityBadge.flagged(isOut: snapshot.isLatestOut, isCompact: true)
+              else
+                IntegrityBadge.trust(flaggedCount: snapshot.lateCount, isCompact: true),
+            ],
+          ),
+          trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey[300], size: 20),
+        );
+      },
+    );
+  }
+
+  Widget _buildManagementGroup() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [AppTheme.cardShadow],
+      ),
       child: Column(
-        children: _studentSnapshots
-            .map(
-              (snapshot) => _CoordinatorStudentCard(
-                snapshot: snapshot,
-                onTap: () => _showStudentDetail(snapshot),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                Icon(Icons.bolt_rounded, size: 20, color: Colors.grey[600]),
+                const SizedBox(width: 8),
+                Text("Operational Controls", style: AppTheme.heading3.copyWith(fontSize: 16)),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          _actionTile(
+            Icon(Icons.insights_rounded, color: Colors.blue[400]),
+            "Student Monitoring",
+            "Attendance & Task Validation",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorStudentMonitor())),
+          ),
+          const Divider(height: 1, indent: 56),
+          _actionTile(
+            Icon(Icons.verified_user_rounded, color: Colors.green[400]),
+            "User Approvals",
+            "Approve Students & Supervisors",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorUserApprovalsScreen())),
+          ),
+          const Divider(height: 1, indent: 56),
+          _actionTile(
+            Icon(Icons.folder_shared_rounded, color: Colors.teal[400]),
+            "OJT Management",
+            "Assign Records & Company Details",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorOjtManagementScreen())),
+          ),
+          const Divider(height: 1, indent: 56),
+          _actionTile(
+            Icon(Icons.picture_as_pdf_rounded, color: Colors.red[400]),
+            "System Reports",
+            "Generate Compliance PDF Exports",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorReportsScreen())),
+            isLast: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionTile(Widget icon, String title, String subtitle, VoidCallback onTap, {bool isLast = false}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: isLast ? const BorderRadius.vertical(bottom: Radius.circular(16)) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(10)),
+              child: icon,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
+                  Text(subtitle, style: AppTheme.bodySmall.copyWith(color: Colors.grey[500])),
+                ],
               ),
-            )
-            .toList(),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.grey[300], size: 18),
+          ],
+        ),
       ),
     );
   }
@@ -815,6 +839,8 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                   _buildDetailCompetencies(snapshot),
                   const SizedBox(height: AppTheme.spacing16),
                   _buildDetailAi(snapshot),
+                  const SizedBox(height: AppTheme.spacing16),
+                  _buildIntegrityTimeline(snapshot),
                 ],
               ),
             );
@@ -906,72 +932,124 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
   }
 
   Widget _buildDetailAi(_CoordinatorStudentSnapshot snapshot) {
-    final descriptor = _describeRisk(snapshot.riskLevel);
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Column(
+    if (snapshot.riskReasons.isEmpty && snapshot.aiScore == null) {
+      return const SizedBox.shrink();
+    }
+    
+    // We mock the studentStatus map so WeeklyAiSummaryCard can consume it uniformly.
+    final simulatedStudentStatus = {
+      'hours': {
+        'completed': snapshot.approvedHours.toInt(),
+        'required': snapshot.requiredHours,
+      },
+      'attendance': {
+        'days_present': snapshot.presentDays,
+      },
+      'ai_insight': {
+        'risk_level': snapshot.riskLevel,
+        'recommendation': snapshot.riskRecommendation,
+      },
+      'recent_flags_count': snapshot.latestVerificationStatus != null ? 1 : 0, 
+      'trend_status': snapshot.aiTrend != null ? snapshot.aiTrend!['status'] : 'stable',
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ExplainableAiPanel(
+          reasons: snapshot.riskReasons,
+          riskLevel: snapshot.riskLevel,
+          confidence: snapshot.riskConfidence ?? 0.0,
+          summary: snapshot.aiSummary,
+          recommendations: snapshot.aiRecommendations,
+        ),
+        const SizedBox(height: AppTheme.spacing16),
+        WeeklyAiSummaryCard(
+          studentStatus: simulatedStudentStatus,
+          recommendation: snapshot.riskRecommendation ?? '',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIntegrityTimeline(_CoordinatorStudentSnapshot snapshot) {
+    return FutureBuilder<List<Attendance>>(
+      future: AttendanceService.getAttendance(studentId: snapshot.studentId),
+      builder: (context, fbSnapshot) {
+        if (fbSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!fbSnapshot.hasData || fbSnapshot.data!.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final attendanceList = fbSnapshot.data!;
+
+        // Find the latest attendance record that has location data
+        final latestWithLocation = attendanceList.firstWhere(
+          (a) => a.checkinLat != null && a.checkinLng != null,
+          orElse: () => attendanceList.first,
+        );
+        final hasLocation = latestWithLocation.checkinLat != null &&
+            latestWithLocation.checkinLng != null;
+
+        return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('AI Risk Assessment', style: AppTheme.heading3),
-            const SizedBox(height: AppTheme.spacing12),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppTheme.spacing12,
-                    vertical: AppTheme.spacing6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: descriptor.color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(AppTheme.borderRadiusSmall),
-                    border: Border.all(color: descriptor.color),
-                  ),
-                  child: Text(
-                    descriptor.label,
-                    style: TextStyle(
-                      color: descriptor.color,
-                      fontWeight: FontWeight.bold,
+            IntegrityTimelineCard(attendanceHistory: attendanceList),
+            if (hasLocation) ...[  
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CoordinatorAttendanceMapScreen(
+                        attendance: latestWithLocation,
+                        companyName: snapshot.course,
+                      ),
                     ),
                   ),
-                ),
-                if (snapshot.riskConfidence != null) ...[
-                  const SizedBox(width: AppTheme.spacing12),
-                  Text(
-                    'Confidence ${(snapshot.riskConfidence! * 100).toStringAsFixed(0)}%',
-                    style: AppTheme.bodySmall,
+                  icon: const Icon(Icons.map_outlined, size: 18),
+                  label: const Text('View Latest Check-in on Map'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
-                ],
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing12),
-            if (snapshot.riskReasons.isNotEmpty) ...[
-              Text('Top Reasons', style: AppTheme.bodyMedium),
-              const SizedBox(height: AppTheme.spacing6),
-              ...snapshot.riskReasons.map(
-                (reason) => Row(
-                  children: [
-                    const Icon(Icons.bolt, size: 14, color: Colors.orange),
-                    const SizedBox(width: AppTheme.spacing4),
-                    Expanded(
-                      child: Text(reason, style: AppTheme.bodySmall),
-                    ),
-                  ],
                 ),
               ),
-              const SizedBox(height: AppTheme.spacing12),
             ],
-            Text(
-              snapshot.riskRecommendation ??
-                  'No AI recommendation available yet.',
-              style: AppTheme.bodyMedium,
-            ),
           ],
-        ),
-      ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSystemIntegrityTimeline() {
+    return FutureBuilder<List<Attendance>>(
+      future: AttendanceService.getAttendance(), // gets all
+      builder: (context, fbSnapshot) {
+        if (fbSnapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+             padding: EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+             child: LoadingSkeleton(height: 150),
+          );
+        }
+        if (!fbSnapshot.hasData || fbSnapshot.data!.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        
+        final recentEntries = fbSnapshot.data!.take(5).toList();
+        
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+          child: IntegrityTimelineCard(
+            attendanceHistory: recentEntries,
+          ),
+        );
+      },
     );
   }
 
@@ -1373,6 +1451,14 @@ class _CoordinatorStudentSnapshot {
     this.riskConfidence,
     this.riskReasons = const [],
     this.riskRecommendation,
+    this.latestVerificationStatus,
+    this.isLatestOut = false,
+    this.aiScore,
+    this.aiTrend,
+    this.aiIntegrity,
+    this.forecastedGrade,
+    this.aiSummary,
+    this.aiRecommendations,
   });
 
   final int studentId;
@@ -1391,8 +1477,18 @@ class _CoordinatorStudentSnapshot {
   final double? riskConfidence;
   final List<String> riskReasons;
   final String? riskRecommendation;
+  final String? latestVerificationStatus; // 'FLAGGED', 'AUTO_VERIFIED', etc.
+  final bool isLatestOut;
+  final int? aiScore;
+  final Map<String, dynamic>? aiTrend;
+  final Map<String, dynamic>? aiIntegrity;
+  final double? forecastedGrade;
+  final String? aiSummary;
+  final List<String>? aiRecommendations;
 
   bool get isAtRisk => riskLevel == 'HIGH' || riskLevel == 'MEDIUM';
+
+  bool get isFlagged => latestVerificationStatus == 'FLAGGED';
 
   double get completionRatio =>
       requiredHours == 0 ? 0 : (approvedHours / requiredHours).clamp(0, 1);

@@ -60,9 +60,10 @@ class EnsembleModel:
         
     def fit(self, X, y, feature_names=None, lr_weight=None, rf_weight=None, nb_weight=None):
         """
-        Train all three models.
+        Train all three models on the full dataset.
         
-        If weights are None, they are learned from validation accuracy.
+        If weights are None, they are learned from a held-out validation split
+        (20% of the data) to avoid overfit bias from training-accuracy-based weighting.
         """
         self.feature_names = feature_names
         
@@ -77,7 +78,7 @@ class EnsembleModel:
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
         
-        # Train individual models
+        # Train individual models on the FULL dataset
         print("📊 Training Logistic Regression...")
         self.lr_model = LogisticRegression(
             random_state=42, 
@@ -99,19 +100,41 @@ class EnsembleModel:
         self.nb_model = GaussianNB()
         self.nb_model.fit(X_scaled, y_encoded)
         
-        # Learn weights from validation accuracy if not provided
+        # Learn weights from a held-out validation split (NOT training data)
+        # This prevents inflated weights for complex models like Random Forest
+        # that overfit training data.
         if lr_weight is None or rf_weight is None or nb_weight is None:
-            lr_acc = accuracy_score(y_encoded, self.lr_model.predict(X_scaled))
-            rf_acc = accuracy_score(y_encoded, self.rf_model.predict(X))
-            nb_acc = accuracy_score(y_encoded, self.nb_model.predict(X_scaled))
+            # Use an internal 20% hold-out of the same data to score each model
+            X_w_train, X_w_val, y_w_train, y_w_val = train_test_split(
+                X, y_encoded, test_size=0.20, random_state=99, stratify=y_encoded
+            )
+            X_w_train_scaled = self.scaler.transform(X_w_train)
+            X_w_val_scaled   = self.scaler.transform(X_w_val)
+            
+            # Fit temporary models on the inner training split
+            _lr = LogisticRegression(random_state=42, max_iter=1000, C=1.0)
+            _lr.fit(X_w_train_scaled, y_w_train)
+            
+            _rf = RandomForestClassifier(n_estimators=100, random_state=42,
+                                          max_depth=10, min_samples_split=5)
+            _rf.fit(X_w_train, y_w_train)
+            
+            _nb = GaussianNB()
+            _nb.fit(X_w_train_scaled, y_w_train)
+            
+            # Score on the inner VALIDATION split (honest estimate)
+            lr_acc = accuracy_score(y_w_val, _lr.predict(X_w_val_scaled))
+            rf_acc = accuracy_score(y_w_val, _rf.predict(X_w_val))
+            nb_acc = accuracy_score(y_w_val, _nb.predict(X_w_val_scaled))
+            
             total = lr_acc + rf_acc + nb_acc
             lr_weight = lr_acc / total
             rf_weight = rf_acc / total
             nb_weight = nb_acc / total
-            print(f"⚖️ Learned weights from training accuracy:")
-            print(f"   LR: {lr_weight:.3f} (acc={lr_acc:.4f})")
-            print(f"   RF: {rf_weight:.3f} (acc={rf_acc:.4f})")
-            print(f"   NB: {nb_weight:.3f} (acc={nb_acc:.4f})")
+            print(f"⚖️ Learned weights from validation accuracy (20% hold-out):")
+            print(f"   LR: {lr_weight:.3f} (val_acc={lr_acc:.4f})")
+            print(f"   RF: {rf_weight:.3f} (val_acc={rf_acc:.4f})")
+            print(f"   NB: {nb_weight:.3f} (val_acc={nb_acc:.4f})")
         else:
             print(f"⚖️ Using provided weights - LR: {lr_weight}, RF: {rf_weight}, NB: {nb_weight}")
         

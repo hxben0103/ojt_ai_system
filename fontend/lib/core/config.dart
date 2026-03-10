@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 // API Configuration
 class ApiConfig {
   // Update this with your backend server URL based on your platform:
@@ -10,14 +13,62 @@ class ApiConfig {
   // IMPORTANT: When switching networks/hotspots, update the IP address below!
   // Find your IP: Windows: ipconfig | findstr IPv4
   // Or use environment variable: flutter run --dart-define=API_URL=http://YOUR_IP:3000/api
-  
-  // Supports environment variable for easy IP changes
-  // Usage: flutter run --dart-define=API_URL=http://192.168.1.100:3000/api
-  static const String baseUrl = String.fromEnvironment(
+
+  static const String _prefsKey = 'api_custom_ip';
+  static const int _apiPort = 3000;
+
+  // Compile-time default — conditionally updated for web
+  static const String _defaultBaseUrl = String.fromEnvironment(
     'API_URL',
-    // Default to localhost for development; override via --dart-define=API_URL for phones/other devices.
     defaultValue: 'http://localhost:3000/api',
   );
+
+  // Runtime-mutable URL (updated by saveIp / clearIp or web initialization)
+  static String _baseUrl = _defaultBaseUrl;
+
+  /// Current base URL (may be updated at runtime via [saveIp])
+  static String get baseUrl => _baseUrl;
+
+  /// Load saved IP from SharedPreferences and apply it to [baseUrl].
+  /// Called once on app startup by NetworkDiscoveryService.
+  static Future<void> init() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedIp = prefs.getString(_prefsKey);
+      if (savedIp != null && savedIp.isNotEmpty) {
+        _baseUrl = 'http://$savedIp:$_apiPort/api';
+      }
+    } catch (_) {}
+  }
+
+  /// Persist [ip] and update the runtime [baseUrl].
+  static Future<void> saveIp(String ip) async {
+    _baseUrl = 'http://$ip:$_apiPort/api';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, ip);
+    } catch (_) {}
+  }
+
+  /// Clear the saved custom IP and revert to the compile-time default.
+  static Future<void> clearIp() async {
+    _baseUrl = _defaultBaseUrl;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsKey);
+    } catch (_) {}
+  }
+
+  /// Returns true if the user has previously saved a custom IP.
+  static Future<bool> hasCustomIp() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_prefsKey);
+      return saved != null && saved.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
 
   // API Endpoints
   static const String auth = '/auth';

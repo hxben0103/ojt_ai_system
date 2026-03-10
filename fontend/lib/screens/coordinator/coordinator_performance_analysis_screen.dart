@@ -5,6 +5,7 @@ import '../../services/evaluation_service.dart';
 import '../../services/prediction_service.dart';
 import '../../models/ojt_record.dart';
 import '../../models/evaluation.dart';
+import '../../widgets/explainable_ai_card.dart';
 
 class CoordinatorPerformanceAnalysisScreen extends StatefulWidget {
   const CoordinatorPerformanceAnalysisScreen({super.key});
@@ -18,7 +19,7 @@ class _CoordinatorPerformanceAnalysisScreenState
     extends State<CoordinatorPerformanceAnalysisScreen> {
   List<Map<String, dynamic>> _students = [];
   bool _isLoading = true;
-  String _sortBy = 'hours'; // 'hours', 'score', 'name'
+  String _sortBy = 'risk'; // 'risk', 'grade', 'hours'
   bool _sortAscending = false;
 
   @override
@@ -34,80 +35,71 @@ class _CoordinatorPerformanceAnalysisScreenState
       });
 
       final ojtRecords = await OjtService.getOjtRecords();
-      final List<Map<String, dynamic>> students = [];
 
-      for (final record in ojtRecords) {
-        try {
-          final summary = await AttendanceService.getAttendanceSummary(
-              record.studentId);
-          final evaluations = await EvaluationService.getEvaluations(
-              studentId: record.studentId);
-
-          double avgScore = 0;
-          if (evaluations.isNotEmpty) {
-            final scores = evaluations
-                .where((e) => e.totalScore != null)
-                .map((e) => e.totalScore!)
-                .toList();
-            if (scores.isNotEmpty) {
-              avgScore = scores.reduce((a, b) => a + b) / scores.length;
-            }
-          }
-
-          final completedHours =
-              (summary['total_hours_completed'] ?? 0).toInt();
-          final requiredHours = record.requiredHours ?? 300;
-          final progress = requiredHours > 0
-              ? (completedHours / requiredHours * 100).clamp(0, 100)
-              : 0;
-
-          String performanceLevel = 'Low';
-          Color performanceColor = Colors.red;
-          if (progress >= 100 && avgScore >= 90) {
-            performanceLevel = 'Excellent';
-            performanceColor = Colors.green;
-          } else if (progress >= 80 && avgScore >= 75) {
-            performanceLevel = 'Good';
-            performanceColor = Colors.blue;
-          } else if (progress >= 60 || avgScore >= 60) {
-            performanceLevel = 'Average';
-            performanceColor = Colors.orange;
-          }
-
-          // Get daily risk prediction
-          String? riskLevel;
-          double? riskProbability;
+      // Load all students in parallel (Future.wait) instead of sequential for-loop
+      final List<Map<String, dynamic>> students = (await Future.wait(
+        ojtRecords.map((record) async {
           try {
-            final predictionData = await PredictionService.getDailyPrediction(record.studentId);
-            final ai = predictionData['ai_prediction'];
-            if (ai != null && ai['ml_prediction'] != null) {
-              final ml = ai['ml_prediction'];
-              riskLevel = ml['risk_level'] as String?;
-              riskProbability = (ml['probability'] as num?)?.toDouble();
-            }
-          } catch (e) {
-            print('Error loading prediction for student ${record.studentId}: $e');
-            // Continue without prediction data
-          }
+            final summary = await AttendanceService.getAttendanceSummary(record.studentId);
+            final evaluations = await EvaluationService.getEvaluations(studentId: record.studentId);
 
-          students.add({
-            'name': record.studentName ?? 'Unknown',
-            'studentId': record.studentId,
-            'completedHours': completedHours,
-            'requiredHours': requiredHours,
-            'progress': progress,
-            'avgScore': avgScore,
-            'evaluationCount': evaluations.length,
-            'performanceLevel': performanceLevel,
-            'performanceColor': performanceColor,
-            'company': record.companyName ?? 'N/A',
-            'riskLevel': riskLevel,
-            'riskProbability': riskProbability,
-          });
-        } catch (e) {
-          print('Error loading performance for ${record.studentName}: $e');
-        }
-      }
+            final completedHours = (summary['total_hours_completed'] ?? 0).toInt();
+            final requiredHours = record.requiredHours ?? 300;
+            final progress = requiredHours > 0
+                ? (completedHours / requiredHours * 100).clamp(0, 100)
+                : 0;
+
+            // Get daily AI & ML predictions
+            String riskLevel = 'UNKNOWN';
+            double? riskProbability;
+            double? forecastedGrade;
+            String? aiSummary;
+
+            Map<String, dynamic>? predictionData;
+            try {
+              final rawPrediction = await PredictionService.getDailyPrediction(record.studentId);
+              predictionData = Map<String, dynamic>.from(rawPrediction);
+
+              if (predictionData['ai_prediction'] != null) {
+                final ai = Map<String, dynamic>.from(predictionData['ai_prediction'] as Map);
+
+                if (ai['ml_prediction'] != null) {
+                  final ml = Map<String, dynamic>.from(ai['ml_prediction'] as Map);
+                  riskLevel = ml['risk_level'] as String? ?? 'UNKNOWN';
+                  riskProbability = (ml['probability'] as num?)?.toDouble();
+                }
+
+                if (ai['grading'] != null) {
+                  final grading = Map<String, dynamic>.from(ai['grading'] as Map);
+                  forecastedGrade = (grading['forecasted_grade'] as num?)?.toDouble();
+                }
+
+                aiSummary = ai['summary'] as String?;
+              }
+            } catch (e) {
+              print('Error loading AI prediction for student ${record.studentId}: $e');
+            }
+
+            return <String, dynamic>{
+              'name': record.studentName ?? 'Unknown',
+              'studentId': record.studentId,
+              'completedHours': completedHours,
+              'requiredHours': requiredHours,
+              'progress': progress,
+              'evaluationCount': evaluations.length,
+              'company': record.companyName ?? 'N/A',
+              'riskLevel': riskLevel,
+              'riskProbability': riskProbability,
+              'forecastedGrade': forecastedGrade,
+              'aiSummary': aiSummary,
+              'predictionData': predictionData,
+            };
+          } catch (e) {
+            print('Error loading performance for ${record.studentName}: $e');
+            return null;
+          }
+        }),
+      )).whereType<Map<String, dynamic>>().toList();
 
       _sortStudents(students);
       setState(() {
@@ -133,11 +125,20 @@ class _CoordinatorPerformanceAnalysisScreenState
         case 'hours':
           comparison = a['completedHours'].compareTo(b['completedHours']);
           break;
-        case 'score':
-          comparison = a['avgScore'].compareTo(b['avgScore']);
+        case 'grade':
+          comparison = (a['forecastedGrade'] ?? 0.0).compareTo(b['forecastedGrade'] ?? 0.0);
           break;
-        case 'name':
-          comparison = a['name'].toString().compareTo(b['name'].toString());
+        case 'risk':
+          int getRiskVal(String r) {
+            if (r == 'HIGH') return 3;
+            if (r == 'MEDIUM') return 2;
+            if (r == 'LOW') return 1;
+            return 0; // UNKNOWN
+          }
+          comparison = getRiskVal(a['riskLevel']).compareTo(getRiskVal(b['riskLevel']));
+          if (comparison == 0) {
+            comparison = (a['riskProbability'] ?? 0.0).compareTo(b['riskProbability'] ?? 0.0);
+          }
           break;
       }
       return _sortAscending ? comparison : -comparison;
@@ -166,6 +167,30 @@ class _CoordinatorPerformanceAnalysisScreenState
             },
             itemBuilder: (context) => [
               PopupMenuItem(
+                value: 'risk',
+                child: Row(
+                  children: [
+                    if (_sortBy == 'risk')
+                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                          size: 16),
+                    const SizedBox(width: 8),
+                    const Text('Sort by ML Risk'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'grade',
+                child: Row(
+                  children: [
+                    if (_sortBy == 'grade')
+                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                          size: 16),
+                    const SizedBox(width: 8),
+                    const Text('Sort by Forecasted Grade'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
                 value: 'hours',
                 child: Row(
                   children: [
@@ -174,30 +199,6 @@ class _CoordinatorPerformanceAnalysisScreenState
                           size: 16),
                     const SizedBox(width: 8),
                     const Text('Sort by Hours'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'score',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'score')
-                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-                          size: 16),
-                    const SizedBox(width: 8),
-                    const Text('Sort by Score'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'name',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'name')
-                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-                          size: 16),
-                    const SizedBox(width: 8),
-                    const Text('Sort by Name'),
                   ],
                 ),
               ),
@@ -255,26 +256,27 @@ class _CoordinatorPerformanceAnalysisScreenState
                                       ),
                                     ),
                                   ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: student['performanceColor']
-                                          .withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                        color: student['performanceColor'],
-                                        width: 2,
+                                  if (student['forecastedGrade'] != null && student['forecastedGrade'] > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: Colors.blue.shade300,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Forecast: ${student['forecastedGrade']!.toStringAsFixed(1)}',
+                                        style: TextStyle(
+                                          color: Colors.blue.shade700,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
                                       ),
                                     ),
-                                    child: Text(
-                                      student['performanceLevel'],
-                                      style: TextStyle(
-                                        color: student['performanceColor'],
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
                                 ],
                               ),
                               const SizedBox(height: 12),
@@ -340,13 +342,12 @@ class _CoordinatorPerformanceAnalysisScreenState
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: _buildStatCard(
-                                      'Avg Score',
-                                      student['avgScore'] > 0
-                                          ? student['avgScore']
-                                              .toStringAsFixed(1)
+                                      'Risk Prob',
+                                      student['riskProbability'] != null
+                                          ? '${(student['riskProbability'] * 100).toStringAsFixed(0)}%'
                                           : 'N/A',
-                                      Icons.star,
-                                      Colors.orange,
+                                      Icons.analytics,
+                                      _getRiskColor(student['riskLevel']),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -365,7 +366,7 @@ class _CoordinatorPerformanceAnalysisScreenState
                                 value: (student['progress'] / 100).clamp(0, 1),
                                 backgroundColor: Colors.grey[200],
                                 valueColor: AlwaysStoppedAnimation<Color>(
-                                    student['performanceColor']),
+                                    Colors.deepPurple.shade300),
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -375,6 +376,13 @@ class _CoordinatorPerformanceAnalysisScreenState
                                   color: Colors.grey[600],
                                 ),
                               ),
+                              if (student['predictionData'] != null) ...[
+                                const SizedBox(height: 16),
+                                ExplainableAiCard(
+                                  prediction: student['predictionData'],
+                                  isExpanded: true,
+                                ),
+                              ],
                             ],
                           ),
                         ),

@@ -57,7 +57,8 @@ class PredictionService {
       }
 
       final response = await ApiService.get(endpoint);
-      return List<Map<String, dynamic>>.from(response['performance'] ?? []);
+      final List<dynamic> data = response['performance'] ?? [];
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (e) {
       throw Exception('Failed to fetch performance predictions: $e');
     }

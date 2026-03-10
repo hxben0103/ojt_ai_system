@@ -5,6 +5,8 @@ import '../models/daily_task.dart';
 import '../services/daily_task_service.dart';
 import '../services/auth_service.dart';
 import '../core/app_theme.dart';
+import '../../widgets/restricted_access_screen.dart';
+import '../services/ojt_service.dart';
 
 class StudentDailyTasksScreen extends StatefulWidget {
   const StudentDailyTasksScreen({super.key});
@@ -19,6 +21,7 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
   String? _error;
+  bool _canPerformOjtActions = false;
 
   // Form controllers
   final _formKey = GlobalKey<FormState>();
@@ -59,11 +62,15 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
       final results = await Future.wait([
         DailyTaskService.getDailyTasksForStudent(user!.userId!),
         DailyTaskService.getCompetencies(),
+        OjtService.getStudentStatus(user.userId!),
       ]);
+
+      final statusMap = results[2] as Map<String, dynamic>?;
 
       setState(() {
         _tasks = results[0] as List<DailyTask>;
         _competencies = results[1] as List<Competency>;
+        _canPerformOjtActions = statusMap?['can_perform_ojt_actions'] == true;
         _isLoading = false;
       });
     } catch (e) {
@@ -116,11 +123,12 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Task submitted successfully! Waiting for supervisor approval.'),
+            content: Text('Task submitted and approved successfully!'),
             backgroundColor: Colors.green,
           ),
         );
       }
+
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -162,6 +170,10 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isLoading && !_canPerformOjtActions) {
+      return const RestrictedAccessScreen();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Daily Tasks & Competencies'),

@@ -3,7 +3,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
+import '../services/network_discovery_service.dart';
 import '../core/app_theme.dart';
+import '../core/config.dart';
+import '../core/ai_config.dart';
+import '../core/dio_client.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,6 +23,8 @@ class _LoginScreenState extends State<LoginScreen>
   bool _rememberMe = false;
   bool _obscurePass = true;
   bool _isLoggingIn = false;
+  bool _serverConnected = false;
+  bool _checkingConnection = true;
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
@@ -34,6 +40,7 @@ class _LoginScreenState extends State<LoginScreen>
   void initState() {
     super.initState();
     _loadRememberedID();
+    _discoverAndCheckServer();
 
     _controller =
         AnimationController(vsync: this, duration: const Duration(seconds: 1));
@@ -44,6 +51,31 @@ class _LoginScreenState extends State<LoginScreen>
             .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutQuart));
 
     _controller.forward();
+  }
+
+  /// Auto-discover backend via UDP broadcast, then check connectivity
+  Future<void> _discoverAndCheckServer() async {
+    setState(() => _checkingConnection = true);
+
+    // Try UDP broadcast discovery first
+    await NetworkDiscoveryService.discoverServer();
+
+    // Then verify the server is actually reachable
+    final isHealthy = await NetworkDiscoveryService.checkHealth();
+    if (mounted) {
+      setState(() {
+        _serverConnected = isHealthy;
+        _checkingConnection = false;
+      });
+
+      // If not connected and no custom IP saved, auto-show settings dialog
+      if (!isHealthy) {
+        final hasIp = await ApiConfig.hasCustomIp();
+        if (!hasIp && mounted) {
+          _showIpSettingsDialog();
+        }
+      }
+    }
   }
 
   @override
@@ -247,6 +279,110 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
+  void _showIpSettingsDialog() {
+    final ipController = TextEditingController();
+    
+    // Attempt to extract the current IP from baseUrl 
+    // Example: "http://192.168.0.117:3000/api" -> matches "192.168.0.117"
+    String currentIp = '';
+    final ipRegExp = RegExp(r'http://([0-9\.]+):');
+    final match = ipRegExp.firstMatch(ApiConfig.baseUrl);
+    if (match != null) {
+      currentIp = match.group(1) ?? '';
+    }
+    ipController.text = currentIp;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge)),
+          title: Row(
+            children: [
+              const Icon(Icons.wifi_tethering, color: Colors.blue),
+              const SizedBox(width: 8),
+              const Text('Server IP Configuration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Enter your computer\'s local IPv4 address (e.g., 192.168.1.10) so the app can connect to the backend over Wi-Fi.',
+                style: AppTheme.bodySmall.copyWith(color: Colors.black87),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: ipController,
+                decoration: InputDecoration(
+                  labelText: 'IP Address',
+                  hintText: '192.168.x.x',
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                  prefixIcon: const Icon(Icons.computer_rounded),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () async {
+                await ApiConfig.clearIp();
+                await AiConfig.init(); // Reset to default
+                DioClient().dio.options.baseUrl = ApiConfig.baseUrl; // Sync dio
+                NetworkDiscoveryService.reset(); // Allow re-discovery
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  _discoverAndCheckServer(); // Re-discover
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("IP reset. Searching for server...")),
+                  );
+                }
+              },
+              child: const Text('Reset & Re-Discover', style: TextStyle(color: Colors.orange)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final ip = ipController.text.trim();
+                if (ip.isNotEmpty) {
+                  await ApiConfig.saveIp(ip);
+                  AiConfig.setIp(ip);
+                  DioClient().dio.options.baseUrl = ApiConfig.baseUrl; // Sync dio
+
+                  // Test the connection before closing
+                  final isHealthy = await NetworkDiscoveryService.checkHealth();
+                  if (mounted) {
+                    Navigator.pop(ctx);
+                    setState(() => _serverConnected = isHealthy);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(isHealthy
+                            ? '✅ Connected to $ip successfully!'
+                            : '⚠️ IP saved but server not reachable at $ip'),
+                        backgroundColor: isHealthy ? Colors.green : Colors.orange,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: AppTheme.primaryButtonStyle(Colors.blue),
+              child: const Text('Save & Test'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -275,6 +411,45 @@ class _LoginScreenState extends State<LoginScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
+                          // Top Right Settings Button with connection status
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Connection status indicator
+                                if (_checkingConnection)
+                                  const SizedBox(
+                                    width: 16, height: 16,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white70, strokeWidth: 2,
+                                    ),
+                                  )
+                                else
+                                  Container(
+                                    width: 10, height: 10,
+                                    decoration: BoxDecoration(
+                                      color: _serverConnected ? Colors.greenAccent : Colors.redAccent,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: (_serverConnected ? Colors.greenAccent : Colors.redAccent).withOpacity(0.6),
+                                          blurRadius: 6,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  icon: const Icon(Icons.wifi_find_rounded, color: Colors.white70, size: 28),
+                                  tooltip: _serverConnected
+                                      ? 'Connected to ${ApiConfig.baseUrl}'
+                                      : 'Server not reachable — tap to configure',
+                                  onPressed: _showIpSettingsDialog,
+                                ),
+                              ],
+                            ),
+                          ),
                           // ✅ Modern Logo Section
                           Container(
                             padding: const EdgeInsets.all(24),

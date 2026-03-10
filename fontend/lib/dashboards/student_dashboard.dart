@@ -25,6 +25,15 @@ import '../widgets/loading_skeleton.dart';
 import '../core/app_theme.dart';
 import '../widgets/error_state_widget.dart';
 import '../services/cache_service.dart';
+import '../widgets/insight_card.dart';
+import '../widgets/integrity_badge.dart';
+import '../widgets/progress_summary_card.dart';
+import '../widgets/ojt_progress_hero_card.dart';
+import '../widgets/ojt_progress_hero_card.dart';
+import '../widgets/explainable_ai_card.dart';
+import '../widgets/weekly_ai_summary_card.dart';
+import '../widgets/trust_score_badge.dart';
+import '../widgets/performance_trend_indicator.dart';
 
 // Conditional import for File operations
 import 'file_helper_stub.dart'
@@ -137,7 +146,8 @@ class _StudentDashboardState extends State<StudentDashboard>
     });
 
     try {
-      final status = await OjtService.getStudentStatus(_studentUserId!);
+      final rawStatus = await OjtService.getStudentStatus(_studentUserId!);
+      final status = Map<String, dynamic>.from(rawStatus);
 
       // Persist to cache (TTL: 30 minutes)
       await CacheService.save(
@@ -147,7 +157,7 @@ class _StudentDashboardState extends State<StudentDashboard>
       );
 
       if (status['hours'] != null) {
-        final hours = status['hours'] as Map<String, dynamic>;
+        final hours = Map<String, dynamic>.from(status['hours'] as Map);
         setState(() {
           _completedHours = _parseInt(hours['completed']) ?? _completedHours;
           _requiredHours = _parseInt(hours['required']) ?? _requiredHours;
@@ -452,92 +462,50 @@ class _StudentDashboardState extends State<StudentDashboard>
             ),
           ],
           customActions: [
-            // Profile Header
-            _buildAnimatedCard(_buildProfileCard(), delay: 0),
-            
-            // Notifications/Alerts Section
-            if (_studentStatus != null && _studentStatus!['notifications'] != null && 
-                (_studentStatus!['notifications'] as List).isNotEmpty) ...[
-              _buildAnimatedCard(
-                SectionHeader(
-                  title: 'Notifications',
-                  icon: Icons.notifications_active_rounded,
-                ),
-                delay: 50,
-              ),
-              ...(_studentStatus!['notifications'] as List).asMap().entries.map((entry) {
-                final delay = 100 + (entry.key * 50);
-                return _buildAnimatedCard(
-                  _buildNotificationCard(entry.value as Map<String, dynamic>),
-                  delay: delay,
-                );
-              }),
+            // Ensure status logic allows OJT actions, otherwise block operational widgets
+            if (_studentStatus != null && _studentStatus?['can_perform_ojt_actions'] == false) ...[
+              _buildAnimatedCard(_buildOjtSetupIncompleteCard(), delay: 0),
+              const SizedBox(height: AppTheme.spacing24),
             ],
-            
-            // Key Metrics Section
-            _buildAnimatedCard(
-              SectionHeader(
-                title: 'OJT Overview',
-                icon: Icons.dashboard_rounded,
-              ),
-              delay: 150,
-            ),
-            _buildAnimatedCard(_buildQuickStatsRow(), delay: 200),
-            
-            // Progress Card
-            _buildAnimatedCard(
-              SectionHeader(
-                title: 'Training Progress',
-                icon: Icons.auto_graph_rounded,
-              ),
-              delay: 250,
-            ),
-            _buildAnimatedCard(_buildHoursProgressCard(), delay: 300),
-            
-            // AI Insights
-            _buildAnimatedCard(
-              SectionHeader(
-                title: 'AI Smart Insights',
-                icon: Icons.psychology_rounded,
-              ),
-              delay: 350,
-            ),
-            _buildAnimatedCard(_buildRiskAndInsightsCard(), delay: 400),
-            
-            // Quick Actions Section
-            _buildAnimatedCard(
-              SectionHeader(
-                title: 'Management Actions',
-                icon: Icons.bolt_rounded,
-              ),
-              delay: 450,
-            ),
-            _buildAnimatedCard(_buildAttendanceActionCard(), delay: 500),
-            const SizedBox(height: 12),
-            _buildAnimatedCard(_buildUploadCard(), delay: 550),
-            
-            if (_attendanceImage != null) ...[
-              const SizedBox(height: 12),
-              _buildAnimatedCard(_buildLastRecordCard(), delay: 600),
+
+            if (_studentStatus == null || _studentStatus?['can_perform_ojt_actions'] != false) ...[
+              // ── 1. Hero Performance Card (Progress Summary) ──
+              _buildAnimatedCard(_buildHeroPerformanceCard(), delay: 0),
+              const SizedBox(height: AppTheme.spacing16),
+  
+              // ── 2. Why this score? (Explainable AI Panel) ──
+              _buildAnimatedCard(_buildExplainableAiPanel(), delay: 40),
+              const SizedBox(height: AppTheme.spacing16),
+  
+              // ── 3. Weekly AI Summary ──
+              _buildAnimatedCard(_buildWeeklyAiSummary(), delay: 60),
+              const SizedBox(height: AppTheme.spacing16),
+  
+              // ── 4. Attendance Integrity Badge ──
+              _buildAnimatedCard(_buildAttendanceIntegritySection(), delay: 80),
+              const SizedBox(height: AppTheme.spacing24),
+  
+              // ── 5. Compact OJT Hours Card ──
+              _buildAnimatedCard(_buildCompactHoursCard(), delay: 140),
+              const SizedBox(height: AppTheme.spacing24),
+  
+              // ── 6. Condensed Action Row (Time In/Out + View DTR) ──
+              _buildAnimatedCard(_buildCondensedActionRow(), delay: 200),
+              const SizedBox(height: AppTheme.spacing24),
+  
+              // ── 7. Last attendance record ──
+              if (_attendanceImage != null) ...[
+                _buildAnimatedCard(_buildLastRecordCard(), delay: 260),
+                const SizedBox(height: AppTheme.spacing24),
+              ],
             ],
+
+            // ── 8. Learning Resources (Always visible, but internal links may be gated) ──
+            _buildAnimatedCard(_buildLearningResourcesCard(), delay: 320),
             
-            // More Options
-            _buildAnimatedCard(
-              SectionHeader(
-                title: 'Learning Resources',
-                icon: Icons.library_books_rounded,
-              ),
-              delay: 650,
-            ),
-            _buildAnimatedCard(_buildImprovementTipsCard(), delay: 700),
-            const SizedBox(height: 12),
-            _buildAnimatedCard(_buildChecklistCardButton(), delay: 750),
-            const SizedBox(height: 12),
-            _buildAnimatedCard(_buildDailyTasksCardButton(), delay: 800),
-            
-            const SizedBox(height: 24),
-            _buildAnimatedCard(_buildLogoutCard(), delay: 850),
-            const SizedBox(height: 40),
+            const SizedBox(height: AppTheme.spacing32),
+            _buildAnimatedCard(_buildLogoutCard(), delay: 380),
+            const SizedBox(height: AppTheme.spacing48),
           ],
         ),
       ),
@@ -558,12 +526,61 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // ------------------- Profile Card -------------------
-  Widget _buildProfileCard() {
-    double progress = (_requiredHours > 0)
-        ? ((_completedHours / _requiredHours).clamp(0.0, 1.0))
-        : 0.0;
+  // ── 0. OJT Setup Incomplete Card ──
+  Widget _buildOjtSetupIncompleteCard() {
+    final reason = _studentStatus?['blocking_reason'] ?? 'Your OJT setup is incomplete.';
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      padding: const EdgeInsets.all(AppTheme.spacing20),
+      decoration: BoxDecoration(
+        color: AppTheme.warningColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+        border: Border.all(color: AppTheme.warningColor.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lock_person_rounded, color: AppTheme.warningColor, size: 28),
+              const SizedBox(width: AppTheme.spacing12),
+              Expanded(
+                child: Text(
+                  'Access Restricted',
+                  style: AppTheme.heading3.copyWith(color: AppTheme.warningColor),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTheme.spacing12),
+          Text(
+            reason,
+            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppTheme.spacing8),
+          Text(
+            'You must have an active OJT Record assigned to both a Coordinator and a Supervisor to track attendance, hours, and daily tasks.',
+            style: AppTheme.bodySmall.copyWith(color: Colors.grey[700], height: 1.4),
+          ),
+          const SizedBox(height: AppTheme.spacing16),
+          FilledButton.icon(
+            onPressed: () {
+               Navigator.push(context, MaterialPageRoute(builder: (_) => const StudentChecklistScreen()));
+            },
+            icon: const Icon(Icons.checklist_rounded, size: 18),
+            label: const Text('View Application Checklist'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.warningColor,
+            ),
+          )
+        ],
+      ),
+    );
+  }
 
+  // ── 1. Hero Performance Card ──
+  Widget _buildHeroPerformanceCard() {
+    // Profile image provider
     ImageProvider? profileImageProvider;
     if (!kIsWeb && _profileImage != null) {
       try {
@@ -575,89 +592,332 @@ class _StudentDashboardState extends State<StudentDashboard>
       }
     } else if (_profileImageBytes != null) {
       profileImageProvider = MemoryImage(_profileImageBytes!);
-    } else if (kIsWeb && _attendanceImage is Uint8List) {
-      profileImageProvider = MemoryImage(_attendanceImage as Uint8List);
     }
 
+    // AI insight data
+    final aiInsight = _studentStatus?['ai_insight'] != null 
+        ? Map<String, dynamic>.from(_studentStatus!['ai_insight'] as Map)
+        : null;
+    final mlMap = aiInsight?['ml_prediction'] != null 
+        ? Map<String, dynamic>.from(aiInsight!['ml_prediction'] as Map)
+        : null;
+    final riskLevel = (mlMap?['risk_level'] as String? ?? 'LOW').toUpperCase();
+    final topReasons = (mlMap?['top_reasons'] as List?)?.cast<String>() ?? [];
+    final recommendation = aiInsight?['recommendation'] as String? ?? mlMap?['recommendation'] as String?;
+    
+    final gradingMap = aiInsight?['grading'] != null 
+        ? Map<String, dynamic>.from(aiInsight!['grading'] as Map)
+        : null;
+    final forecastedGrade = (gradingMap?['forecasted_grade'] as num?)?.toDouble();
+    
+    final integrityMap = aiInsight?['integrity'] != null 
+        ? Map<String, dynamic>.from(aiInsight!['integrity'] as Map)
+        : null;
+    final integrityScore = (integrityMap?['integrity_score'] as num?)?.toDouble();
+
+    final hoursMap = _studentStatus?['hours'] != null 
+        ? Map<String, dynamic>.from(_studentStatus!['hours'] as Map)
+        : null;
+    final int completedHours = (hoursMap?['completed'] as num?)?.toInt() ?? 0;
+    final int requiredHours = (hoursMap?['required'] as num?)?.toInt() ?? 300;
+    
+    // Dynamic Score = (Completed / Required) * 100
+    int computedPct = requiredHours > 0 
+        ? ((completedHours / requiredHours) * 100).clamp(0, 100).toInt() 
+        : 0;
+
+    // Use ML Progress Score if available, otherwise computed fallback
+    final int progressPct = (aiInsight?['score'] as num?)?.toInt() ?? computedPct;
+
+    final String statusLabel;
+    final Color statusColor;
+    
+    // Set color/label dynamically based on actual progress instead of hardcoded risk
+    if (progressPct >= 80 || riskLevel == 'LOW') {
+      statusLabel = 'On Track';
+      statusColor = AppTheme.successColor;
+    } else if (progressPct >= 50 || riskLevel == 'MEDIUM') {
+      statusLabel = 'Needs Attention';
+      statusColor = AppTheme.warningColor;
+    } else {
+      statusLabel = 'Critical Attention';
+      statusColor = AppTheme.errorColor;
+    }
+
+    final aiPrediction = aiInsight?['ai_prediction'] != null 
+        ? Map<String, dynamic>.from(aiInsight!['ai_prediction'] as Map)
+        : null;
+    String trendDirection = 'Stable';
+    String trendReason = 'Consistent performance';
+    if (aiPrediction != null && aiPrediction['trend'] != null) {
+      final trend = Map<String, dynamic>.from(aiPrediction['trend'] as Map);
+      trendDirection = trend['status'] ?? 'Stable';
+      trendReason = trend['reason'] ?? 'Consistent performance';
+    } else {
+       // fallback inferred trend
+       if (progressPct >= 80) { trendDirection = 'Improving'; trendReason = 'Progressing strongly'; }
+       else if (progressPct >= 50) { trendDirection = 'Stable'; trendReason = 'Meeting expectations'; }
+       else { trendDirection = 'Declining'; trendReason = 'Hours tracking behind schedule'; }
+    }
+
+    final double progressFrac = progressPct / 100;
+
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppTheme.studentPrimary,
-            AppTheme.studentPrimary.withOpacity(0.8),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.studentPrimary.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      padding: const EdgeInsets.all(AppTheme.spacing20),
-      child: Row(
-        children: [
-          Hero(
-            tag: 'profile-photo',
-            child: CircleAvatar(
-              radius: 42,
-              backgroundImage: profileImageProvider,
-              backgroundColor: Colors.white,
-              child: profileImageProvider == null
-                  ? Icon(
-                      Icons.person,
-                      size: 42,
-                      color: AppTheme.studentPrimary,
-                    )
-                  : null,
-            ),
-          ),
-          const SizedBox(width: AppTheme.spacing16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(AppTheme.spacing16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+        boxShadow: const [AppTheme.cardShadow],
+      ),
+      child: _statusLoading
+          ? const SizedBox(height: 140, child: Center(child: CircularProgressIndicator()))
+          : Column(
               children: [
-                Text(
-                  _studentName ?? "Loading...",
-                  style: AppTheme.heading2.copyWith(color: Colors.white),
+                // Top row: avatar + identity + circular progress
+                Row(
+                  children: [
+                    // Avatar
+                    CircleAvatar(
+                      radius: 32,
+                      backgroundImage: profileImageProvider,
+                      backgroundColor: AppTheme.studentPrimary.withOpacity(0.1),
+                      child: profileImageProvider == null
+                          ? Icon(Icons.person_rounded, size: 32, color: AppTheme.studentPrimary)
+                          : null,
+                    ),
+                    const SizedBox(width: AppTheme.spacing12),
+
+                    // Name + ID + course
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _studentName ?? "Loading...",
+                            style: AppTheme.heading3.copyWith(height: 1.2),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            "${_studentId ?? 'N/A'} · ${_course ?? 'N/A'}",
+                            style: AppTheme.bodySmall.copyWith(color: Colors.grey[600]),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: AppTheme.spacing12),
+
+                    // Circular AI progress
+                    SizedBox(
+                      width: 76,
+                      height: 76,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CircularProgressIndicator(
+                            value: progressFrac,
+                            strokeWidth: 7,
+                            backgroundColor: statusColor.withOpacity(0.08),
+                            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                            strokeCap: StrokeCap.round,
+                          ),
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '$progressPct%',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: statusColor,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                Text(
+                                  statusLabel.split(' ').first, // Just "On" or "Needs"
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 7,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.grey[500],
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: AppTheme.spacing4),
-                Text(
-                  "ID: ${_studentId ?? 'N/A'}",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
-                const SizedBox(height: AppTheme.spacing2),
-                Text(
-                  "Course: ${_course ?? 'N/A'}",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
+                
+                // Add AI Metrics Row Right Below the Avatar Profile
+                if (forecastedGrade != null || integrityScore != null) ...[
+                  const SizedBox(height: AppTheme.spacing16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.studentPrimary.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.studentPrimary.withOpacity(0.1)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        if (forecastedGrade != null)
+                           Expanded(
+                             child: Column(
+                               children: [
+                                 Row(
+                                   mainAxisAlignment: MainAxisAlignment.center,
+                                   children: [
+                                     Icon(Icons.school_outlined, size: 16, color: AppTheme.studentPrimary),
+                                     const SizedBox(width: 6),
+                                     Text('Forecasted Grade', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+                                   ]
+                                 ),
+                                 const SizedBox(height: 4),
+                                 Text('${forecastedGrade.toStringAsFixed(1)} / 100', style: TextStyle(fontSize: 18, color: AppTheme.studentPrimary, fontWeight: FontWeight.bold)),
+                               ],
+                             )
+                           ),
+                        if (forecastedGrade != null && integrityScore != null) 
+                          Container(width: 1, height: 30, color: Colors.grey.shade300),
+                        if (integrityScore != null)
+                           Expanded(
+                             child: Column(
+                               children: [
+                                 Row(
+                                   mainAxisAlignment: MainAxisAlignment.center,
+                                   children: [
+                                     Icon(Icons.verified_user_outlined, size: 16, color: integrityScore >= 80 ? Colors.green : Colors.orange),
+                                     const SizedBox(width: 6),
+                                     Text('Integrity Score', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+                                   ]
+                                 ),
+                                 const SizedBox(height: 4),
+                                 Text('${integrityScore.toInt()} / 100', style: TextStyle(fontSize: 18, color: integrityScore >= 80 ? Colors.green : Colors.orange, fontWeight: FontWeight.bold)),
+                               ],
+                             )
+                           ),
+                      ]
+                    )
+                  )
+                ],
+
                 const SizedBox(height: AppTheme.spacing12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusSmall),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 8,
-                    backgroundColor: Colors.white.withOpacity(0.3),
-                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                PerformanceTrendIndicator(
+                  progressScore: progressPct,
+                  trendDirection: trendDirection,
+                  trendReason: trendReason,
+                ),
+
+                // AI status error banner
+                if (_statusError != null) ...[
+                  const SizedBox(height: AppTheme.spacing8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppTheme.spacing12,
+                      vertical: AppTheme.spacing8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.warningColor.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: 16, color: AppTheme.warningColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'AI insights unavailable — tap refresh to retry.',
+                            style: AppTheme.bodySmall.copyWith(color: AppTheme.warningColor),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: _refreshDashboard,
+                          child: Text(
+                            'Retry',
+                            style: AppTheme.bodySmall.copyWith(
+                              color: AppTheme.warningColor,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppTheme.spacing4),
-                Text(
-                  "$_completedHours / $_requiredHours hours",
-                  style: AppTheme.bodySmall.copyWith(color: Colors.white),
-                ),
+                ],
+
+                // AI insight bullets (up to 2)
+                if (topReasons.isNotEmpty) ...[
+                  const SizedBox(height: AppTheme.spacing12),
+                  const Divider(height: 1),
+                  const SizedBox(height: AppTheme.spacing8),
+                  ...topReasons.take(2).map((r) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.circle, size: 5, color: statusColor),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(r, style: AppTheme.bodySmall.copyWith(color: Colors.grey[700])),
+                            ),
+                          ],
+                        ),
+                      )),
+                ],
+
+                // Recommendation chip
+                if (recommendation != null && recommendation.isNotEmpty) ...[
+                  const SizedBox(height: AppTheme.spacing8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.infoColor.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.lightbulb_outline, size: 14, color: AppTheme.infoColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            recommendation,
+                            style: AppTheme.bodySmall.copyWith(
+                              color: AppTheme.infoColor,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // No AI data yet
+                if (topReasons.isEmpty && _statusError == null && !_statusLoading)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppTheme.spacing8),
+                    child: Text(
+                      'AI insights will appear after your first evaluation.',
+                      textAlign: TextAlign.center,
+                      style: AppTheme.bodySmall.copyWith(color: Colors.grey[500], fontStyle: FontStyle.italic),
+                    ),
+                  ),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
+
 
   // ------------------- Notification Card -------------------
   Widget _buildNotificationCard(Map<String, dynamic> notification) {
@@ -743,340 +1003,291 @@ class _StudentDashboardState extends State<StudentDashboard>
     return null;
   }
 
-  // ------------------- Risk Level & AI Insights Card -------------------
+  // ── AI Performance Insight Hero Card (Student-facing, no risk label) ──
   Widget _buildRiskAndInsightsCard() {
     if (_statusLoading) {
       return const Padding(
         padding: EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-        child: Column(
-          children: [
-            LoadingSkeleton(height: 140),
-          ],
-        ),
+        child: LoadingSkeleton(height: 180),
       );
     }
 
-    final aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
-    final riskLevel = aiInsight?['risk_level'] as String?;
+    Map<String, dynamic>? aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
+    
+    // Inject a computed fallback score just for the UI if API didn't provide one
+    if (aiInsight != null && !aiInsight.containsKey('score')) {
+      final hoursMap = _studentStatus?['hours'] as Map<String, dynamic>?;
+      final int completedHours = (hoursMap?['completed'] as num?)?.toInt() ?? 0;
+      final int requiredHours = (hoursMap?['required'] as num?)?.toInt() ?? 300;
+      int computedPct = requiredHours > 0 
+          ? ((completedHours / requiredHours) * 100).clamp(0, 100).toInt() 
+          : 0;
+      
+      // Use spread operator to safely add to a potentially read-only map
+      aiInsight = {...aiInsight, 'computed_pct': computedPct};
+    }
 
-    if (riskLevel == null) {
-      return Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        ),
-        margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-        child: Padding(
-          padding: const EdgeInsets.all(AppTheme.spacing16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppTheme.infoColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                    ),
-                    child: Icon(
-                      Icons.psychology,
-                      color: AppTheme.infoColor,
-                      size: 24,
+    // If there's no insight yet, use isLoading to show loading state
+    return OjtProgressHeroCard.fromAiInsight(
+      aiInsight: aiInsight,
+      isLoading: false,
+    );
+  }
+
+  // ── Explainable AI Panel ──
+  Widget _buildExplainableAiPanel() {
+    final aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
+    final topReasons = (aiInsight?['top_reasons'] as List?)?.cast<String>() ?? [];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      child: ExplainableAiCard(
+        prediction: aiInsight != null ? (aiInsight['ai_prediction'] ?? aiInsight) : {},
+        isExpanded: true,
+      ),
+    );
+  }
+
+  // ── Weekly AI Summary ──
+  Widget _buildWeeklyAiSummary() {
+    final aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
+    // Missing insight data implies we shouldn't show the summary block
+    if (aiInsight == null) return const SizedBox.shrink();
+
+    final recommendation = aiInsight['recommendation'] as String? ?? '';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      child: WeeklyAiSummaryCard(
+        studentStatus: _studentStatus,
+        recommendation: recommendation,
+      ),
+    );
+  }
+
+  // ── Attendance Integrity Section ──
+  Widget _buildAttendanceIntegritySection() {
+    final aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
+    final integrityMap = aiInsight?['integrity'] as Map<String, dynamic>?;
+    
+    // Pass null if missing so the badge shows "Unavailable" safely
+    final int? integrityScore;
+    if (integrityMap != null && integrityMap.containsKey('integrity_score') && integrityMap['integrity_score'] != null) {
+      integrityScore = (integrityMap['integrity_score'] as num).toInt();
+    } else {
+      integrityScore = null;
+    }
+    
+    final trustFlags = (integrityMap?['flags'] as List?)?.cast<String>() ?? [];
+
+    final attendanceSummary = _studentStatus?['attendance'] as Map<String, dynamic>?;
+    final insideGeofence = (attendanceSummary?['inside_geofence'] as bool?) ?? true;
+
+    // Check if any record has attendance image as a proxy for photo verification
+    final photoVerified = _attendanceImage != null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      child: TrustScoreBadge(
+        trustScore: integrityScore,
+        trustFlags: trustFlags,
+        insideGeofence: insideGeofence,
+        photoPresent: photoVerified,
+      ),
+    );
+  }
+
+  // ── 4. Compact OJT Hours Card ──
+  Widget _buildCompactHoursCard() {
+    final hours = _studentStatus?['hours'] as Map<String, dynamic>?;
+    final int completed = _parseInt(hours?['completed']) ?? _completedHours;
+    final int required = _parseInt(hours?['required']) ?? _requiredHours;
+    final int remaining = _parseInt(hours?['remaining']) ?? (required - completed);
+    
+    return ProgressSummaryCard(
+      completedHours: completed,
+      requiredHours: required,
+      estimatedCompletion: remaining > 0 ? "~${(remaining / 8).ceil()} days" : "Completed",
+    );
+  }
+
+  // ── 3. Condensed Action Row (Time In/Out + View DTR) ──
+  Widget _buildCondensedActionRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: () => _showAttendanceOptions(context),
+              icon: const Icon(Icons.login_rounded, size: 18),
+              label: const Text('Time In / Out'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.studentPrimary,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: AppTheme.spacing12),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StudentDTRViewScreen(
+                      studentName: _studentName ?? "Unknown",
+                      studentId: _studentId ?? "N/A",
+                      course: _course ?? "N/A",
+                      dtrRecords: _dtrRecords,
                     ),
                   ),
-                  const SizedBox(width: AppTheme.spacing12),
-                  Expanded(
-                    child: Text(
-                      'AI Risk Assessment',
-                      style: AppTheme.heading3,
-                    ),
+                );
+              },
+              icon: const Icon(Icons.list_alt_rounded, size: 18),
+              label: const Text('View DTR'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                foregroundColor: AppTheme.studentPrimary,
+                side: BorderSide(color: AppTheme.studentPrimary, width: 1.5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 6. Learning Resources — grouped card with list tiles ──
+  Widget _buildLearningResourcesCard() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+        boxShadow: const [AppTheme.cardShadow],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppTheme.spacing16, AppTheme.spacing12, AppTheme.spacing16, 0),
+            child: Text(
+              'Learning Resources',
+              style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          _resourceListTile(
+            icon: Icons.upload_file_rounded,
+            color: AppTheme.studentPrimary,
+            title: 'Upload Progress Report',
+            subtitle: 'Submit your daily report after duty ends',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StudentProgressReportScreen()),
+            ),
+          ),
+          const Divider(height: 1, indent: 56, endIndent: 16),
+          _resourceListTile(
+            icon: Icons.lightbulb_outline_rounded,
+            color: AppTheme.warningColor,
+            title: 'Get Improvement Tips',
+            subtitle: 'AI-generated suggestions to improve your OJT',
+            onTap: () => showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+                ),
+                title: const Text("🌟 OJT Improvement Tips"),
+                content: const Text("💡 Keep improving daily with good habits!"),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text("Close"),
                   ),
                 ],
               ),
-              const SizedBox(height: AppTheme.spacing12),
-              Text(
-                _statusError ?? 'Risk assessment will be available after your first evaluation.',
-                style: AppTheme.bodySmall,
-              ),
-            ],
+            ),
           ),
-        ),
-      );
-    }
-
-    final topReasons = aiInsight?['top_reasons'] as List<dynamic>? ?? [];
-    final recommendation = aiInsight?['recommendation'] as String?;
-    // Map risk level to progress band for student-facing display (no HIGH/MEDIUM/LOW risk label)
-    final progressPct = riskLevel == 'LOW'
-        ? 80
-        : riskLevel == 'MEDIUM'
-            ? 70
-            : 50; // HIGH or unknown
-    final statusLabel = progressPct >= 80
-        ? 'On Track'
-        : progressPct >= 60
-            ? 'Needs Attention'
-            : 'Needs Attention';
-    final statusColor = progressPct >= 80
-        ? AppTheme.successColor
-        : progressPct >= 60
-            ? AppTheme.warningColor
-            : AppTheme.warningColor;
-
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+          const Divider(height: 1, indent: 56, endIndent: 16),
+          _resourceListTile(
+            icon: Icons.checklist_rounded,
+            color: AppTheme.infoColor,
+            title: 'OJT Checklist',
+            subtitle: 'View and upload required OJT documents',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StudentChecklistScreen()),
+            ),
+          ),
+          const Divider(height: 1, indent: 56, endIndent: 16),
+          _resourceListTile(
+            icon: Icons.task_alt_rounded,
+            color: AppTheme.studentPrimary,
+            title: 'Daily Tasks & Competencies',
+            subtitle: 'Log tasks and track competency progress',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StudentDailyTasksScreen()),
+            ),
+            last: true,
+          ),
+        ],
       ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+    );
+  }
+
+  Widget _resourceListTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool last = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: last
+          ? const BorderRadius.vertical(bottom: Radius.circular(AppTheme.borderRadiusLarge))
+          : BorderRadius.zero,
       child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppTheme.spacing16,
+          vertical: AppTheme.spacing12,
+        ),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                  ),
-                  child: Icon(
-                    Icons.trending_up,
-                    color: statusColor,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: AppTheme.spacing12),
-                Expanded(
-                  child: Text(
-                    'Progress & AI Insight',
-                    style: AppTheme.heading3,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing12),
-            Row(
-              children: [
-                Text(
-                  '${progressPct}%',
-                  style: AppTheme.heading3.copyWith(color: statusColor),
-                ),
-                const SizedBox(width: AppTheme.spacing8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppTheme.spacing8,
-                    vertical: AppTheme.spacing4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(AppTheme.borderRadiusSmall),
-                  ),
-                  child: Text(
-                    statusLabel,
-                    style: AppTheme.bodyMedium.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: statusColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (topReasons.isNotEmpty) ...[
-              const SizedBox(height: AppTheme.spacing12),
-              Text(
-                'Key factors:',
-                style: AppTheme.bodyLarge.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
               ),
-              const SizedBox(height: AppTheme.spacing4),
-              ...topReasons.take(3).map((reason) => Padding(
-                    padding: const EdgeInsets.only(bottom: AppTheme.spacing4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '• ',
-                          style: AppTheme.bodyMedium.copyWith(
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            reason.toString(),
-                            style: AppTheme.bodySmall,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
-            ],
-            if (recommendation != null && recommendation.isNotEmpty) ...[
-              const SizedBox(height: AppTheme.spacing12),
-              Container(
-                padding: const EdgeInsets.all(AppTheme.spacing12),
-                decoration: BoxDecoration(
-                  color: AppTheme.infoColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                  border: Border.all(
-                    color: AppTheme.infoColor.withOpacity(0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.lightbulb_outline,
-                      color: AppTheme.infoColor,
-                      size: 20,
-                    ),
-                    const SizedBox(width: AppTheme.spacing8),
-                    Expanded(
-                      child: Text(
-                        recommendation,
-                        style: AppTheme.bodySmall.copyWith(
-                          color: AppTheme.infoColor.withOpacity(0.9),
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              child: Icon(icon, size: 20, color: color),
+            ),
+            const SizedBox(width: AppTheme.spacing12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
+                  Text(subtitle, style: AppTheme.bodySmall.copyWith(color: Colors.grey[600])),
+                ],
               ),
-            ],
+            ),
+            Icon(Icons.chevron_right_rounded, size: 18, color: Colors.grey[400]),
           ],
         ),
       ),
     );
   }
 
-  // ------------------- Hours Progress Card (Enhanced) -------------------
-  Widget _buildHoursProgressCard() {
-    final hours = _studentStatus?['hours'] as Map<String, dynamic>?;
-    final completed = _parseInt(hours?['completed']) ?? _completedHours;
-    final required = _parseInt(hours?['required']) ?? _requiredHours;
-    final remaining = _parseInt(hours?['remaining']) ?? (required - completed);
-    final progress = _parseInt(hours?['progress_percentage']) ??
-        (required > 0 ? ((completed / required) * 100).round() : 0);
-
-    Color progressColor = AppTheme.studentPrimary;
-    if (progress >= 90) {
-      progressColor = AppTheme.successColor;
-    } else if (progress < 50) {
-      progressColor = AppTheme.warningColor;
-    }
-
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-      ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: progressColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                  ),
-                  child: Icon(
-                    Icons.trending_up,
-                    color: progressColor,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: AppTheme.spacing12),
-                Expanded(
-                  child: Text(
-                    'OJT Hours Progress',
-                    style: AppTheme.heading3,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$completed',
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: progressColor,
-                      ),
-                    ),
-                    Text(
-                      'of $required hours',
-                      style: AppTheme.bodySmall,
-                    ),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '$progress%',
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: progressColor,
-                      ),
-                    ),
-                    Text(
-                      'Complete',
-                      style: AppTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppTheme.borderRadiusSmall),
-              child: LinearProgressIndicator(
-                value: progress / 100,
-                minHeight: 10,
-                backgroundColor: Colors.grey[200],
-                valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-              ),
-            ),
-            const SizedBox(height: AppTheme.spacing8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '$remaining hours remaining',
-                  style: AppTheme.bodySmall,
-                ),
-                if (remaining > 0)
-                  Text(
-                    '~${(remaining / 8).ceil()} days at 8hrs/day',
-                    style: AppTheme.bodySmall.copyWith(
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ------------------- Quick Stats Row -------------------
   Widget _buildQuickStatsRow() {

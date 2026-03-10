@@ -225,7 +225,8 @@ class AttendanceService {
       }
 
       final response = await ApiService.get(endpoint);
-      return List<Map<String, dynamic>>.from(response['summary'] ?? []);
+      final List<dynamic> data = response['summary'] ?? [];
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (e) {
       throw Exception('Failed to fetch attendance summary: $e');
     }
@@ -323,6 +324,19 @@ class AttendanceService {
       return data.map((json) => Attendance.fromJson(json)).toList();
     } catch (e) {
       throw Exception('Failed to fetch attendance for supervisor: $e');
+    }
+  }
+
+  // Get specific attendance image (lazy loading)
+  static Future<String?> getAttendanceImage(int attendanceId) async {
+    try {
+      final response = await ApiService.get(
+        '${ApiConfig.attendance}/$attendanceId/image',
+      );
+      return response['attendance_image'] as String?;
+    } catch (e) {
+      print('Error fetching attendance image: $e');
+      return null;
     }
   }
 }

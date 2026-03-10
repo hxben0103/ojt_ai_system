@@ -33,12 +33,18 @@ function toNumber(value, fallback = 0) {
 router.get('/analytics/coordinator/overview', async (req, res) => {
   try {
     console.log('📊 [Coordinator Analytics] Fetching overview...');
-    
+    const { coordinator_id } = req.query;
     let baseResult;
     try {
       // 1) Base set of active OJT students with required hours & names
+      const baseParams = [];
+      let coordFilter = '';
+      if (coordinator_id) {
+        baseParams.push(coordinator_id);
+        coordFilter = `AND o.coordinator_id = $${baseParams.length}`;
+      }
       baseResult = await query(
-      `
+        `
       WITH active_ojt AS (
         SELECT 
           o.record_id,
@@ -48,7 +54,7 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
           u.full_name AS student_name
         FROM ojt_records o
         JOIN users u ON o.student_id = u.user_id
-        WHERE o.status IN ('Ongoing', 'Active')
+        WHERE o.status IN ('Ongoing', 'Active') ${coordFilter}
       ),
       attendance_agg AS (
         SELECT 
@@ -100,7 +106,7 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
       LEFT JOIN eval_agg ev ON ev.student_id = a_ojt.student_id
       ORDER BY a_ojt.student_name ASC
       `,
-      []
+        baseParams
       );
     } catch (baseQueryError) {
       console.error('❌ [Coordinator Analytics] Base query failed:', baseQueryError);
@@ -130,26 +136,26 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
         ORDER BY ai.student_id, ai.created_at DESC
         `
       );
-      
+
       riskResult.rows.forEach(row => {
         try {
           // Parse JSON result (stored as TEXT)
-          const resultData = typeof row.result === 'string' 
-            ? JSON.parse(row.result) 
+          const resultData = typeof row.result === 'string'
+            ? JSON.parse(row.result)
             : row.result;
-          
+
           // Extract risk_level from various possible structures
-          const riskLevel = resultData?.risk_level 
+          const riskLevel = resultData?.risk_level
             || resultData?.ml_prediction?.risk_level
             || resultData?.class_label
             || null;
-          
+
           // Extract probability from various possible structures
-          const probability = resultData?.probability 
+          const probability = resultData?.probability
             || resultData?.ml_prediction?.probability
             || row.confidence
             || null;
-          
+
           if (riskLevel || probability !== null) {
             riskDataMap[row.student_id] = {
               risk_level: riskLevel,
@@ -237,8 +243,8 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
         supervisor_eval_grade: supervisorEvalGrade,
         final_grade: finalGrade,
         risk_level: riskInfo.risk_level || null,
-        risk_probability: riskInfo.probability !== null && riskInfo.probability !== undefined 
-          ? Number(riskInfo.probability) 
+        risk_probability: riskInfo.probability !== null && riskInfo.probability !== undefined
+          ? Number(riskInfo.probability)
           : null,
       };
     });
@@ -315,13 +321,13 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
   } catch (error) {
     console.error('❌ Coordinator analytics overview error:', error);
     console.error('Error stack:', error.stack);
-    
+
     // Try to provide more helpful error message
     let errorMessage = 'Failed to compute coordinator analytics overview';
     if (error.message) {
       errorMessage += `: ${error.message}`;
     }
-    
+
     return res.status(500).json({
       error: 'Internal server error',
       message: errorMessage,

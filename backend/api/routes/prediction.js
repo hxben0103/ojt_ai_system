@@ -4,6 +4,26 @@ const axios = require('axios');
 const { query } = require('../../config/db');
 
 /**
+ * Count weekday (Mon–Fri) days between two Date objects (inclusive).
+ * Used to compute the actual required OJT days from the record's start/end dates.
+ * Falls back to 25 if dates are missing or invalid.
+ */
+function countWeekdays(start, end) {
+  if (!start || !end) return 25;
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (isNaN(startDate) || isNaN(endDate) || startDate > endDate) return 25;
+  let count = 0;
+  const cur = new Date(startDate);
+  while (cur <= endDate) {
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) count++; // skip Sunday(0) and Saturday(6)
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count > 0 ? count : 25;
+}
+
+/**
  * AI PREDICTION SYSTEM - COMPREHENSIVE MULTI-FEATURE MODEL
  * 
  * This module implements a rich AI prediction system that uses:
@@ -35,7 +55,7 @@ const { query } = require('../../config/db');
 router.get('/insights', async (req, res) => {
   try {
     const { student_id } = req.query;
-    
+
     let sql = `
       SELECT a.*, u.full_name AS student_name
       FROM ai_insights a
@@ -96,7 +116,7 @@ router.get('/performance', async (req, res) => {
       [student_id]
     );
 
-    res.json({ 
+    res.json({
       performance: result.rows[0].prediction,
       generated_at: new Date().toISOString()
     });
@@ -163,7 +183,7 @@ router.get('/risk-assessment/:student_id', async (req, res) => {
       return res.status(404).json({ error: 'Student not found or no OJT record' });
     }
 
-    res.json({ 
+    res.json({
       risk_assessment: result.rows[0],
       assessed_at: new Date().toISOString()
     });
@@ -183,7 +203,7 @@ router.get('/at-risk', async (req, res) => {
       [level || null]
     );
 
-    res.json({ 
+    res.json({
       at_risk_students: result.rows,
       count: result.rows.length,
       risk_level_filter: level || 'All'
@@ -220,9 +240,9 @@ router.get('/daily/:studentId', async (req, res) => {
 
     const snapshotResult = await query(`
       WITH 
-      -- Get OJT record for required hours
+      -- Get OJT record for required hours and duration
       ojt_info AS (
-        SELECT required_hours, status
+        SELECT required_hours, status, start_date, end_date
         FROM ojt_records
         -- Treat both Ongoing and Active as current OJT records
         WHERE student_id = $1 AND status IN ('Ongoing', 'Active')
@@ -248,36 +268,69 @@ router.get('/daily/:studentId', async (req, res) => {
         LEFT JOIN task_competencies tc ON t.task_id = tc.task_id
         WHERE t.student_id = $1 AND t.status = 'Approved'
       ),
-      -- Competency hours breakdown (only approved tasks)
+      -- Competency hours breakdown (only approved tasks) — includes point_value for WPR computation
       competency_hours AS (
         SELECT 
           c.competency_id,
           c.title,
+          c.point_value,
           COALESCE(SUM(t.hours_worked), 0) AS hours
         FROM competencies c
         LEFT JOIN task_competencies tc ON c.competency_id = tc.competency_id
         LEFT JOIN ojt_daily_tasks t ON tc.task_id = t.task_id 
           AND t.student_id = $1 
           AND t.status = 'Approved'
-        GROUP BY c.competency_id, c.title
+        GROUP BY c.competency_id, c.title, c.point_value
       ),
-      -- Grading components
-      coordinator_eval AS (
-        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
-        FROM evaluations e
-        JOIN users u ON e.supervisor_id = u.user_id
-        WHERE e.student_id = $1 AND u.role = 'Coordinator'
+      -- WPR: Weekly Progress Report (20%) — auto-computed from competency work
+      -- Formula: Σ(hours × point_value) / Σ(hours)
+      -- Point tiers: 98 (Research/ML/SoftDev/UXUI), 92 (DS/InfoSec/Network/Support), 86 (CustSvc/DataEntry/OfficeWork)
+      -- Returns 0 if no tasks have been logged yet (student hasn't started).
+      wpr_computed AS (
+        SELECT
+          CASE
+            WHEN SUM(hours) > 0
+              THEN ROUND(SUM(hours * point_value)::NUMERIC / NULLIF(SUM(hours), 0), 2)
+            ELSE 0
+          END AS wpr_score
+        FROM competency_hours
       ),
-      supervisor_eval AS (
-        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
-        FROM evaluations e
-        JOIN users u ON e.supervisor_id = u.user_id
-        WHERE e.student_id = $1 AND u.role = 'Supervisor'
-      ),
+      -- NR: Narrative Report (20%)
       narrative_eval AS (
         SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
         FROM evaluations e
         WHERE e.student_id = $1
+          AND (
+            e.evaluation_type = 'NR'
+            -- Fallback for old records: use non-coordinator, non-supervisor evaluations
+            OR (e.evaluation_type IS NULL AND e.supervisor_id NOT IN (
+              SELECT user_id FROM users WHERE role IN ('Coordinator', 'Supervisor')
+            ))
+          )
+      ),
+      -- CE: Coordinator Evaluation (20%)
+      coordinator_eval AS (
+        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+        FROM evaluations e
+        LEFT JOIN users u ON e.supervisor_id = u.user_id
+        WHERE e.student_id = $1
+          AND (
+            e.evaluation_type = 'CE'
+            -- Fallback for old records not yet migrated
+            OR (e.evaluation_type IS NULL AND u.role = 'Coordinator')
+          )
+      ),
+      -- SE: Supervisor Evaluation (40%) — given on the last day
+      supervisor_eval AS (
+        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+        FROM evaluations e
+        LEFT JOIN users u ON e.supervisor_id = u.user_id
+        WHERE e.student_id = $1
+          AND (
+            e.evaluation_type = 'SE'
+            -- Fallback for old records not yet migrated
+            OR (e.evaluation_type IS NULL AND u.role = 'Supervisor')
+          )
       ),
       -- Chatbot engagement
       chatbot_stats AS (
@@ -286,22 +339,52 @@ router.get('/daily/:studentId', async (req, res) => {
           COUNT(CASE WHEN timestamp >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) AS queries_last_30_days
         FROM chatbot_logs
         WHERE user_id = $1
+      ),
+      -- Integrity stats (from latest checkin in last 14 days)
+      integrity_stats AS (
+        SELECT
+          inside_geofence,
+          distance_m,
+          accuracy_m,
+          trust_flags,
+          CASE WHEN attendance_image IS NOT NULL THEN true ELSE false END AS has_photo
+        FROM attendance
+        WHERE student_id = $1 AND date >= CURRENT_DATE - INTERVAL '14 days'
+        ORDER BY date DESC, time_in DESC
+        LIMIT 1
+      ),
+      recent_flags AS (
+        SELECT COUNT(*) AS count
+        FROM attendance
+        WHERE student_id = $1 AND date >= CURRENT_DATE - INTERVAL '7 days'
+          AND (inside_geofence = false OR trust_flags IS NOT NULL)
+      ),
+      -- Trend stats (hours in last 7 days vs prev 7 days)
+      trend_stats AS (
+        SELECT
+          COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_last_7,
+          COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '14 days' AND date < CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_prev_7
+        FROM attendance
+        WHERE student_id = $1 AND status = 'Approved'
       )
       SELECT 
         (SELECT COALESCE(required_hours, 300) FROM ojt_info) AS required_hours,
+        (SELECT start_date FROM ojt_info) AS ojt_start_date,
+        (SELECT end_date   FROM ojt_info) AS ojt_end_date,
         (SELECT total_hours_completed FROM attendance_stats) AS total_hours_completed,
         (SELECT days_present FROM attendance_stats) AS days_present,
         (SELECT late_count FROM attendance_stats) AS late_count,
         (SELECT total_tasks_logged FROM task_stats) AS total_tasks_logged,
         (SELECT total_task_hours FROM task_stats) AS total_task_hours,
         (SELECT number_of_distinct_competencies FROM task_stats) AS number_of_distinct_competencies,
+        (SELECT wpr_score FROM wpr_computed) AS wpr_eval_score,
         (SELECT avg_score FROM coordinator_eval) AS coordinator_eval_score,
         (SELECT avg_score FROM supervisor_eval) AS supervisor_eval_score,
         (SELECT avg_score FROM narrative_eval) AS narrative_eval_score,
         (SELECT total_queries FROM chatbot_stats) AS total_chatbot_queries,
         (SELECT queries_last_30_days FROM chatbot_stats) AS chatbot_queries_last_30_days,
-        -- Competency hours (will be processed separately)
-        (SELECT json_agg(json_build_object('title', title, 'hours', hours)) FROM competency_hours) AS competency_hours_json
+        -- Competency hours (will be processed separately) — includes point_value for WPR verification
+        (SELECT json_agg(json_build_object('title', title, 'hours', hours, 'point_value', point_value)) FROM competency_hours) AS competency_hours_json
     `, [studentId]);
 
     if (!snapshotResult.rows || snapshotResult.rows.length === 0) {
@@ -313,9 +396,11 @@ router.get('/daily/:studentId', async (req, res) => {
     const totalHoursCompleted = parseFloat(snap.total_hours_completed) || 0;
     const daysPresent = parseFloat(snap.days_present) || 0;
     const lateCount = parseInt(snap.late_count) || 0;
-    
+
     // Calculate attendance rate and absent count
-    const requiredDays = 25; // Standard OJT period
+    // Derive required working days from the OJT record's actual start/end dates
+    // (Mon–Fri count). Falls back to 25 if dates are not set.
+    const requiredDays = countWeekdays(snap.ojt_start_date, snap.ojt_end_date);
     const attendanceRate = requiredDays > 0 ? Math.min((daysPresent / requiredDays) * 100, 100) : 0;
     const absentCount = Math.max(0, requiredDays - daysPresent);
     const hoursCompletedRatio = requiredHours > 0 ? totalHoursCompleted / requiredHours : 0;
@@ -333,14 +418,13 @@ router.get('/daily/:studentId', async (req, res) => {
       competencyHoursMap[featureName] = hours;
     });
 
-    // Get grading components
-    // NOTE: WPR (Weekly Progress Report) is NOT stored separately in the DB.
-    // Previously this copied narrative_eval_score into WPR, making two features
-    // identical. Set to 0 so the model doesn't receive misleading data.
-    const weeklyProgressGrade = 0; // No separate WPR column in evaluations table
+    // Get grading components — now properly separated by evaluation_type (WPR/NR/CE/SE)
+    // WPR: auto-computed from competency hours × point values (86/92/98)
+    //   Formula: Σ(hours × point_value) / Σ(hours)  → score between 86–98 (or 0 if no tasks yet)
+    const weeklyProgressGrade = parseFloat(snap.wpr_eval_score) || 0; // WPR (auto from competencies)
     const narrativeReportGrade = parseFloat(snap.narrative_eval_score) || 0; // NR
     const coordinatorEvalGrade = parseFloat(snap.coordinator_eval_score) || 0; // CE
-    const supervisorEvalGrade = parseFloat(snap.supervisor_eval_score) || 0; // SE (may be 0 during active OJT)
+    const supervisorEvalGrade = parseFloat(snap.supervisor_eval_score) || 0; // SE (0 during active OJT)
 
     // Build comprehensive snapshot payload
     const payload = {
@@ -351,15 +435,15 @@ router.get('/daily/:studentId', async (req, res) => {
       late_count: lateCount,
       absent_count: absentCount,
       hours_completed_ratio: hoursCompletedRatio,
-      
+
       // Progress features
       ojt_status: 'Active', // Default status
-      
+
       // Competency-based daily task features
       total_tasks_logged: parseInt(snap.total_tasks_logged) || 0,
       total_task_hours: parseFloat(snap.total_task_hours) || 0,
       number_of_distinct_competencies: parseInt(snap.number_of_distinct_competencies) || 0,
-      
+
       // Individual competency hours (11 competencies)
       hours_software_development: competencyHoursMap['software_development'] || 0,
       hours_machine_learning_engineering: competencyHoursMap['machine_learning_engineering'] || 0,
@@ -372,28 +456,52 @@ router.get('/daily/:studentId', async (req, res) => {
       hours_customer_service: competencyHoursMap['customer_service'] || 0,
       hours_data_entry_management: competencyHoursMap['data_entry_and_management'] || 0,
       hours_office_work: competencyHoursMap['office_work'] || 0,
-      
+
       // OJT Grading-related features
       weekly_progress_grade: weeklyProgressGrade,
       narrative_report_grade: narrativeReportGrade,
       coordinator_eval_grade: coordinatorEvalGrade,
       supervisor_eval_grade: supervisorEvalGrade,
-      
+
       // Grade presence flags
       has_weekly_progress_grade: weeklyProgressGrade > 0 ? 1 : 0,
       has_narrative_report_grade: narrativeReportGrade > 0 ? 1 : 0,
       has_coordinator_eval_grade: coordinatorEvalGrade > 0 ? 1 : 0,
       has_supervisor_eval_grade: supervisorEvalGrade > 0 ? 1 : 0,
-      
+
       // Chatbot engagement
       total_chatbot_queries: parseInt(snap.total_chatbot_queries) || 0,
       chatbot_queries_last_30_days: parseInt(snap.chatbot_queries_last_30_days) || 0,
+
+      // Integrity Data
+      inside_geofence: snap.integrity_data?.inside_geofence !== false, // Defaults true if missing
+      distance_m: parseFloat(snap.integrity_data?.distance_m) || 0.0,
+      accuracy_m: parseFloat(snap.integrity_data?.accuracy_m) || 10.0,
+      trust_flags: snap.integrity_data?.trust_flags || "",
+      has_photo: snap.integrity_data?.has_photo !== false, // Defaults true if missing
+      recent_flags_count: parseInt(snap.recent_flags_count) || 0,
     };
+
+    // Compute Trend Logic
+    const h7 = parseFloat(snap.trend_data?.hours_last_7) || 0;
+    const p7 = parseFloat(snap.trend_data?.hours_prev_7) || 0;
+
+    if (h7 > p7 * 1.15) {
+      payload.trend_status = 'improving';
+      payload.trend_reason = `Hours logged increased by >15% compared to previous week (${h7} vs ${p7})`;
+    } else if (h7 < p7 * 0.85) {
+      payload.trend_status = 'declining';
+      payload.trend_reason = `Hours logged decreased by >15% compared to previous week (${h7} vs ${p7})`;
+    } else {
+      payload.trend_status = 'stable';
+      payload.trend_reason = `Consistent performance logic maintained`;
+    }
+
 
     // 2) Call Python Flask AI
     // Replace with your Flask server URL (use environment variable in production)
     const flaskUrl = process.env.FLASK_AI_URL || 'http://localhost:5000';
-    
+
     let aiRes;
     try {
       aiRes = await axios.post(`${flaskUrl}/predict`, payload, {
@@ -405,7 +513,7 @@ router.get('/daily/:studentId', async (req, res) => {
     } catch (axiosError) {
       console.error('Flask AI service error:', axiosError.message);
       if (axiosError.code === 'ECONNREFUSED' || axiosError.code === 'ETIMEDOUT') {
-        return res.status(503).json({ 
+        return res.status(503).json({
           success: false,
           error_type: 'SERVICE_UNAVAILABLE',
           error: 'AI prediction service unavailable',
@@ -417,7 +525,7 @@ router.get('/daily/:studentId', async (req, res) => {
     }
 
     const prediction = aiRes.data;
-    
+
     // Check if prediction returned an error response
     if (prediction && prediction.success === false) {
       // Map error types to appropriate HTTP status codes
@@ -426,9 +534,9 @@ router.get('/daily/:studentId', async (req, res) => {
         'INVALID_INPUT': 400,
         'PREDICTION_ERROR': 500
       };
-      
+
       const statusCode = statusCodeMap[prediction.error_type] || 500;
-      
+
       return res.status(statusCode).json({
         success: false,
         error_type: prediction.error_type || 'PREDICTION_ERROR',
@@ -468,7 +576,7 @@ router.get('/daily/:studentId', async (req, res) => {
     });
   } catch (err) {
     console.error('Daily prediction error:', err);
-    
+
     // Log critical errors to database
     try {
       await query(
@@ -479,9 +587,9 @@ router.get('/daily/:studentId', async (req, res) => {
     } catch (logError) {
       console.error('Failed to log error to database:', logError);
     }
-    
+
     // Return a non-breaking response for the frontend instead of HTTP 500
-    return res.json({ 
+    return res.json({
       student_id: parseInt(studentId, 10) || null,
       snapshot: null,
       ai_prediction: {
@@ -496,11 +604,68 @@ router.get('/daily/:studentId', async (req, res) => {
   }
 });
 
+// Chatbot Interaction Proxy Endpoint (Injects Student Competencies)
+router.post('/chat', async (req, res) => {
+  try {
+    const { message, session_id, student_id } = req.body;
+
+    let student_data = null;
+    if (student_id) {
+      // Fetch competency hours for skill gap and career match analysis
+      const compResult = await query(`
+        SELECT 
+          c.title,
+          COALESCE(SUM(t.hours_worked), 0) AS hours
+        FROM competencies c
+        LEFT JOIN task_competencies tc ON c.competency_id = tc.competency_id
+        LEFT JOIN ojt_daily_tasks t ON tc.task_id = t.task_id 
+          AND t.student_id = $1 
+          AND t.status = 'Approved'
+        GROUP BY c.competency_id, c.title
+      `, [student_id]);
+
+      const competencies = {};
+      compResult.rows.forEach(row => {
+        // Normalize titles (e.g., 'Software Development' -> 'software_development')
+        const key = row.title.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        competencies[key] = parseFloat(row.hours) || 0;
+      });
+
+      // Provide to Python AI
+      student_data = { competencies };
+    }
+
+    // Forward to Python AI service
+    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:5000';
+    const response = await fetch(`${aiServiceUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        session_id,
+        student_data
+      })
+    });
+
+    const data = await response.json();
+    return res.status(response.status).json(data);
+
+  } catch (error) {
+    console.error('Chat endpoint error:', error);
+    // Provide structured fallback error for the Flutter client
+    res.status(500).json({
+      success: false,
+      error_type: 'CHATBOT_SERVICE_UNAVAILABLE',
+      message: 'Failed to communicate with AI chat service. Please try again later.'
+    });
+  }
+});
+
 // Chatbot logs
 router.get('/chatbot/logs', async (req, res) => {
   try {
     const { user_id } = req.query;
-    
+
     let sql = `
       SELECT c.*, u.full_name
       FROM chatbot_logs c
@@ -531,16 +696,16 @@ router.post('/chatbot/logs', async (req, res) => {
 
     // Validation
     if (!user_id || !userQuery || !response) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: user_id, query, and response are required' 
+      return res.status(400).json({
+        error: 'Missing required fields: user_id, query, and response are required'
       });
     }
 
     // Convert user_id to integer if it's a string
     const userId = parseInt(user_id, 10);
     if (isNaN(userId)) {
-      return res.status(400).json({ 
-        error: 'Invalid user_id: must be a valid integer' 
+      return res.status(400).json({
+        error: 'Invalid user_id: must be a valid integer'
       });
     }
 
@@ -551,8 +716,8 @@ router.post('/chatbot/logs', async (req, res) => {
     );
 
     if (userCheck.rows.length === 0) {
-      return res.status(404).json({ 
-        error: `User with ID ${userId} not found` 
+      return res.status(404).json({
+        error: `User with ID ${userId} not found`
       });
     }
 
@@ -569,7 +734,7 @@ router.post('/chatbot/logs', async (req, res) => {
     });
   } catch (error) {
     console.error('Save chatbot log error:', error);
-    
+
     // Provide more detailed error message
     let errorMessage = 'Internal server error';
     if (error.code === '23503') {
@@ -579,7 +744,7 @@ router.post('/chatbot/logs', async (req, res) => {
     } else if (error.message) {
       errorMessage = error.message;
     }
-    
+
     // Log critical errors to database
     try {
       await query(
@@ -590,8 +755,8 @@ router.post('/chatbot/logs', async (req, res) => {
     } catch (logError) {
       console.error('Failed to log error to database:', logError);
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
@@ -616,6 +781,58 @@ router.get('/chatbot/logs/:userId', async (req, res) => {
   } catch (error) {
     console.error('Get chatbot logs error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get AI Evaluation Metrics (Defense Ready)
+router.get('/evaluation-metrics', async (req, res) => {
+  try {
+    // 1. Fetch data from ai_evaluations table
+    const evalResult = await query(`
+      SELECT 
+        COUNT(*) as total_predictions,
+        SUM(CASE WHEN predicted_risk = actual_outcome THEN 1 ELSE 0 END) as correct_predictions,
+        SUM(CASE WHEN predicted_risk = 'HIGH' AND actual_outcome = 'Failed' THEN 1 ELSE 0 END) as true_positives,
+        SUM(CASE WHEN predicted_risk = 'HIGH' AND actual_outcome != 'Failed' THEN 1 ELSE 0 END) as false_positives,
+        SUM(CASE WHEN predicted_risk != 'HIGH' AND actual_outcome = 'Failed' THEN 1 ELSE 0 END) as false_negatives,
+        COUNT(CASE WHEN jsonb_array_length(flags_caught) > 0 THEN 1 END) as flagged_cases
+      FROM ai_evaluations
+      WHERE actual_outcome != 'Pending'
+    `);
+
+    if (evalResult.rows.length === 0 || evalResult.rows[0].total_predictions === '0') {
+      return res.json({
+        message: "No resolved AI evaluations recorded yet. Run predictions and log actual outcomes to generate metrics.",
+        model_accuracy: 0,
+        precision: 0,
+        recall: 0,
+        total_predictions: 0,
+        flagged_cases: 0
+      });
+    }
+
+    const metrics = evalResult.rows[0];
+    const tp = parseInt(metrics.true_positives) || 0;
+    const fp = parseInt(metrics.false_positives) || 0;
+    const fn = parseInt(metrics.false_negatives) || 0;
+    const correct = parseInt(metrics.correct_predictions) || 0;
+    const total = parseInt(metrics.total_predictions) || 0;
+
+    const precision = (tp + fp) > 0 ? (tp / (tp + fp)) : 0;
+    const recall = (tp + fn) > 0 ? (tp / (tp + fn)) : 0;
+    const accuracy = total > 0 ? (correct / total) : 0;
+
+    res.json({
+      model_accuracy: accuracy,
+      precision: precision,
+      recall: recall,
+      total_predictions: total,
+      flagged_cases: parseInt(metrics.flagged_cases) || 0,
+      generated_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Get evaluation metrics error:', error);
+    res.status(500).json({ error: 'Internal server error while computing metrics.' });
   }
 });
 

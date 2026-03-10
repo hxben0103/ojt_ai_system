@@ -40,11 +40,13 @@ run_ai.BASE_KNOWLEDGE_DIR = os.path.join(jrmsu_dir, "data", "jrmsu_knowledge")
 
 # Import context manager
 from chatbot_context import get_context_manager
+from career_engine import generate_career_briefing
 
 
 def chatbot_response(
     user_message: str,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    student_data: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
     Enhanced chatbot response handler with conversation context support.
@@ -131,12 +133,22 @@ def chatbot_response(
         # Get conversation history for context-aware responses
         conversation_history = context.get_recent_history(max_turns=5)
         
+        # Inject career and competency data if provided
+        career_briefing = ""
+        if student_data:
+            try:
+                career_briefing = generate_career_briefing(student_data)
+            except Exception as ce:
+                logger.error(f"[CHATBOT_HANDLER] Error generating career briefing: {ce}")
+        
+        text_for_llm = career_briefing + text if career_briefing else text
+        
         logger.info(f"[CHATBOT_HANDLER] Processing message for session {session_id}")
         logger.debug(f"[CHATBOT_HANDLER] Message: {text[:100]}...")
         logger.debug(f"[CHATBOT_HANDLER] Conversation history: {len(conversation_history)} messages")
         
         # Call the RAG pipeline with conversation context
-        result = generate_response(text, conversation_history=conversation_history)
+        result = generate_response(text_for_llm, conversation_history=conversation_history)
         
         # Add assistant response to context if successful
         if result.get("success") and result.get("answer"):

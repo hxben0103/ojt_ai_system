@@ -4,12 +4,14 @@ import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../widgets/role_dashboard.dart';
 import '../widgets/role_guard.dart';
-import '../widgets/stat_card.dart';
+import '../widgets/modern_stat_card.dart';
 import '../widgets/section_header.dart';
 import '../widgets/dashboard_scaffold.dart';
 import '../widgets/loading_skeleton.dart';
 import '../core/app_theme.dart';
 import '../widgets/error_state_widget.dart';
+import '../widgets/insight_card.dart';
+import '../widgets/modern_table_card.dart';
 import '../screens/login_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -160,28 +162,32 @@ class _AdminDashboardState extends State<AdminDashboard> {
           icon: Icons.dashboard_rounded,
         ))
         ..add(_buildStatsSection(context))
-        ..add(const SizedBox(height: AppTheme.spacing12))
-        ..add(SectionHeader(
-          title: 'Pending Approvals',
-          icon: Icons.pending_rounded,
-          trailing: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppTheme.warningColor,
-              borderRadius: BorderRadius.circular(12),
+        ..add(const SizedBox(height: AppTheme.spacing24))
+        ..add(_buildSystemHealthInsight())
+        ..add(const SizedBox(height: AppTheme.spacing24))
+        ..add(
+          ModernTableCard(
+            title: 'Coordinator Approvals',
+            icon: Icons.pending_rounded,
+            headerAction: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppTheme.warningColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${_pendingCoordinators.length} pending',
+                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+              ),
             ),
-            child: Text(
-              '${_pendingCoordinators.length}',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
+            table: _buildPendingSection(context),
           ),
-        ))
-        ..add(_buildPendingSection(context))
-        ..add(const SizedBox(height: AppTheme.spacing16));
+        )
+        ..add(const SizedBox(height: AppTheme.spacing32));
     }
 
     widgets.add(_buildLogoutCard(context));
-    widgets.add(const SizedBox(height: AppTheme.spacing24));
+    widgets.add(const SizedBox(height: AppTheme.spacing48));
     return widgets;
   }
 
@@ -249,83 +255,70 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget _buildStatsSection(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: 'Total Users',
-                  value: '$_totalUsers',
-                  icon: Icons.people_alt_rounded,
-                  color: AppTheme.adminPrimary,
-                  onTap: () {}, // Navigate to user management
-                ),
-              ),
-              const SizedBox(width: AppTheme.spacing12),
-              Expanded(
-                child: StatCard(
-                  title: 'Active Users',
-                  value: '$_activeUsers',
-                  icon: Icons.verified_user_rounded,
-                  color: AppTheme.successColor,
-                  onTap: () {},
-                ),
-              ),
-            ],
+          ModernStatCard(
+            label: 'Total Users',
+            value: '$_totalUsers',
+            icon: Icons.people_alt_rounded,
+            color: AppTheme.adminPrimary,
           ),
-          const SizedBox(height: AppTheme.spacing12),
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: 'Pending Users',
-                  value: '$_pendingUsers',
-                  icon: Icons.pending_actions_rounded,
-                  color: AppTheme.warningColor,
-                  onTap: () {},
-                ),
-              ),
-              const SizedBox(width: AppTheme.spacing12),
-              Expanded(
-                child: StatCard(
-                  title: 'Coordinators',
-                  value: '$_coordinatorCount',
-                  icon: Icons.school_rounded,
-                  color: AppTheme.coordinatorPrimary,
-                  onTap: () {},
-                ),
-              ),
-            ],
+          const SizedBox(width: AppTheme.spacing8),
+          ModernStatCard(
+            label: 'Active',
+            value: '$_activeUsers',
+            icon: Icons.verified_user_rounded,
+            color: AppTheme.successColor,
+          ),
+          const SizedBox(width: AppTheme.spacing8),
+          ModernStatCard(
+            label: 'Pending',
+            value: '$_pendingUsers',
+            icon: Icons.pending_actions_rounded,
+            color: AppTheme.warningColor,
+          ),
+          const SizedBox(width: AppTheme.spacing8),
+          ModernStatCard(
+            label: 'Coordinators',
+            value: '$_coordinatorCount',
+            icon: Icons.school_rounded,
+            color: AppTheme.coordinatorPrimary,
           ),
         ],
       ),
     );
   }
 
+  Widget _buildSystemHealthInsight() {
+    return InsightCard(
+      title: "System Health Summary",
+      subtitle: "Global integrity and user status",
+      icon: Icons.security_rounded,
+      statusLabel: _pendingUsers > 0 ? "ACTION REQUIRED" : "SYSTEM STABLE",
+      statusColor: _pendingUsers > 0 ? AppTheme.warningColor : AppTheme.successColor,
+      progressValue: _totalUsers > 0 ? _activeUsers / _totalUsers : 1.0,
+      insights: [
+        if (_pendingUsers > 0) "$_pendingUsers users across all roles awaiting registration approval.",
+        "$_coordinatorCount active coordinators managing OJT records.",
+        "Overall system user compliance: ${(_totalUsers > 0 ? (_activeUsers / _totalUsers * 100) : 100).toInt()}%",
+      ],
+      recommendation: _pendingUsers > 0 
+          ? "Review pending coordinator and student applications to prevent onboarding delays." 
+          : "System integrity checks passed. All users are verified.",
+      onRetry: _loadDashboardData,
+    );
+  }
+
   Widget _buildPendingSection(BuildContext context) {
     if (_pendingCoordinators.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(AppTheme.spacing32),
-        margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-          boxShadow: [AppTheme.cardShadow],
-        ),
+      return const Padding(
+        padding: EdgeInsets.all(AppTheme.spacing32),
         child: Center(
           child: Column(
             children: [
-              Icon(
-                Icons.task_alt_rounded,
-                size: 64,
-                color: AppTheme.successColor.withOpacity(0.4),
-              ),
-              const SizedBox(height: AppTheme.spacing16),
-              Text(
-                "No pending approvals",
-                style: AppTheme.heading3.copyWith(color: Colors.black54),
-              ),
+              Icon(Icons.task_alt_rounded, size: 48, color: Colors.grey),
+              SizedBox(height: 12),
+              Text("No pending coordinator approvals", style: TextStyle(color: Colors.grey)),
             ],
           ),
         ),
@@ -334,95 +327,56 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     return Column(
       children: _pendingCoordinators.map((user) {
-        final processing = user.userId != null &&
-            _processing.contains(user.userId);
-        return Container(
-          margin: const EdgeInsets.fromLTRB(AppTheme.spacing16, 0, AppTheme.spacing16, AppTheme.spacing12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-            boxShadow: [AppTheme.cardShadow],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(AppTheme.spacing16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: AppTheme.adminPrimary.withOpacity(0.1),
-                      radius: 28,
-                      child: Text(
-                        user.fullName.split(" ").where((e) => e.isNotEmpty).map((e) => e[0]).take(2).join().toUpperCase(),
-                        style: TextStyle(
-                          color: AppTheme.adminPrimary,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                        ),
-                      ),
+        final processing = user.userId != null && _processing.contains(user.userId);
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppTheme.adminPrimary.withOpacity(0.1),
+                    child: Text(user.fullName[0], style: TextStyle(color: AppTheme.adminPrimary, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(user.fullName, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
+                        Text(user.email, style: AppTheme.bodySmall),
+                      ],
                     ),
-                    const SizedBox(width: AppTheme.spacing16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            user.fullName,
-                            style: AppTheme.bodyLarge.copyWith(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 18,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(user.email, style: AppTheme.bodySmall),
-                          if (user.contactNumber != null && user.contactNumber!.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(user.contactNumber!, style: AppTheme.caption),
-                          ],
-                        ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: processing ? null : () => _handleDecision(user, true),
+                      style: AppTheme.primaryButtonStyle(AppTheme.successColor).copyWith(
+                        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(vertical: 8)),
                       ),
+                      child: processing ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text("Approve"),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppTheme.warningColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: processing ? null : () => _handleDecision(user, false),
+                      style: AppTheme.secondaryButtonStyle(AppTheme.errorColor).copyWith(
+                        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(vertical: 8)),
                       ),
-                      child: Text(
-                        "COORDINATOR",
-                        style: TextStyle(color: AppTheme.warningColor, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
-                      ),
+                      child: const Text("Reject"),
                     ),
-                  ],
-                ),
-                const SizedBox(height: AppTheme.spacing20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: processing ? null : () => _handleDecision(user, true),
-                        icon: processing 
-                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Icon(Icons.check_rounded, size: 20),
-                        label: const Text("Approve"),
-                        style: AppTheme.primaryButtonStyle(AppTheme.successColor),
-                      ),
-                    ),
-                    const SizedBox(width: AppTheme.spacing12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: processing ? null : () => _handleDecision(user, false),
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                        label: const Text("Reject"),
-                        style: AppTheme.secondaryButtonStyle(AppTheme.errorColor),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+            ],
           ),
         );
       }).toList(),

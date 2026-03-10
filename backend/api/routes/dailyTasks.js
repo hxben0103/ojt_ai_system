@@ -30,7 +30,7 @@ router.get('/competencies', async (req, res) => {
     const result = await query(
       'SELECT competency_id, title, point_value FROM competencies ORDER BY point_value DESC, title'
     );
-    
+
     res.json({
       competencies: result.rows.map(row => ({
         competencyId: row.competency_id,
@@ -68,7 +68,7 @@ router.get('/students/:studentId/daily-tasks', authenticateToken, async (req, re
            AND (o.supervisor_id = $2 OR o.coordinator_id = $2)`,
         [studentId, currentUser.user_id]
       );
-      
+
       if (accessCheck.rows.length === 0 && currentUser.role !== 'Admin') {
         return res.status(403).json({ error: 'Access denied: Student not assigned to you' });
       }
@@ -99,7 +99,7 @@ router.get('/students/:studentId/daily-tasks', authenticateToken, async (req, re
 
     // Group tasks by task_id (since one task can have multiple competencies)
     const taskMap = new Map();
-    
+
     result.rows.forEach(row => {
       if (!taskMap.has(row.task_id)) {
         taskMap.set(row.task_id, {
@@ -116,7 +116,7 @@ router.get('/students/:studentId/daily-tasks', authenticateToken, async (req, re
           competencies: []
         });
       }
-      
+
       if (row.competency_id) {
         taskMap.get(row.task_id).competencies.push({
           competencyId: row.competency_id,
@@ -145,8 +145,8 @@ router.post('/students/:studentId/daily-tasks', authenticateToken, async (req, r
 
     // Validation
     if (!date || !taskDescription || !competencyId) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: date, taskDescription, and competencyId are required' 
+      return res.status(400).json({
+        error: 'Missing required fields: date, taskDescription, and competencyId are required'
       });
     }
 
@@ -160,20 +160,31 @@ router.post('/students/:studentId/daily-tasks', authenticateToken, async (req, r
       'SELECT competency_id FROM competencies WHERE competency_id = $1',
       [competencyId]
     );
-    
+
     if (competencyCheck.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid competencyId' });
     }
 
-    // Get supervisor_id from OJT record if available
+    // STRICT OJT ENROLLMENT CHECK
     let supervisorId = null;
     if (currentUser.role === 'Student') {
       const ojtRecord = await query(
-        'SELECT supervisor_id FROM ojt_records WHERE student_id = $1 AND status = $2 LIMIT 1',
-        [studentId, 'Active']
+        `SELECT supervisor_id 
+         FROM ojt_records 
+         WHERE student_id = $1 
+         AND status IN ('Active', 'Ongoing')
+         AND coordinator_id IS NOT NULL 
+         AND supervisor_id IS NOT NULL
+         LIMIT 1`,
+        [studentId]
       );
+
       if (ojtRecord.rows.length > 0) {
         supervisorId = ojtRecord.rows[0].supervisor_id;
+      } else {
+        return res.status(403).json({
+          error: 'You cannot perform this action because your OJT setup is incomplete. Coordinator or Supervisor assignment is missing.'
+        });
       }
     }
 
@@ -181,10 +192,11 @@ router.post('/students/:studentId/daily-tasks', authenticateToken, async (req, r
     const taskResult = await query(
       `INSERT INTO ojt_daily_tasks 
          (student_id, date, task_description, hours_worked, supervisor_id, status)
-       VALUES ($1, $2, $3, $4, $5, 'Pending')
+       VALUES ($1, $2, $3, $4, $5, 'Approved')
        RETURNING *`,
       [studentId, date, taskDescription, hoursWorked || null, supervisorId]
     );
+
 
     const task = taskResult.rows[0];
 
@@ -246,8 +258,8 @@ router.put('/daily-tasks/:taskId/status', authenticateToken, async (req, res) =>
 
     // Validation
     if (!status || !['Approved', 'Rejected', 'Pending'].includes(status)) {
-      return res.status(400).json({ 
-        error: 'Invalid status. Must be: Approved, Rejected, or Pending' 
+      return res.status(400).json({
+        error: 'Invalid status. Must be: Approved, Rejected, or Pending'
       });
     }
 
@@ -355,7 +367,7 @@ router.get('/students/:studentId/competency-summary', authenticateToken, async (
            AND (o.supervisor_id = $2 OR o.coordinator_id = $2)`,
         [studentId, currentUser.user_id]
       );
-      
+
       if (accessCheck.rows.length === 0 && currentUser.role !== 'Admin') {
         return res.status(403).json({ error: 'Access denied' });
       }
@@ -436,7 +448,7 @@ router.get('/supervisors/:supervisorId/pending-tasks', authenticateToken, async 
 
     // Group by task_id
     const taskMap = new Map();
-    
+
     result.rows.forEach(row => {
       if (!taskMap.has(row.task_id)) {
         taskMap.set(row.task_id, {
@@ -452,7 +464,7 @@ router.get('/supervisors/:supervisorId/pending-tasks', authenticateToken, async 
           competencies: []
         });
       }
-      
+
       if (row.competency_id) {
         taskMap.get(row.task_id).competencies.push({
           competencyId: row.competency_id,

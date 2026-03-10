@@ -20,16 +20,16 @@ const authenticateToken = (req, res, next) => {
 // POST /ojt-sites - Create (auth)
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, latitude, longitude, radius_meters, company_id, company_name } = req.body;
+    const { name, latitude, longitude, radius_meters, company_id, company_name, address } = req.body;
     if (!name || latitude == null || longitude == null) {
       return res.status(400).json({ error: 'name, latitude, longitude are required' });
     }
     const radius = radius_meters != null ? Number(radius_meters) : 100;
     const result = await query(
-      `INSERT INTO ojt_sites (name, latitude, longitude, radius_meters, company_id, company_name, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-       RETURNING id, name, latitude, longitude, radius_meters, company_id, company_name, created_at`,
-      [name, latitude, longitude, radius, company_id || null, company_name || null]
+      `INSERT INTO ojt_sites (name, latitude, longitude, radius_meters, company_id, company_name, address, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+       RETURNING id, name, latitude, longitude, radius_meters, company_id, company_name, address, created_at`,
+      [name, latitude, longitude, radius, company_id || null, company_name || null, address || null]
     );
     res.status(201).json({ site: result.rows[0] });
   } catch (err) {
@@ -42,7 +42,7 @@ router.post('/', authenticateToken, async (req, res) => {
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { companyId, company_name } = req.query;
-    let sql = 'SELECT id, name, latitude, longitude, radius_meters, company_id, company_name, created_at FROM ojt_sites WHERE 1=1';
+    let sql = 'SELECT id, name, latitude, longitude, radius_meters, company_id, company_name, address, created_at FROM ojt_sites WHERE 1=1';
     const params = [];
     let p = 1;
     if (companyId != null && companyId !== '') {
@@ -67,7 +67,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await query(
-      'SELECT id, name, latitude, longitude, radius_meters, company_id, company_name, created_at FROM ojt_sites WHERE id = $1',
+      'SELECT id, name, latitude, longitude, radius_meters, company_id, company_name, address, created_at FROM ojt_sites WHERE id = $1',
       [id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Site not found' });
@@ -82,7 +82,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, latitude, longitude, radius_meters, company_id, company_name } = req.body;
+    const { name, latitude, longitude, radius_meters, company_id, company_name, address } = req.body;
     const updates = [];
     const values = [];
     let p = 1;
@@ -92,6 +92,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (radius_meters != null) { updates.push(`radius_meters = $${p++}`); values.push(radius_meters); }
     if (company_id !== undefined) { updates.push(`company_id = $${p++}`); values.push(company_id); }
     if (company_name !== undefined) { updates.push(`company_name = $${p++}`); values.push(company_name); }
+    if (address !== undefined) { updates.push(`address = $${p++}`); values.push(address); }
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
     values.push(id);
     await query(
@@ -99,7 +100,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       values
     );
     const result = await query(
-      'SELECT id, name, latitude, longitude, radius_meters, company_id, company_name, created_at FROM ojt_sites WHERE id = $1',
+      'SELECT id, name, latitude, longitude, radius_meters, company_id, company_name, address, created_at FROM ojt_sites WHERE id = $1',
       [id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Site not found' });

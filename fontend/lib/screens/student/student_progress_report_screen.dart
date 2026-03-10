@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:typed_data';
 import '../../services/auth_service.dart';
+import '../../widgets/restricted_access_screen.dart';
+import '../../services/ojt_service.dart';
 
 class StudentProgressReportScreen extends StatefulWidget {
   const StudentProgressReportScreen({super.key});
@@ -22,6 +24,33 @@ class _StudentProgressReportScreenState
   Uint8List? _selectedFileBytes;
   String? _fileName;
   bool _isUploading = false;
+  bool _isLoading = true;
+  bool _canPerformOjtActions = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkOjtStatus();
+  }
+
+  Future<void> _checkOjtStatus() async {
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (user?.userId != null) {
+        final status = await OjtService.getStudentStatus(user!.userId!);
+        if (mounted) {
+          setState(() {
+            _canPerformOjtActions = status['can_perform_ojt_actions'] == true;
+            _isLoading = false;
+          });
+        }
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -100,6 +129,14 @@ class _StudentProgressReportScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (!_canPerformOjtActions) {
+      return const RestrictedAccessScreen();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Upload Progress Report'),

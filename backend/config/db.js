@@ -1,13 +1,15 @@
 const { Pool } = require('pg');
+const dns = require('dns');
 require('dotenv').config({ path: './config/env/.env' });
 
-// PostgreSQL Database Connection
+// Force Node.js to use IPv6 when no IPv4 record exists
+// Supabase free-tier databases only have IPv6 DNS records
+dns.setDefaultResultOrder('verbatim');
+
+// PostgreSQL Database Connection (Supabase)
 const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'ojt_ai_system',
-  password: process.env.DB_PASSWORD || 'password',
-  port: process.env.DB_PORT || 5432,
+  connectionString: process.env.DATABASE_URL,
+  ssl: false, // For Supabase IPv4 fallback which doesn't support SSL locally
 });
 
 // Test connection
@@ -38,17 +40,17 @@ const getClient = async () => {
   const client = await pool.connect();
   const query = client.query.bind(client);
   const release = client.release.bind(client);
-  
+
   // Set a timeout of 5 seconds for the client
   const timeout = setTimeout(() => {
     console.error('A client has been checked out for more than 5 seconds!');
   }, 5000);
-  
+
   client.release = () => {
     clearTimeout(timeout);
     return release();
   };
-  
+
   return client;
 };
 

@@ -141,6 +141,7 @@ def chat():
         data = request.get_json() or {}
         user_message = data.get("message", "")
         session_id = data.get("session_id")  # Optional: frontend can provide or let backend generate
+        student_data = data.get("student_data") # Optional data dict
         
         print(f"[CHAT] Received message: {user_message[:100]}...")  # Log first 100 chars
         print(f"[CHAT] Session ID: {session_id or 'default'}")
@@ -159,7 +160,7 @@ def chat():
         
         # Get structured response from chatbot handler
         print("[CHAT] Calling chatbot_response (JRMSU OJT Assistant from run_ai.py)...")
-        result = chatbot_response(user_message, session_id=session_id)
+        result = chatbot_response(user_message, session_id=session_id, student_data=student_data)
         
         # Check if request was successful
         if result.get("success"):

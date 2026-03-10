@@ -13,12 +13,15 @@ import '../services/attendance_service.dart';
 import '../services/auth_service.dart';
 import '../services/ojt_service.dart';
 import '../services/ojt_sites_service.dart';
+import '../models/geofence_site.dart';
 import '../services/location_service.dart';
 import '../services/geofence_service.dart';
 import '../services/location_security_service.dart';
 import '../core/attendance_constants.dart';
 import '../models/attendance.dart';
 import '../utils/web_image_picker.dart';
+import '../widgets/geofence_verification_panel.dart';
+import '../../widgets/restricted_access_screen.dart';
 
 class StudentAttendanceScreen extends StatefulWidget {
   const StudentAttendanceScreen({super.key});
@@ -39,6 +42,8 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   int? _studentId;
   int? _ojtRecordId;
   String? _companyName; // For geofence site lookup
+  String? _companyAddress; // For display
+  bool _canPerformOjtActions = false; // Restrict UI access flag
   
   // Map segment constants to display labels
   final Map<String, String> _segmentToLabel = {
@@ -155,13 +160,25 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       // Get OJT record for this student (for segment logging and geofence site lookup)
       try {
         final ojtRecords = await OjtService.getOjtRecords(studentId: _studentId);
-        if (ojtRecords.isNotEmpty) {
-          _ojtRecordId = ojtRecords.first.recordId;
-          _companyName = ojtRecords.first.companyName;
+        
+        // Ensure student has an active/ongoing record with assigned coordinator/supervisor
+        final activeRecord = ojtRecords.where((r) => 
+            (r.status == 'Active' || r.status == 'Ongoing') && 
+            r.coordinatorId != null && 
+            r.supervisorId != null).firstOrNull;
+
+        if (activeRecord != null) {
+          _ojtRecordId = activeRecord.recordId;
+          _companyName = activeRecord.companyName;
+          _companyAddress = activeRecord.companyAddress;
+          _canPerformOjtActions = true;
+        } else {
+           _canPerformOjtActions = false;
         }
       } catch (e) {
         // OJT record not found, but continue anyway
         print('Warning: Could not fetch OJT record: $e');
+        _canPerformOjtActions = false;
       }
 
       // Load today's attendance
@@ -372,38 +389,59 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         // Fetch geofence site for this student's company
         final sites = await OjtSitesService.getSitesByCompanyName(_companyName);
         if (sites.isNotEmpty && GeofenceConfig.enforceGeofence) {
-          final geofence = GeofenceService.check(
-            sites.first,
+          GeofenceSite nearestSite = sites.first;
+          ({bool inside, double distanceMeters}) bestGeofence = GeofenceService.check(
+            nearestSite,
             position.latitude,
             position.longitude,
           );
-          if (!geofence.inside) {
-            if (GeofenceConfig.blockOutsideGeofence) {
-              if (mounted) {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Outside work site'),
-                    content: Text(
-                      'You are ${geofence.distanceMeters.toStringAsFixed(0)} m away from the site. '
-                      'Please be within the designated area to check in.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('OK'),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              return;
+          
+          for (int i = 1; i < sites.length; i++) {
+            final check = GeofenceService.check(
+              sites[i],
+              position.latitude,
+              position.longitude,
+            );
+            if (check.distanceMeters < bestGeofence.distanceMeters) {
+              nearestSite = sites[i];
+              bestGeofence = check;
             }
-            insideGeofence = false;
-            distanceM = geofence.distanceMeters;
-          } else {
-            insideGeofence = true;
-            distanceM = geofence.distanceMeters;
+          }
+          
+          final geofence = bestGeofence;
+          
+          insideGeofence = geofence.inside;
+          distanceM = geofence.distanceMeters;
+
+          // Show professional verification panel before camera opens
+          if (mounted) {
+            final proceed = await showModalBottomSheet<bool>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => GeofenceVerificationPanel(
+                    siteName: nearestSite.name,
+                    siteAddress: nearestSite.address,
+                    siteLatitude: nearestSite.latitude,
+                    siteLongitude: nearestSite.longitude,
+                    currentLatitude: position.latitude,
+                    currentLongitude: position.longitude,
+                    distanceMeters: distanceM,
+                    accuracyMeters:
+                        position.accuracy > 0 ? position.accuracy : null,
+                    insideGeofence: insideGeofence,
+                    trustScore: trustScore,
+                    onProceed: () => Navigator.pop(ctx, true),
+                  ),
+                ) ??
+                false;
+
+            if (!proceed) return; // cancelled or blocked
+          }
+
+          if (!geofence.inside && GeofenceConfig.blockOutsideGeofence) {
+            // Already blocked via panel UI — but guard here too for safety
+            return;
           }
         }
         // Trust evaluation (mock, teleport, low accuracy)
@@ -469,6 +507,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         );
       }
     } else {
+
       // On mobile, request camera permission first
       setState(() {
         _isLoading = true;
@@ -647,12 +686,13 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("✅ $label recorded at $timeNow\n📸 Image saved to database"),
+              content: Text("✅ $label recorded and approved at $timeNow\n📸 Image saved and verified"),
               duration: const Duration(seconds: 3),
               backgroundColor: Colors.green,
             ),
           );
         }
+
 
         // If all required segments are complete, show signature dialog
         if (isComplete && mounted) {
@@ -863,6 +903,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   Widget build(BuildContext context) {
     final now = DateFormat('MMM d, yyyy').format(DateTime.now());
 
+    if (!_isInitializing && !_canPerformOjtActions) {
+      return const RestrictedAccessScreen();
+    }
+
     if (_isInitializing) {
       return Scaffold(
         appBar: AppBar(
@@ -921,6 +965,35 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
+                  if (_companyName != null && _companyName!.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        const Icon(Icons.business, color: Colors.blueGrey, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Company: $_companyName",
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.location_on, color: Colors.redAccent, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _companyAddress ?? "Location address not provided",
+                            style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24),
+                  ],
                   Text("Date: $now",
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 18)),

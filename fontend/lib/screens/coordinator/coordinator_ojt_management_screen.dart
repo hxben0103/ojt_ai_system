@@ -54,7 +54,7 @@ class _CoordinatorOjtManagementScreenState
 
   Future<void> _showCreateOjtRecordDialog() async {
     final formKey = GlobalKey<FormState>();
-    final studentIdController = TextEditingController();
+    final schoolIdController = TextEditingController();
     final companyNameController = TextEditingController();
     final supervisorIdController = TextEditingController();
     final requiredHoursController = TextEditingController(text: '300');
@@ -63,185 +63,285 @@ class _CoordinatorOjtManagementScreenState
     DateTime? startDate;
     DateTime? endDate;
 
+    // Lookup state
+    String? resolvedStudentName;
+    String? resolvedSchoolId;
+    bool isLooking = false;
+    String? lookupError;
+
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Create OJT Record'),
-          content: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: studentIdController,
-                    decoration: const InputDecoration(
-                      labelText: 'Student ID',
-                      border: OutlineInputBorder(),
+        builder: (context, setDialogState) {
+          Future<void> lookupStudent() async {
+            final schoolId = schoolIdController.text.trim();
+            if (schoolId.isEmpty) return;
+            setDialogState(() {
+              isLooking = true;
+              lookupError = null;
+              resolvedStudentName = null;
+              resolvedSchoolId = null;
+            });
+            try {
+              final results = await OjtService.lookupStudentBySchoolId(schoolId);
+              if (results.isNotEmpty) {
+                setDialogState(() {
+                  resolvedStudentName = results.first['full_name'] as String? ?? 'Unknown';
+                  resolvedSchoolId = results.first['student_id'] as String? ?? schoolId;
+                  isLooking = false;
+                });
+              } else {
+                setDialogState(() {
+                  lookupError = 'No student found with ID: $schoolId';
+                  isLooking = false;
+                });
+              }
+            } catch (e) {
+              setDialogState(() {
+                lookupError = 'Lookup failed: $e';
+                isLooking = false;
+              });
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Create OJT Record'),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ── School ID with lookup button ──
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: schoolIdController,
+                            decoration: const InputDecoration(
+                              labelText: 'Student School ID',
+                              hintText: 'e.g. 2021-00123',
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter school ID';
+                              }
+                              if (resolvedStudentName == null) {
+                                return 'Search the student first';
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        isLooking
+                            ? const SizedBox(
+                                width: 40, height: 40,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : IconButton(
+                                icon: const Icon(Icons.search),
+                                tooltip: 'Look up student',
+                                onPressed: lookupStudent,
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.deepPurple,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                      ],
                     ),
-                    keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter student ID';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: companyNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Company Name',
-                      border: OutlineInputBorder(),
+                    // Result chip
+                    if (resolvedStudentName != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                '$resolvedStudentName ($resolvedSchoolId)',
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (lookupError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          lookupError!,
+                          style: const TextStyle(color: Colors.red, fontSize: 12),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: companyNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Company Name',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter company name';
+                        }
+                        return null;
+                      },
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter company name';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: supervisorIdController,
-                    decoration: const InputDecoration(
-                      labelText: 'Supervisor ID',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: supervisorIdController,
+                      decoration: const InputDecoration(
+                        labelText: 'Supervisor ID',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter supervisor ID';
+                        }
+                        return null;
+                      },
                     ),
-                    keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter supervisor ID';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: requiredHoursController,
-                    decoration: const InputDecoration(
-                      labelText: 'Required Hours',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: requiredHoursController,
+                      decoration: const InputDecoration(
+                        labelText: 'Required Hours',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter required hours';
+                        }
+                        return null;
+                      },
                     ),
-                    keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter required hours';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: companyAddressController,
-                    decoration: const InputDecoration(
-                      labelText: 'Company Address (Optional)',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: companyAddressController,
+                      decoration: const InputDecoration(
+                        labelText: 'Company Address (Optional)',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: companyContactController,
-                    decoration: const InputDecoration(
-                      labelText: 'Company Contact (Optional)',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: companyContactController,
+                      decoration: const InputDecoration(
+                        labelText: 'Company Contact (Optional)',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    title: Text(startDate != null
-                        ? 'Start Date: ${_dateFormat.format(startDate!)}'
-                        : 'Select Start Date'),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2030),
-                      );
-                      if (date != null) {
-                        setDialogState(() {
-                          startDate = date;
-                        });
-                      }
-                    },
-                  ),
-                  ListTile(
-                    title: Text(endDate != null
-                        ? 'End Date: ${_dateFormat.format(endDate!)}'
-                        : 'Select End Date (Optional)'),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: startDate ?? DateTime.now(),
-                        firstDate: startDate ?? DateTime(2020),
-                        lastDate: DateTime(2030),
-                      );
-                      if (date != null) {
-                        setDialogState(() {
-                          endDate = date;
-                        });
-                      }
-                    },
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    ListTile(
+                      title: Text(startDate != null
+                          ? 'Start Date: ${_dateFormat.format(startDate!)}'
+                          : 'Select Start Date'),
+                      trailing: const Icon(Icons.calendar_today),
+                      onTap: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.now(),
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2030),
+                        );
+                        if (date != null) {
+                          setDialogState(() {
+                            startDate = date;
+                          });
+                        }
+                      },
+                    ),
+                    ListTile(
+                      title: Text(endDate != null
+                          ? 'End Date: ${_dateFormat.format(endDate!)}'
+                          : 'Select End Date (Optional)'),
+                      trailing: const Icon(Icons.calendar_today),
+                      onTap: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: startDate ?? DateTime.now(),
+                          firstDate: startDate ?? DateTime(2020),
+                          lastDate: DateTime(2030),
+                        );
+                        if (date != null) {
+                          setDialogState(() {
+                            endDate = date;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (formKey.currentState!.validate() && startDate != null) {
-                  try {
-                    final currentUser = await AuthService.getCurrentUser();
-                    if (currentUser?.userId == null) {
-                      throw Exception('User not logged in');
-                    }
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (formKey.currentState!.validate() && startDate != null) {
+                    try {
+                      final currentUser = await AuthService.getCurrentUser();
+                      if (currentUser?.userId == null) {
+                        throw Exception('User not logged in');
+                      }
 
-                    await OjtService.createOjtRecord(
-                      studentId: int.parse(studentIdController.text),
-                      companyName: companyNameController.text,
-                      coordinatorId: currentUser!.userId!,
-                      supervisorId: int.parse(supervisorIdController.text),
-                      startDate: startDate,
-                      endDate: endDate,
-                      requiredHours: int.parse(requiredHoursController.text),
-                      companyAddress: companyAddressController.text.isNotEmpty
-                          ? companyAddressController.text
-                          : null,
-                      companyContact: companyContactController.text.isNotEmpty
-                          ? companyContactController.text
-                          : null,
+                      await OjtService.createOjtRecord(
+                        schoolId: schoolIdController.text.trim(),
+                        companyName: companyNameController.text,
+                        coordinatorId: currentUser!.userId!,
+                        supervisorId: int.parse(supervisorIdController.text),
+                        startDate: startDate,
+                        endDate: endDate,
+                        requiredHours: int.parse(requiredHoursController.text),
+                        companyAddress: companyAddressController.text.isNotEmpty
+                            ? companyAddressController.text
+                            : null,
+                        companyContact: companyContactController.text.isNotEmpty
+                            ? companyContactController.text
+                            : null,
+                      );
+
+                      if (mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('OJT record created successfully')),
+                        );
+                        _loadOjtRecords();
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error: $e')),
+                        );
+                      }
+                    }
+                  } else if (startDate == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please select a start date')),
                     );
-
-                    if (mounted) {
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('OJT record created successfully')),
-                      );
-                      _loadOjtRecords();
-                    }
-                  } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e')),
-                      );
-                    }
                   }
-                }
-              },
-              child: const Text('Create'),
-            ),
-          ],
-        ),
+                },
+                child: const Text('Create'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

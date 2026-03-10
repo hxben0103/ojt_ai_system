@@ -9,6 +9,8 @@ import '../services/attendance_service.dart';
 import '../services/auth_service.dart';
 import '../services/ojt_service.dart';
 import '../services/prediction_service.dart';
+import '../widgets/integrity_badge.dart';
+import '../widgets/explainable_ai_card.dart';
 
 class CoordinatorStudentMonitor extends StatefulWidget {
   const CoordinatorStudentMonitor({super.key});
@@ -29,6 +31,12 @@ class StudentMonitorEntry {
     this.riskLevel,
     this.riskProbability,
     this.todayAttendanceStatus, // 'Approved', 'Pending', 'Rejected', or null
+    this.aiScore,
+    this.aiTrend,
+    this.integrityScore,
+    this.flagsCaught,
+    this.finalGradeForecast,
+    this.predictionData,
   });
 
   final String name;
@@ -41,6 +49,12 @@ class StudentMonitorEntry {
   final String? riskLevel;
   final double? riskProbability;
   final String? todayAttendanceStatus; // Status of today's attendance if exists
+  final double? aiScore;
+  final String? aiTrend;
+  final double? integrityScore;
+  final List<String>? flagsCaught;
+  final double? finalGradeForecast;
+  final Map<String, dynamic>? predictionData;
 
   int get remainingHours => max(requiredHours - completedHours, 0);
   double get completionPercent =>
@@ -49,18 +63,17 @@ class StudentMonitorEntry {
   // Helper to get status text for today's attendance
   String get todayStatusText {
     if (onDutyToday) {
-      // Student logged attendance - show status
       if (todayAttendanceStatus == 'Approved') {
-        return '✅ On Duty Today (Approved)';
+        return 'On Duty (Approved)';
       } else if (todayAttendanceStatus == 'Pending') {
-        return '⏳ On Duty Today (Pending Approval)';
+        return 'On Duty (Pending)';
       } else if (todayAttendanceStatus == 'Rejected') {
-        return '❌ On Duty Today (Rejected)';
+        return 'On Duty (Rejected)';
       } else {
-        return '✅ On Duty Today';
+        return 'On Duty Today';
       }
     } else {
-      return '❌ Not on Duty Today';
+      return 'Not on Duty Today';
     }
   }
   
@@ -107,6 +120,8 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
 
     try {
       final currentUser = await AuthService.getCurrentUser();
+      if (!mounted) return;
+      
       if (currentUser == null) {
         setState(() {
           _error = 'User not logged in';
@@ -119,6 +134,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         coordinatorId: currentUser.userId,
       );
 
+      if (!mounted) return;
       if (ojtRecords.isEmpty) {
         setState(() {
           _students = [];
@@ -132,6 +148,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         ojtRecords.map((record) => _buildStudentEntry(record)),
       );
 
+      if (!mounted) return;
       setState(() {
         _students = entries.whereType<StudentMonitorEntry>().toList();
         _isLoading = false;
@@ -139,6 +156,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         _error = null;
       });
     } catch (e, stackTrace) {
+      if (!mounted) return;
       setState(() {
         _error = 'Failed to load students: ${e.toString()}';
         _isLoading = false;
@@ -192,13 +210,41 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
 
       String? riskLevel;
       double? riskProbability;
+      double? aiScore;
+      String? aiTrend;
+      double? integrityScore;
+      List<String>? flagsCaught;
+      double? finalGradeForecast;
+
+      Map<String, dynamic>? prediction;
       try {
-        final prediction =
-            await PredictionService.getDailyPrediction(record.studentId);
-        final ml = prediction['ai_prediction']?['ml_prediction'];
-        if (ml != null) {
-          riskLevel = ml['risk_level'] as String?;
-          riskProbability = (ml['probability'] as num?)?.toDouble();
+        final rawPrediction = await PredictionService.getDailyPrediction(record.studentId);
+        prediction = Map<String, dynamic>.from(rawPrediction);
+        
+        if (prediction['ai_prediction'] != null) {
+          final aiPred = Map<String, dynamic>.from(prediction['ai_prediction'] as Map);
+          
+          if (aiPred['ml_prediction'] != null) {
+            final ml = Map<String, dynamic>.from(aiPred['ml_prediction'] as Map);
+            riskLevel = ml['risk_level'] as String?;
+            riskProbability = (ml['probability'] as num?)?.toDouble();
+          }
+          
+          if (aiPred['grading'] != null) {
+            final grading = Map<String, dynamic>.from(aiPred['grading'] as Map);
+            finalGradeForecast = (grading['forecasted_grade'] as num?)?.toDouble();
+          }
+          
+          if (aiPred['trend'] != null) {
+            final trend = Map<String, dynamic>.from(aiPred['trend'] as Map);
+            aiTrend = trend['status'] as String?;
+          }
+          
+          if (aiPred['integrity'] != null) {
+            final integrity = Map<String, dynamic>.from(aiPred['integrity'] as Map);
+            integrityScore = (integrity['integrity_score'] as num?)?.toDouble();
+            flagsCaught = (integrity['flags_caught'] as List<dynamic>?)?.map((e) => e.toString()).toList();
+          }
         }
       } catch (e) {
         debugPrint(
@@ -217,6 +263,12 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         riskLevel: riskLevel,
         riskProbability: riskProbability,
         todayAttendanceStatus: todayAttendanceStatus, // Status of today's attendance
+        aiScore: aiScore,
+        aiTrend: aiTrend,
+        integrityScore: integrityScore,
+        flagsCaught: flagsCaught,
+        finalGradeForecast: finalGradeForecast,
+        predictionData: prediction,
       );
     } catch (e) {
       debugPrint(
@@ -232,6 +284,12 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         riskLevel: null,
         riskProbability: null,
         todayAttendanceStatus: null,
+        aiScore: null,
+        aiTrend: null,
+        integrityScore: null,
+        flagsCaught: null,
+        finalGradeForecast: null,
+        predictionData: null,
       );
     }
   }
@@ -297,150 +355,267 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
     );
   }
 
-  Widget _buildStudentCard(StudentMonitorEntry entry) {
-    final initials = entry.name
-        .split(' ')
-        .where((part) => part.isNotEmpty)
-        .map((part) => part[0])
-        .take(2)
-        .join();
+  Widget _buildStatusChip(StudentMonitorEntry entry) {
+    IconData icon;
+    if (entry.onDutyToday) {
+      if (entry.todayAttendanceStatus == 'Approved') icon = Icons.check_circle_outline;
+      else if (entry.todayAttendanceStatus == 'Pending') icon = Icons.schedule;
+      else if (entry.todayAttendanceStatus == 'Rejected') icon = Icons.cancel_outlined;
+      else icon = Icons.cases_outlined;
+    } else {
+      icon = Icons.event_busy_outlined;
+    }
 
-    final riskColor = _getRiskColor(entry.riskLevel);
-    final riskIcon = _getRiskIcon(entry.riskLevel);
-
-    return Card(
-      elevation: 3,
-      margin: const EdgeInsets.only(bottom: AppTheme.spacing16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: entry.todayStatusColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: entry.todayStatusColor.withOpacity(0.2)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              radius: 32,
-              backgroundColor: entry.todayStatusColor,
-              child: Text(
-                initials,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: entry.todayStatusColor,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            entry.todayStatusText,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: entry.todayStatusColor.withOpacity(0.9),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiDiagnostics(StudentMonitorEntry entry) {
+    if (entry.riskLevel == null || entry.riskLevel == 'UNAVAILABLE') return const SizedBox.shrink();
+
+    final isCritical = entry.riskLevel == 'HIGH' || entry.riskLevel == 'CRITICAL';
+    final isWarning = entry.riskLevel == 'MEDIUM' || entry.riskLevel == 'NEEDS ATTENTION';
+    
+    Color riskColor = Colors.green.shade600;
+    IconData riskIcon = Icons.check_circle_outline;
+    if (isCritical) {
+      riskColor = Colors.red.shade600;
+      riskIcon = Icons.warning_amber_rounded;
+    } else if (isWarning) {
+      riskColor = Colors.orange.shade600;
+      riskIcon = Icons.info_outline;
+    }
+
+    final double score = entry.aiScore ?? (100.0 - ((entry.riskProbability ?? 0) * 100));
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome, size: 18, color: AppTheme.coordinatorPrimary),
+              const SizedBox(width: 8),
+              Text('AI Insights', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade800)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Row 1: Risk & Progress
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ML Risk Level', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(riskIcon, size: 16, color: riskColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          entry.riskLevel?.toUpperCase() ?? 'UNKNOWN',
+                          style: TextStyle(fontWeight: FontWeight.w700, color: riskColor, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(width: AppTheme.spacing16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    entry.name,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Progress Score', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${score.toStringAsFixed(1)} / 100',
+                      style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey.shade800, fontSize: 13),
                     ),
-                  ),
-                  const SizedBox(height: AppTheme.spacing4),
-                  Text('ID: ${entry.studentId}'),
-                  Text('Host Company: ${entry.hostCompany}'),
-                  const SizedBox(height: AppTheme.spacing8),
-                  Text(
-                    entry.todayStatusText,
-                    style: TextStyle(
-                      color: entry.todayStatusColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: AppTheme.spacing8),
-                  Row(
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Row 2: Integrity & Forecast
+          Row(
+            children: [
+              if (entry.integrityScore != null)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: LinearProgressIndicator(
-                          value: entry.completionPercent,
-                          backgroundColor: Colors.grey[200],
-                          color: AppTheme.coordinatorPrimary,
-                        ),
-                      ),
-                      const SizedBox(width: AppTheme.spacing8),
-                      Text(
-                        '${entry.completedHours}/${entry.requiredHours} hrs',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      Text('Integrity Score', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            '${entry.integrityScore?.toInt() ?? 100}',
+                            style: TextStyle(
+                              fontSize: 13, 
+                              fontWeight: FontWeight.w600,
+                              color: (entry.integrityScore ?? 100) < 70 ? Colors.red : Colors.green.shade700,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          if (entry.flagsCaught != null && entry.flagsCaught!.isNotEmpty)
+                            IntegrityBadge.trust(flaggedCount: entry.flagsCaught!.length, isCompact: true),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: AppTheme.spacing6),
-                  Text(
-                    'Remaining Hours: ${entry.remainingHours}',
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                  Text(
-                    'Last Duty Date: ${entry.lastDutyDate}',
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                  if (entry.riskLevel != null) ...[
-                    const SizedBox(height: AppTheme.spacing8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppTheme.spacing8,
-                        vertical: AppTheme.spacing4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: entry.riskLevel == 'UNAVAILABLE'
-                            ? Colors.grey.withOpacity(0.15)
-                            : riskColor.withOpacity(0.15),
-                        borderRadius:
-                            BorderRadius.circular(AppTheme.borderRadiusSmall),
-                        border: Border.all(
-                          color: entry.riskLevel == 'UNAVAILABLE'
-                              ? Colors.grey
-                              : riskColor,
+                ),
+              if (entry.finalGradeForecast != null && entry.finalGradeForecast! > 0)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Forecasted Grade', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${entry.finalGradeForecast!.toStringAsFixed(1)}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.coordinatorPrimary,
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            entry.riskLevel == 'UNAVAILABLE'
-                                ? Icons.cloud_off_rounded
-                                : riskIcon,
-                            size: 16,
-                            color: entry.riskLevel == 'UNAVAILABLE'
-                                ? Colors.grey
-                                : riskColor,
-                          ),
-                          const SizedBox(width: AppTheme.spacing4),
-                          Text(
-                            entry.riskLevel == 'UNAVAILABLE'
-                                ? 'AI Prediction Unavailable'
-                                : 'Risk: ${entry.riskLevel}',
-                            style: TextStyle(
-                              color: entry.riskLevel == 'UNAVAILABLE'
-                                  ? Colors.grey
-                                  : riskColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (entry.riskProbability != null &&
-                              entry.riskLevel != 'UNAVAILABLE') ...[
-                            const SizedBox(width: AppTheme.spacing4),
-                            Text(
-                              '(${(entry.riskProbability! * 100).toStringAsFixed(0)}%)',
-                              style: TextStyle(
-                                color: riskColor,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStudentCard(StudentMonitorEntry entry) {
+    final initials = entry.name.split(' ').where((p) => p.isNotEmpty).map((p) => p[0]).take(2).join();
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200, width: 1),
+      ),
+      color: Colors.white,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          childrenPadding: const EdgeInsets.only(left: 16, right: 16, bottom: 20),
+          leading: CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.grey.shade100,
+            child: Text(
+              initials, 
+              style: TextStyle(
+                color: Colors.grey.shade700, 
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              )
+            ),
+          ),
+          title: Text(
+            entry.name,
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: Colors.grey.shade900),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 2),
+              Text(
+                entry.hostCompany, 
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12, fontWeight: FontWeight.w500)
+              ),
+              const SizedBox(height: 8),
+              _buildStatusChip(entry),
+            ],
+          ),
+          children: [
+            const SizedBox(height: 16),
+            // Progress Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: Text(
+                    'Completion Progress',
+                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: Colors.grey.shade700),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  '${entry.completedHours} / ${entry.requiredHours} hrs',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey.shade900),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: entry.completionPercent,
+                minHeight: 6,
+                backgroundColor: Colors.grey.shade100,
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.coordinatorPrimary),
               ),
             ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('${(entry.completionPercent * 100).toStringAsFixed(1)}%', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
+                Flexible(
+                  child: Text(
+                    '${entry.remainingHours} hrs remaining',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            
+            if (entry.predictionData != null)
+              ExplainableAiCard(
+                prediction: entry.predictionData!,
+                isExpanded: true,
+              ),
           ],
         ),
       ),

@@ -23,7 +23,8 @@ class AiInsight {
     this.inputData,
   });
 
-  factory AiInsight.fromJson(Map<String, dynamic> json) {
+  factory AiInsight.fromJson(Map<dynamic, dynamic> jsonRow) {
+    final json = Map<String, dynamic>.from(jsonRow);
     return AiInsight(
       insightId: json['insight_id'] as int?,
       studentId: json['student_id'] as int,

@@ -12,16 +12,14 @@ async function checkData() {
   try {
     const res = await pool.query(`
       SELECT 
-        attendance_id, student_id, date, 
-        morning_in, morning_out, afternoon_in, afternoon_out,
-        regular_hours, total_hours, status
+        attendance_id, student_id, date, total_hours, status, verified
       FROM attendance 
-      ORDER BY date DESC, created_at DESC 
+      WHERE total_hours > 0
+      ORDER BY created_at DESC 
       LIMIT 10
     `);
     
-    console.log('Recent Attendance Records:');
-    console.table(res.rows);
+    console.log(JSON.stringify(res.rows, null, 2));
   } catch (err) {
     console.error('Check failed:', err);
   } finally {

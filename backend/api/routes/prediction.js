@@ -253,7 +253,7 @@ router.get('/daily/:studentId', async (req, res) => {
         SELECT 
           COALESCE(SUM(a.total_hours), 0) AS total_hours_completed,
           COALESCE(COUNT(DISTINCT a.date), 0) AS days_present,
-          COALESCE(COUNT(CASE WHEN a.time_in > '09:00:00' THEN 1 END), 0) AS late_count,
+          COALESCE(COUNT(CASE WHEN a.morning_in > '08:00:00' THEN 1 END), 0) AS late_count,
           COALESCE(MAX(a.date), NULL) AS last_attendance_date
         FROM attendance a
         WHERE a.student_id = $1 AND a.status = 'Approved'
@@ -350,7 +350,7 @@ router.get('/daily/:studentId', async (req, res) => {
           CASE WHEN attendance_image IS NOT NULL THEN true ELSE false END AS has_photo
         FROM attendance
         WHERE student_id = $1 AND date >= CURRENT_DATE - INTERVAL '14 days'
-        ORDER BY date DESC, time_in DESC
+        ORDER BY date DESC, morning_in DESC
         LIMIT 1
       ),
       recent_flags AS (
@@ -558,8 +558,8 @@ router.get('/daily/:studentId', async (req, res) => {
           studentId,
           'Daily Risk Prediction Ensemble',
           'daily_risk_prediction',
-          JSON.stringify(prediction.ml_prediction),
-          prediction.ml_prediction?.probability || 0,
+          JSON.stringify(prediction),
+          prediction.confidence || prediction.ml_prediction?.probability || 0,
           JSON.stringify(payload)
         ]
       );
@@ -568,10 +568,19 @@ router.get('/daily/:studentId', async (req, res) => {
       console.warn('Failed to save prediction to ai_insights:', insertError.message);
     }
 
+    // Attach backend trend payload to final ai_prediction object cleanly
+    const finalPrediction = {
+        ...prediction,
+        trend: {
+            status: payload.trend_status,
+            reason: payload.trend_reason
+        }
+    };
+
     return res.json({
       student_id: parseInt(studentId),
       snapshot: payload,
-      ai_prediction: prediction,
+      ai_prediction: finalPrediction,
       generated_at: new Date().toISOString()
     });
   } catch (err) {
@@ -607,7 +616,7 @@ router.get('/daily/:studentId', async (req, res) => {
 // Chatbot Interaction Proxy Endpoint (Injects Student Competencies)
 router.post('/chat', async (req, res) => {
   try {
-    const { message, session_id, student_id } = req.body;
+    const { message, session_id, student_id, stream } = req.body;
 
     let student_data = null;
     if (student_id) {
@@ -626,37 +635,54 @@ router.post('/chat', async (req, res) => {
 
       const competencies = {};
       compResult.rows.forEach(row => {
-        // Normalize titles (e.g., 'Software Development' -> 'software_development')
         const key = row.title.toLowerCase().replace(/[^a-z0-9]+/g, '_');
         competencies[key] = parseFloat(row.hours) || 0;
       });
 
-      // Provide to Python AI
       student_data = { competencies };
     }
 
-    // Forward to Python AI service
     const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:5000';
-    const response = await fetch(`${aiServiceUrl}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message,
-        session_id,
-        student_data
-      })
-    });
+    
+    try {
+      if (stream === true) {
+        // Handle streaming request
+        const response = await axios({
+          method: 'post',
+          url: `${aiServiceUrl}/chat`,
+          data: { message, session_id, student_data, stream: true },
+          responseType: 'stream',
+          timeout: 60000
+        });
 
-    const data = await response.json();
-    return res.status(response.status).json(data);
-
+        res.setHeader('Content-Type', 'application/x-ndjson');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        response.data.pipe(res);
+      } else {
+        // Handle standard non-streaming request
+        const response = await axios.post(`${aiServiceUrl}/chat`, {
+          message,
+          session_id,
+          student_data,
+          stream: false
+        }, { timeout: 30000 });
+        
+        return res.status(response.status).json(response.data);
+      }
+    } catch (axiosError) {
+      console.error('AI Service communication error:', axiosError.message);
+      return res.status(503).json({
+        success: false,
+        error_type: 'CHATBOT_SERVICE_UNAVAILABLE',
+        message: 'AI chat service is currently down.'
+      });
+    }
   } catch (error) {
     console.error('Chat endpoint error:', error);
-    // Provide structured fallback error for the Flutter client
     res.status(500).json({
       success: false,
-      error_type: 'CHATBOT_SERVICE_UNAVAILABLE',
-      message: 'Failed to communicate with AI chat service. Please try again later.'
+      error_type: 'INTERNAL_ERROR',
+      message: 'Failed to process chat request.'
     });
   }
 });

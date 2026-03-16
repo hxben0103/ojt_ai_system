@@ -9,9 +9,12 @@ import '../services/attendance_service.dart';
 class IntegrityTimelineCard extends StatelessWidget {
   final List<Attendance> attendanceHistory;
 
+  final bool showStudent;
+
   const IntegrityTimelineCard({
     Key? key,
     required this.attendanceHistory,
+    this.showStudent = false,
   }) : super(key: key);
 
   @override
@@ -61,10 +64,12 @@ class IntegrityTimelineCard extends StatelessWidget {
             color: Colors.grey.shade50,
             child: Row(
               children: [
-                Expanded(flex: 3, child: _headerText("Date")),
-                Expanded(flex: 3, child: _headerText("Geofence")),
-                Expanded(flex: 3, child: _headerText("Trust")),
+                if (showStudent) Expanded(flex: 3, child: _headerText("Student")),
+                Expanded(flex: 2, child: _headerText("Date")),
+                Expanded(flex: 2, child: _headerText("Geofence")),
+                Expanded(flex: 2, child: _headerText("Trust")),
                 Expanded(flex: 2, child: _headerText("Photo")),
+                Expanded(flex: 2, child: _headerText("Dist.")),
                 const SizedBox(width: 28), // map icon space
               ],
             ),
@@ -132,23 +137,32 @@ class IntegrityTimelineCard extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (showStudent)
+            Expanded(
+              flex: 3,
+              child: Text(
+                attendance.studentName ?? 'Unknown',
+                style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           // Date
           Expanded(
-            flex: 3,
+            flex: 2,
             child: Text(
               formatter.format(attendance.date),
-              style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade800),
+              style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade800, fontSize: 11),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           // Geofence badge
           Expanded(
-            flex: 3,
+            flex: 2,
             child: _buildBadge(geofenceText, geofenceColor),
           ),
           // Trust badge
           Expanded(
-            flex: 3,
+            flex: 2,
             child: _buildBadge(trustLabel, trustColor),
           ),
           // Photo link
@@ -185,6 +199,14 @@ class IntegrityTimelineCard extends StatelessWidget {
                       fontSize: 10,
                     ),
                   ),
+          ),
+          // Distance
+          Expanded(
+            flex: 2,
+            child: Text(
+              "N/A", // Distance native
+              style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade600, fontSize: 10),
+            ),
           ),
           // Map icon (tappable when location exists)
           SizedBox(

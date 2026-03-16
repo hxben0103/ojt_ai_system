@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from chatbot_handler import chatbot_response
 from insight_engine import predict_with_explanation, predict_performance, build_features_from_snapshot
@@ -9,36 +9,21 @@ CORS(app)  # ✅ Enables communication with Flutter (web or mobile)
 
 def format_response(text):
     """
-    Format chatbot response for better presentation:
-    - Convert numbered lists to markdown
-    - Convert bullet points to markdown
-    - Format code blocks
+    Format chatbot response for better presentation while preserving markdown:
     - Improve paragraph spacing
+    - Ensure bullet points and lists are well-defined
     """
     if not text:
         return text
     
-    # Normalize whitespace
+    # Normalize whitespace (avoid double-triple newlines but keep paragraph breaks)
     text = re.sub(r'\n{3,}', '\n\n', text)
     
-    # Convert numbered lists (1. 2. 3.) to markdown
-    text = re.sub(r'^(\d+)\.\s+(.+)$', r'\1. \2', text, flags=re.MULTILINE)
+    # Ensure spacing around bullet points if they aren't already spaced
+    text = re.sub(r'([^\n])\n([-•*])\s', r'\1\n\n\2 ', text)
     
-    # Convert bullet points (- or •) to markdown
-    text = re.sub(r'^[-•]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
-    
-    # Format code-like patterns (backticks or indented blocks)
-    text = re.sub(r'`([^`]+)`', r'`\1`', text)
-    
-    # Format URLs
-    text = re.sub(
-        r'(https?://[^\s]+)',
-        r'[\1](\1)',
-        text
-    )
-    
-    # Ensure proper spacing around headers
-    text = re.sub(r'\n([#]+)', r'\n\n\1', text)
+    # Ensure spacing around headers
+    text = re.sub(r'([^\n])\n([#]+)', r'\1\n\n\2', text)
     
     return text.strip()
 
@@ -158,6 +143,50 @@ def chat():
                 "confidence_score": 0.0
             }), 400
         
+        should_stream = data.get("stream", False)
+        
+        if should_stream:
+            print(f"[CHAT] Starting multi-chunk stream for: {user_message[:50]}...")
+            def generate():
+                import json
+                import time
+                
+                # Get structured response from chatbot handler
+                result = chatbot_response(user_message, session_id=session_id, student_data=student_data)
+                
+                if not result.get("success"):
+                    yield json.dumps(result) + "\n"
+                    return
+
+                # Format the answer
+                full_answer = result.get("answer", "")
+                if full_answer:
+                    full_answer = format_response(full_answer)
+                
+                # Simulate streaming by yielding words to provide immediate UI feedback feel
+                # even if the LLM generated it all at once.
+                # In a future update, we can move this inside run_ai.py for true token streaming.
+                words = full_answer.split(' ')
+                current_text = ""
+                
+                for i, word in enumerate(words):
+                    current_text += (word + " ")
+                    # Create a partial result to send
+                    partial_result = result.copy()
+                    partial_result["answer"] = current_text.strip()
+                    partial_result["is_streaming"] = True
+                    
+                    yield json.dumps(partial_result) + "\n"
+                    # Small delay to make the typing effect visible but fast
+                    time.sleep(0.01)
+                
+                # Send final complete message
+                result["answer"] = full_answer
+                result["is_streaming"] = False
+                yield json.dumps(result) + "\n"
+                
+            return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
+
         # Get structured response from chatbot handler
         print("[CHAT] Calling chatbot_response (JRMSU OJT Assistant from run_ai.py)...")
         result = chatbot_response(user_message, session_id=session_id, student_data=student_data)

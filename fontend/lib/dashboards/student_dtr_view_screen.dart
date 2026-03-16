@@ -170,6 +170,7 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
       "Afternoon Out",
       "Overtime In",
       "Overtime Out",
+      "Ded. Mins",
       "Total Hours",
       "Status",
     ];
@@ -200,7 +201,8 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
               _cell(record['pmOut'] ?? "-"),
               _cell(record['otIn'] ?? "-"),
               _cell(record['otOut'] ?? "-"),
-              _cell(record['totalHours']?.toString() ?? "0"),
+              _cell(record['deductionMinutes']?.toString() ?? "0", color: PdfColors.orange),
+              _cell(record['totalHours']?.toString() ?? "0", color: PdfColors.teal),
               _cell(
                 statusText,
                 color: statusColor,

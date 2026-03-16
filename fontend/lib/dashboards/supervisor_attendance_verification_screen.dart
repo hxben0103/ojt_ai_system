@@ -551,10 +551,27 @@ class _SupervisorAttendanceVerificationScreenState
                   _buildTimeChip('OT Out', attendance.overtimeOut!),
               ],
             ),
+            if (attendance.deductionMinutes != null && attendance.deductionMinutes! > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.timer_off, size: 16, color: Colors.orange),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Late Deduction: ${attendance.deductionMinutes} mins',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (attendance.totalHours != null) ...[
               const SizedBox(height: 8),
               Text(
-                'Total Hours: ${attendance.totalHours!.toStringAsFixed(1)}',
+                'Credited Hours: ${attendance.totalHours!.toStringAsFixed(1)}',
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.teal,

@@ -2200,8 +2200,8 @@ BEGIN
         v_errors := v_errors || 'Time out must be after time in';
     END IF;
     
-    -- Check if date is in the future
-    IF p_date > CURRENT_DATE THEN
+    -- Check if date is in the future (with 1-day buffer for timezones)
+    IF p_date > (CURRENT_DATE + INTERVAL '1 day') THEN
         v_is_valid := FALSE;
         v_errors := v_errors || 'Cannot record attendance for future dates';
     END IF;

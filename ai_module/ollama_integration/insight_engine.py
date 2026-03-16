@@ -601,10 +601,14 @@ def predict_performance(features_dict: Dict[str, float]) -> Dict[str, Any]:
             "probability": <float>,  # Probability of predicted class
             "top_reasons": [
                 "Low attendance in the last N days",
-                "Low supervisor rating",
                 ...
             ],
-            "recommendation": "Short, actionable recommendation here."
+            "recommendation": "Short, actionable recommendation here.",
+            "progress_score": <int>,
+            "confidence": <float>,
+            "prediction_stage": "early" | "developing" | "mature",
+            "key_factors": [...],
+            "recommendations": [...]
         }
         
         OR if models are unavailable:
@@ -675,8 +679,35 @@ def predict_performance(features_dict: Dict[str, float]) -> Dict[str, Any]:
         # Map to risk level
         risk_level = map_label_to_risk_level(str(predicted_label), probability)
         
+        # Calculate Data Completeness and Stage
+        hours_ratio = features_dict.get('hours_completed_ratio', 0)
+        prediction_stage = "early"
+        if hours_ratio >= 0.75:
+            prediction_stage = "mature"
+        elif hours_ratio >= 0.25:
+            prediction_stage = "developing"
+            
+        has_supervisor_eval = features_dict.get('has_supervisor_eval_grade', 0)
+        has_coord_eval = features_dict.get('has_coordinator_eval_grade', 0)
+        has_tasks = features_dict.get('total_tasks_logged', 0) > 0
+
+        data_completeness = {
+            "has_supervisor_eval": bool(has_supervisor_eval),
+            "has_coordinator_eval": bool(has_coord_eval),
+            "has_tasks": bool(has_tasks)
+        }
+        
         # Generate explainability features
         top_reasons = generate_top_reasons(features_dict, str(predicted_label), risk_level, RF_MODEL)
+        
+        if prediction_stage == "early":
+            early_reasons = []
+            if not has_supervisor_eval: early_reasons.append("Supervisor evaluation not yet available")
+            if not has_tasks: early_reasons.append("Task submissions have not started")
+            early_reasons.append("Score is primarily based on attendance records and early data")
+            # Overwrite for early stage to prioritize explainability when lacking data
+            top_reasons = early_reasons + top_reasons[:2]
+
         recommendation = generate_recommendation(risk_level, top_reasons, features_dict)
         
         # Calculate 0-100 Progress Score based on ML probability
@@ -709,11 +740,15 @@ def predict_performance(features_dict: Dict[str, float]) -> Dict[str, Any]:
             "top_reasons": top_reasons,
             "recommendation": recommendation,
             
-            # New Unified Schema fields
+            # New Unified Schema fields strictly matching payload requirements
             "summary": recommendation,
+            "progress_score": progress_score,
             "score": progress_score,
             "confidence": float(probability),
+            "prediction_stage": prediction_stage,
+            "top_reasons": top_reasons,
             "key_factors": top_reasons,
+            "data_completeness": data_completeness,
             "recommendations": [recommendation] # Overwritten by Gemma if enabled
         }
     

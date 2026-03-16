@@ -199,6 +199,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
         title: "Admin Dashboard",
         color: AppTheme.adminPrimary,
         tasks: const [],
+        dashboardData: {
+          "role": "admin",
+          "total_users": _totalUsers,
+          "active_users": _activeUsers,
+          "pending_users": _pendingUsers,
+          "coordinator_count": _coordinatorCount,
+        },
         customActions: _buildCustomActions(ctx),
       ),
     );

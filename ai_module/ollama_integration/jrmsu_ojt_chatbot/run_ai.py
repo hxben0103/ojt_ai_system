@@ -24,8 +24,8 @@ DEBUG = True                  # set True to see retrieved chunks in console
 
 APOLOGY = "I'm sorry, I don't have information about that based on JRMSU's knowledge base."
 FALLBACK_MESSAGE = (
-    "I'm not fully sure about that based on the available OJT documents. "
-    "Please consult your OJT coordinator for confirmation."
+    "I'm not fully certain about that based on the available OJT documents. "
+    "To better assist you, you might want to check your OJT dashboard or consult your OJT coordinator for official guidance."
 )
 
 # Maximum conversation history turns to include in prompt
@@ -69,18 +69,19 @@ def clean_llm_output(text: str) -> str:
 
 def format_response(text: str, width: int = 95) -> str:
     """
-    Clean response into a single flowing paragraph:
-    - remove markdown symbols
-    - collapse whitespace
-    - wrap for terminal display
+    Clean response for terminal or mobile display while preserving markdown:
+    - Collapse excessive whitespace
+    - Wrap for terminal if needed (optional)
     """
-    remove_list = ["**", "*", "-", "•", "–", "#", "`", "_"]
-
-    for item in remove_list:
-        text = text.replace(item, "")
-
-    text = " ".join(text.split())  # collapse multiple spaces/newlines
-    return textwrap.fill(text, width=width)
+    if not text:
+        return ""
+        
+    # Collapse multiple spaces but preserve single newlines
+    text = re.sub(r'[ \t]+', ' ', text)
+    # Collapse 3+ newlines to 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
 
 
 # ------------------------------------------------------------
@@ -208,64 +209,60 @@ def build_prompt_with_context(
 ) -> str:
     """
     Build the prompt for the LLM, including conversation context if available.
-    
-    Args:
-        user_query: Current user question
-        context_text: Retrieved knowledge base chunks
-        conversation_history: Optional list of previous messages (from ConversationContext)
-    
-    Returns:
-        Formatted prompt string
     """
-    # Build conversation history section if available
+    # Build conversation history section
     history_section = ""
-    if conversation_history and len(conversation_history) > 0:
+    if conversation_history:
         history_lines = []
         for msg in conversation_history:
             role_label = "User" if msg.get("role") == "user" else "Assistant"
             content = msg.get("content", "")
             history_lines.append(f"{role_label}: {content}")
-        
-        history_section = f"""
-Previous conversation:
-{chr(10).join(history_lines)}
+        history_section = f"Previous conversation:\n{chr(10).join(history_lines)}\n\n"
+    
+    # Check if this query contains dashboard context injected by chatbot_handler.py
+    has_dashboard = "[DASHBOARD CONTEXT]" in user_query
+    actual_query = user_query
+    dash_info = ""
+    
+    if has_dashboard:
+        try:
+            parts = user_query.split("\n\nUser Question: ")
+            dash_info = parts[0].replace("[DASHBOARD CONTEXT]", "").strip()
+            actual_query = parts[1] if len(parts) > 1 else user_query
+        except:
+            pass
 
-"""
-    
-    # Detect specific question types for targeted extraction
-    query_lower = user_query.lower()
-    is_specific_question = False
-    extraction_instruction = ""
-    
-    if "president" in query_lower and "university" in query_lower:
-        is_specific_question = True
-        extraction_instruction = "IMPORTANT: Extract ONLY the name of the University President. Do NOT list other officials. Answer with just the name and title (e.g., 'Dr. Maria Rio Abdon Naguit, Ph.D., University President')."
-    elif "learning competencies" in query_lower or "competencies" in query_lower:
-        is_specific_question = True
-        extraction_instruction = "IMPORTANT: Extract ONLY the relevant learning competencies information. Focus on the specific competencies mentioned, not the entire document structure."
-    
+    # Instructions for dashboard vs normal RAG
+    if has_dashboard:
+        role_instruction = (
+            "You are the JRMSU OJT Assistant. The user is asking about their dashboard. "
+            "Use the provided [DASHBOARD DATA] numbers below to give a specific analysis of their progress, "
+            "attendance, and performance. Be encouraging and data-driven."
+        )
+        knowledge_label = "General OJT Procedures (for reference):"
+        current_data_section = f"\n[DASHBOARD DATA]\n{dash_info}\n"
+    else:
+        role_instruction = "You are the JRMSU OJT Assistant. Use the JRMSU knowledge below to answer."
+        knowledge_label = "JRMSU Knowledge:"
+        current_data_section = ""
+
     prompt = f"""
-You are the JRMSU OJT Assistant. Use ONLY the JRMSU knowledge below to answer.
+{role_instruction}
 
-{history_section}JRMSU Knowledge:
+{history_section}{knowledge_label}
 {context_text}
+{current_data_section}
+Current question: {actual_query}
 
-Current question: {user_query}
-
-{extraction_instruction if is_specific_question else ""}
-
-Instructions:
-- Respond with ONLY the specific information requested.
-- If asked about a specific person (e.g., president), provide ONLY that person's name and title.
-- If asked about specific information (e.g., competencies), provide ONLY the relevant details.
-- DO NOT include entire lists or documents - extract only what was asked.
-- Respond in one or two direct paragraphs only.
-- DO NOT mention documents, files, chapters, sections, or sources.
-- DO NOT explain where the information came from.
-- DO NOT add unsupported information.
-- DO NOT use bullet points or numbering unless the question specifically asks for a list.
-- Always answer in a clear, formal, academic tone.
-- If the conversation history is provided, use it to understand context and provide relevant follow-up answers.
+Analysis Instructions:
+- If dashboard data is provided, use the numbers (hours, tasks, scores) to explain their current status.
+- Start with a direct and helpful answer.
+- Maintain a professional yet supportive mentor-like tone.
+- Use bullet points if helpful.
+- DO NOT mention document names or files.
+- DO NOT say 'According to the data' or 'The provided information shows'. Just speak directly.
+- If the question is outside OJT/Academic scope, politely decline.
 """.strip()
     
     return prompt

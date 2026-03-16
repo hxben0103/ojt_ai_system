@@ -25,10 +25,18 @@ function safeFloat(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
-function safeInt(v) {
-  if (v == null) return null;
-  const n = parseInt(v, 10);
-  return Number.isFinite(n) ? n : null;
+// Helper: format Date object to YYYY-MM-DD string
+function formatDate(date) {
+  if (!date) return null;
+  if (date instanceof Date) {
+    // For DATE columns, node-postgres usually returns a Date object at midnight UTC or Local.
+    // Using UTC methods is safer as it avoids local timezone shifts that could change the day.
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  }
+  if (typeof date === 'string' && date.includes('T')) {
+    return date.split('T')[0];
+  }
+  return date;
 }
 
 // Authentication middleware
@@ -56,7 +64,10 @@ router.get('/', async (req, res) => {
 
     let sql = `
       SELECT 
-        a.attendance_id, a.student_id, a.date, a.time_in, a.time_out, 
+        a.attendance_id, a.student_id, a.date, 
+        a.morning_in, a.morning_out, a.afternoon_in, a.afternoon_out,
+        a.overtime_in, a.overtime_out, a.regular_hours, 
+        a.total_hours, a.deduction_minutes,
         a.status, a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng, 
         a.verification_status, a.distance_m, a.trust_score, a.trust_flags,
         a.checkin_photo_path, (a.attendance_image IS NOT NULL) AS has_base64_image,
@@ -84,32 +95,46 @@ router.get('/', async (req, res) => {
       paramCount++;
     }
 
-    sql += ' ORDER BY a.date DESC, a.time_in DESC';
+    sql += ' ORDER BY a.date DESC, a.morning_in DESC';
 
     const result = await query(sql, params);
-    res.json({ attendance: result.rows });
+    
+    // Format all dates to YYYY-MM-DD string
+    const formattedRows = result.rows.map(row => ({
+      ...row,
+      date: formatDate(row.date)
+    }));
+    
+    res.json({ attendance: formattedRows });
   } catch (error) {
     console.error('Get attendance error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Get today's attendance for a student
+// Get today's attendance for a student (allows optional date override)
 router.get('/today/:studentId', async (req, res) => {
   try {
     const { studentId } = req.params;
-    // Use PostgreSQL's CURRENT_DATE to avoid timezone issues
-    // This ensures we match the date in the database's timezone
-    const result = await query(
-      `SELECT a.*, u.full_name 
-       FROM attendance a
-       JOIN users u ON a.student_id = u.user_id
-       WHERE a.student_id = $1 AND a.date = CURRENT_DATE`,
-      [studentId]
-    );
+    const { date } = req.query;
+
+    const calculatedDate = date || new Date().toISOString().split('T')[0];
+    
+    console.log(`[Attendance GET /today] Fetching session for student: ${studentId}, date: ${calculatedDate} (input date: ${date || 'none'})`);
+
+    const sql = `SELECT a.*, u.full_name 
+                 FROM attendance a
+                 JOIN users u ON a.student_id = u.user_id
+                 WHERE a.student_id = $1 AND a.date = $2`;
+    
+    const params = [studentId, calculatedDate];
+
+    const result = await query(sql, params);
 
     if (result.rows.length > 0) {
-      res.json({ attendance: result.rows[0] });
+      const attendance = result.rows[0];
+      attendance.date = formatDate(attendance.date);
+      res.json({ attendance });
     } else {
       res.json({ attendance: null });
     }
@@ -176,15 +201,14 @@ router.post('/upload-photo', uploadPhoto, async (req, res) => {
 // Supports both legacy time_in and segment-based logging
 router.post('/time-in', async (req, res) => {
   try {
-    console.log("📝 [Attendance POST /time-in] Saving attendance:", {
+    console.log("📝 [Attendance POST /time-in] Request body:", {
       student_id: req.body.student_id,
       date: req.body.date,
       segment: req.body.segment,
-      time_in: req.body.time_in,
       has_image: !!req.body.attendance_image
     });
 
-    const { student_id, ojt_record_id, date, segment, time_in, attendance_image,
+    const { student_id, ojt_record_id, date, segment, attendance_image,
       checkin_lat, checkin_lng, accuracy_m, distance_m, inside_geofence, trust_score, trust_flags,
       checkin_photo_path, checkin_photo_captured_at, verification_status: bodyVerificationStatus } = req.body;
 
@@ -200,7 +224,7 @@ router.post('/time-in', async (req, res) => {
     const supervisorId = supervisorCheck.rows.length > 0 ? supervisorCheck.rows[0].supervisor_id : null;
 
     const currentDate = date || new Date().toISOString().split('T')[0];
-    const currentTime = time_in || new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS format
+    const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS format
 
     // STRICT OJT ENROLLMENT CHECK
     // Students can only time-in if they have an active OJT record linked to a coordinator and supervisor
@@ -239,7 +263,10 @@ router.post('/time-in', async (req, res) => {
 
     // Map segment to appropriate field
     if (segment) {
-      switch (segment) {
+      const normalizedSegment = String(segment).toUpperCase().replace(/\s+/g, '_');
+      console.log(`[Attendance POST /time-in] Normalized segment: ${normalizedSegment}`);
+      
+      switch (normalizedSegment) {
         case 'MORNING_IN':
           morningIn = currentTime;
           break;
@@ -250,11 +277,10 @@ router.post('/time-in', async (req, res) => {
           overtimeIn = currentTime;
           break;
         default:
-          timeInValue = currentTime;
+          return res.status(400).json({ error: 'Invalid or missing segment for time-in' });
       }
     } else {
-      // Legacy support: use time_in if no segment specified
-      timeInValue = currentTime;
+      return res.status(400).json({ error: 'segment is required' });
     }
 
     if (existingRecord.rows.length > 0) {
@@ -281,30 +307,20 @@ router.post('/time-in', async (req, res) => {
         updateValues.push(overtimeIn);
         paramCount++;
       }
-      if (timeInValue !== null && !morningIn && !afternoonIn && !overtimeIn) {
-        updateFields.push(`time_in = $${paramCount} `);
-        updateValues.push(timeInValue);
-        paramCount++;
-      }
-
-      if (updateFields.length === 0) {
-        return res.status(400).json({ error: 'Invalid segment or time_in value' });
-      }
 
       // Check if this segment is already logged (prevent duplicate)
-      const checkRecord = await query(
-        'SELECT morning_in, afternoon_in, overtime_in, time_in FROM attendance WHERE attendance_id = $1',
+      const checkResult = await query(
+        'SELECT morning_in, afternoon_in, overtime_in FROM attendance WHERE attendance_id = $1',
         [attendanceId]
       );
-      const existing = checkRecord.rows[0];
+      const existing = checkResult.rows[0];
 
       if ((morningIn && existing.morning_in) ||
         (afternoonIn && existing.afternoon_in) ||
-        (overtimeIn && existing.overtime_in) ||
-        (timeInValue && existing.time_in && !morningIn && !afternoonIn && !overtimeIn)) {
+        (overtimeIn && existing.overtime_in)) {
         return res.status(400).json({
           error: 'Time in already recorded for this segment',
-          errors: [`${segment || 'time_in'} already exists for this date`]
+          errors: [`${segment} already exists for this date`]
         });
       }
 
@@ -346,8 +362,8 @@ router.post('/time-in', async (req, res) => {
     } else {
       // Create new record
       const result = await query(
-        'SELECT create_attendance($1, $2, $3, NULL, $4, NULL, $5, NULL) as result',
-        [student_id, currentDate, timeInValue || morningIn || afternoonIn || overtimeIn, morningIn, afternoonIn]
+        'SELECT create_attendance($1, $2, $3, NULL, $4, NULL) as result',
+        [student_id, currentDate, morningIn, afternoonIn]
       );
 
       const response = result.rows[0].result;
@@ -438,7 +454,7 @@ router.post('/time-in', async (req, res) => {
       student_id: savedAttendance?.student_id,
       date: savedAttendance?.date,
       status: savedAttendance?.status || 'Pending',
-      time_in: savedAttendance?.time_in || savedAttendance?.morning_in || savedAttendance?.afternoon_in
+      time_in: savedAttendance?.morning_in || savedAttendance?.afternoon_in || savedAttendance?.overtime_in
     });
 
     res.status(201).json({
@@ -456,11 +472,19 @@ router.post('/time-in', async (req, res) => {
 // Supports both legacy time_out and segment-based logging
 router.put('/time-out', async (req, res) => {
   try {
-    const { attendance_id, student_id, date, segment, time_out, attendance_image,
+    console.log("📝 [Attendance PUT /time-out] Request body:", {
+      attendance_id: req.body.attendance_id,
+      student_id: req.body.student_id,
+      date: req.body.date,
+      segment: req.body.segment,
+      time_out: req.body.time_out
+    });
+
+    const { attendance_id, student_id, date, segment, attendance_image,
       checkin_lat, checkin_lng, checkout_lat, checkout_lng, accuracy_m, distance_m, inside_geofence, trust_score, trust_flags,
       checkin_photo_path, checkout_photo_path, checkin_photo_captured_at, checkout_photo_captured_at, verification_status: bodyVerificationStatus } = req.body;
 
-    const currentTime = time_out || new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS format
+    const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS format
 
     let attendanceId = attendance_id;
 
@@ -517,7 +541,10 @@ router.put('/time-out', async (req, res) => {
 
     // Map segment to appropriate field
     if (segment) {
-      switch (segment) {
+      const normalizedSegment = String(segment).toUpperCase().replace(/\s+/g, '_');
+      console.log(`[Attendance PUT /time-out] Normalized segment: ${normalizedSegment}`);
+      
+      switch (normalizedSegment) {
         case 'MORNING_OUT':
           morningOut = currentTime;
           break;
@@ -528,16 +555,15 @@ router.put('/time-out', async (req, res) => {
           overtimeOut = currentTime;
           break;
         default:
-          timeOutValue = currentTime;
+          return res.status(400).json({ error: 'Invalid or missing segment for time-out' });
       }
     } else {
-      // Legacy support: use time_out if no segment specified
-      timeOutValue = currentTime;
+      return res.status(400).json({ error: 'segment is required' });
     }
 
     // Check if this segment is already logged (prevent duplicate)
     const checkRecord = await query(
-      'SELECT morning_out, afternoon_out, overtime_out, time_out FROM attendance WHERE attendance_id = $1',
+      'SELECT morning_out, afternoon_out, overtime_out FROM attendance WHERE attendance_id = $1',
       [attendanceId]
     );
 
@@ -549,11 +575,10 @@ router.put('/time-out', async (req, res) => {
 
     if ((morningOut && existing.morning_out) ||
       (afternoonOut && existing.afternoon_out) ||
-      (overtimeOut && existing.overtime_out) ||
-      (timeOutValue && existing.time_out && !morningOut && !afternoonOut && !overtimeOut)) {
+      (overtimeOut && existing.overtime_out)) {
       return res.status(400).json({
         error: 'Time out already recorded for this segment',
-        errors: [`${segment || 'time_out'} already exists for this record`]
+        errors: [`${segment} already exists for this record`]
       });
     }
 
@@ -584,127 +609,56 @@ router.put('/time-out', async (req, res) => {
       updateValues.push(overtimeOut);
       paramCount++;
     }
-    if (timeOutValue !== null && !morningOut && !afternoonOut && !overtimeOut) {
-      updateFields.push(`time_out = $${paramCount} `);
-      updateValues.push(timeOutValue);
-      paramCount++;
-    }
-
     if (updateFields.length === 0) {
-      return res.status(400).json({ error: 'Invalid segment or time_out value' });
+      return res.status(400).json({ error: 'Invalid segment value' });
     }
 
-    // Add attendance_image if provided
-    if (attendance_image) {
-      updateFields.push(`attendance_image = $${paramCount} `);
-      updateValues.push(attendance_image);
-      paramCount++;
-    }
-
-    // Auto-approve
-    updateFields.push(`status = $${paramCount} `);
-    updateValues.push('Approved');
-    paramCount++;
-
-    updateFields.push(`verified = $${paramCount} `);
-    updateValues.push(true);
-    paramCount++;
-
-    if (supervisorId) {
-      updateFields.push(`verified_by = $${paramCount} `);
-      updateValues.push(supervisorId);
-      paramCount++;
-    }
-
-    updateFields.push(`verified_at = CURRENT_TIMESTAMP`);
+    // Optional geofence/trust/checkout/photo/verification (time-out)
+    const clat = safeFloat(checkin_lat); const clng = safeFloat(checkin_lng);
+    if (clat != null) { updateFields.push(`checkin_lat = $${paramCount++}`); updateValues.push(clat); }
+    if (clng != null) { updateFields.push(`checkin_lng = $${paramCount++}`); updateValues.push(clng); }
+    const outLat = safeFloat(checkout_lat); const outLng = safeFloat(checkout_lng);
+    if (outLat != null) { updateFields.push(`checkout_lat = $${paramCount++}`); updateValues.push(outLat); }
+    if (outLng != null) { updateFields.push(`checkout_lng = $${paramCount++}`); updateValues.push(outLng); }
+    if (accuracy_m != null) { updateFields.push(`accuracy_m = $${paramCount++}`); updateValues.push(safeFloat(accuracy_m)); }
+    if (distance_m != null) { updateFields.push(`distance_m = $${paramCount++}`); updateValues.push(safeFloat(distance_m)); }
+    if (inside_geofence != null) { updateFields.push(`inside_geofence = $${paramCount++}`); updateValues.push(inside_geofence === true || inside_geofence === 'true'); }
+    if (trust_score != null) { updateFields.push(`trust_score = $${paramCount++}`); updateValues.push(Number(trust_score)); }
+    if (trust_flags) { updateFields.push(`trust_flags = $${paramCount++}`); updateValues.push(typeof trust_flags === 'string' ? trust_flags : JSON.stringify(trust_flags)); }
+    if (checkout_photo_path) { updateFields.push(`checkout_photo_path = $${paramCount++}`); updateValues.push(checkout_photo_path); }
 
     updateValues.push(attendanceId);
     const updateSql = `
         UPDATE attendance 
         SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
         WHERE attendance_id = $${paramCount}
-        RETURNING attendance_id
+        RETURNING *
       `;
 
-
-    await query(updateSql, updateValues);
-
-    // Optional geofence/trust/checkout/photo/verification (time-out)
-    const geoParts = [];
-    const geoVals = [];
-    let p = 1;
-    const clat = safeFloat(checkin_lat); const clng = safeFloat(checkin_lng);
-    if (clat != null) { geoParts.push(`checkin_lat = $${p++} `); geoVals.push(clat); }
-    if (clng != null) { geoParts.push(`checkin_lng = $${p++} `); geoVals.push(clng); }
-    const outLat = safeFloat(checkout_lat); const outLng = safeFloat(checkout_lng);
-    if (outLat != null) { geoParts.push(`checkout_lat = $${p++} `); geoVals.push(outLat); }
-    if (outLng != null) { geoParts.push(`checkout_lng = $${p++} `); geoVals.push(outLng); }
-    const acc = safeFloat(accuracy_m); const dist = safeFloat(distance_m);
-    if (acc != null) { geoParts.push(`accuracy_m = $${p++} `); geoVals.push(acc); }
-    if (dist != null) { geoParts.push(`distance_m = $${p++} `); geoVals.push(dist); }
-    if (inside_geofence != null) { geoParts.push(`inside_geofence = $${p++} `); geoVals.push(inside_geofence); }
-    const tscore = safeInt(trust_score);
-    if (tscore != null) { geoParts.push(`trust_score = $${p++} `); geoVals.push(tscore); }
-    if (trust_flags != null) {
-      const trustFlagsStr = Array.isArray(trust_flags) ? JSON.stringify(trust_flags) : String(trust_flags);
-      geoParts.push(`trust_flags = $${p++} `); geoVals.push(trustFlagsStr);
-    }
-    if (checkout_photo_path != null && String(checkout_photo_path).trim()) {
-      geoParts.push(`checkout_photo_path = $${p++} `); geoVals.push(String(checkout_photo_path).trim());
-    }
-    if (checkout_photo_captured_at != null && String(checkout_photo_captured_at).trim()) {
-      geoParts.push(`checkout_photo_captured_at = $${p++} `); geoVals.push(String(checkout_photo_captured_at).trim());
-    }
-    const verStatus = bodyVerificationStatus || computeVerificationStatus(inside_geofence, tscore ?? trust_score, 60);
-    const finalVerStatus = verStatus === 'AUTO_VERIFIED' ? 'AUTO_APPROVED' : verStatus;
-    geoParts.push(`verification_status = $${p++} `); geoVals.push(finalVerStatus);
-
-    geoVals.push(attendanceId);
-    try {
-      await query(
-        `UPDATE attendance SET ${geoParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${p} `,
-        geoVals
-      );
-    } catch (err) {
-      console.warn('Optional attendance columns may not exist:', err.message);
+    const updateResult = await query(updateSql, updateValues);
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Failed to update attendance record' });
     }
 
-    // Calculate and update total_hours after time-out is recorded
-    // This handles both segment-based (morning/afternoon) and legacy (time_in/time_out) logging
-    await query(`
-      UPDATE attendance
-      SET total_hours = CASE
---Segment - based: morning + afternoon segments
-        WHEN morning_in IS NOT NULL AND morning_out IS NOT NULL 
-             AND afternoon_in IS NOT NULL AND afternoon_out IS NOT NULL THEN
-  (EXTRACT(EPOCH FROM(morning_out - morning_in)) / 3600.0) +
-  (EXTRACT(EPOCH FROM(afternoon_out - afternoon_in)) / 3600.0)
---Segment - based: morning_in to afternoon_out(if afternoon_in is missing)
-        WHEN morning_in IS NOT NULL AND afternoon_out IS NOT NULL THEN
-EXTRACT(EPOCH FROM(afternoon_out - morning_in)) / 3600.0
---Legacy: time_in to time_out
-        WHEN time_in IS NOT NULL AND time_out IS NOT NULL THEN
-EXTRACT(EPOCH FROM(time_out - time_in)) / 3600.0
-        ELSE total_hours
-END
-      WHERE attendance_id = $1
-  `, [attendanceId]);
+    const attendance = updateResult.rows[0];
+    attendance.date = formatDate(attendance.date);
+    
+    // Add full_name if missing
+    if (!attendance.full_name) {
+      const userRes = await query('SELECT full_name FROM users WHERE user_id = $1', [attendance.student_id]);
+      if (userRes.rows.length > 0) attendance.full_name = userRes.rows[0].full_name;
+    }
 
-    // Get the updated attendance record
-    const attendanceResult = await query(
-      'SELECT get_attendance($1) as attendance',
-      [attendanceId]
-    );
-
-    res.json({
-      message: 'Time out recorded successfully',
-      attendance: attendanceResult.rows[0].attendance
+    res.json({ 
+      message: 'Time out recorded successfully', 
+      attendance 
     });
   } catch (error) {
     console.error('Time out error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 // Get attendance summary - Using stored procedure
 router.get('/summary', async (req, res) => {
@@ -769,9 +723,10 @@ router.get('/summary/:studentId', async (req, res) => {
       // Compute summary directly from attendance table, using only APPROVED records.
       const summaryResult = await query(
         `SELECT
-COALESCE(SUM(total_hours), 0)          AS total_hours_completed,
+  COALESCE(SUM(total_hours), 0)          AS total_hours_completed,
   COALESCE(COUNT(DISTINCT date), 0)      AS total_days_present,
-    CASE 
+  COALESCE(COUNT(CASE WHEN morning_in IS NOT NULL AND morning_in > '08:00:00' THEN 1 END), 0) AS late_count,
+  CASE 
              WHEN COALESCE(COUNT(DISTINCT date), 0) > 0 
                THEN COALESCE(SUM(total_hours), 0) / COALESCE(NULLIF(COUNT(DISTINCT date), 0), 1)
              ELSE 0

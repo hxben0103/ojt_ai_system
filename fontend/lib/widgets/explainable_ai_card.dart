@@ -16,9 +16,14 @@ class ExplainableAiCard extends StatelessWidget {
     if (prediction['ai_prediction'] == null) return const SizedBox.shrink();
     
     final ai = Map<String, dynamic>.from(prediction['ai_prediction'] as Map);
-    
     // Early-stage detection: show informational card instead of incomplete ML data
-    final isEarlyStage = prediction['early_stage'] == true || ai['early_stage'] == true;
+    final isEarlyStage = prediction['early_stage'] == true || 
+                         prediction['is_context_gathering'] == true ||
+                         ai['early_stage'] == true || 
+                         ai['is_context_gathering'] == true ||
+                         ai['prediction_stage'] == 'early' ||
+                         (ai['ml_prediction'] != null && ai['ml_prediction']['prediction_stage'] == 'early');
+                         
     if (isEarlyStage) {
       final summary = prediction['summary'] as String?
           ?? ai['summary'] as String?
@@ -385,7 +390,7 @@ class ExplainableAiCard extends StatelessWidget {
               Icon(Icons.rocket_launch_outlined, size: 18, color: Colors.blue.shade600),
               const SizedBox(width: 8),
               Text(
-                'Early Stage OJT',
+                'Context Gathering Phase',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,

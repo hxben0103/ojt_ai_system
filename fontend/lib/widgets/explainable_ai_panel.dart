@@ -7,6 +7,7 @@ class ExplainableAiPanel extends StatelessWidget {
   final double confidence;
   final String? summary;
   final List<String>? recommendations;
+  final String? predictionStage;
 
   const ExplainableAiPanel({
     Key? key,
@@ -15,6 +16,7 @@ class ExplainableAiPanel extends StatelessWidget {
     this.confidence = 0.0,
     this.summary,
     this.recommendations,
+    this.predictionStage,
   }) : super(key: key);
 
   @override
@@ -80,8 +82,27 @@ class ExplainableAiPanel extends StatelessWidget {
                     color: headerColor.withOpacity(0.9),
                   ),
                 ),
-                if (confidence > 0) ...[
+                if (predictionStage != null) ...[
                   const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: predictionStage == 'early' ? AppTheme.warningColor : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      predictionStage == 'early' ? "Early Prediction" : "Mature Prediction",
+                      style: AppTheme.bodySmall.copyWith(
+                        color: predictionStage == 'early' ? Colors.white : Colors.grey.shade700,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
+                if (confidence > 0) ...[
+                  if (predictionStage == null) const Spacer(),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(

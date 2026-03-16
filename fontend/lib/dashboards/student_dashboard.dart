@@ -78,6 +78,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   bool _isLoading = false;
   String? _errorMessage;
   bool _isFromCache = false;
+  String? _lastSyncTime;
 
   @override
   void initState() {
@@ -167,6 +168,7 @@ class _StudentDashboardState extends State<StudentDashboard>
       setState(() {
         _studentStatus = status;
         _statusError = null;
+        _lastSyncTime = status['generated_at'];
       });
     } catch (e) {
       debugPrint('Error loading student status: $e');
@@ -180,6 +182,7 @@ class _StudentDashboardState extends State<StudentDashboard>
           _studentStatus = cached;
           _statusError = null;
           _isFromCache = true;
+          _lastSyncTime = cached['generated_at'];
         });
       } else {
         setState(() => _statusError = 'Unable to load status');
@@ -437,14 +440,52 @@ class _StudentDashboardState extends State<StudentDashboard>
       );
     }
 
+    // Extract metrics for dashboard data injection
+    final hoursMap = _studentStatus?['hours'] as Map<String, dynamic>?;
+    final int completedHours = (hoursMap?['completed'] as num?)?.toInt() ?? _completedHours;
+    final int requiredHours = (hoursMap?['required'] as num?)?.toInt() ?? _requiredHours;
+    
+    final attendanceMap = _studentStatus?['attendance'] as Map<String, dynamic>?;
+    final int daysPresent = (attendanceMap?['days_present'] as num?)?.toInt() ?? 0;
+    final int absentDays = (attendanceMap?['absent_days'] as num?)?.toInt() ?? 0;
+    final int lateCount = (attendanceMap?['late_count'] as num?)?.toInt() ?? 0;
+    
+    final dailyTasksMap = _studentStatus?['daily_tasks'] as Map<String, dynamic>?;
+    final int completedTasks = (dailyTasksMap?['completed_tasks'] as num?)?.toInt() ?? 0;
+    final int pendingTasks = (dailyTasksMap?['pending_tasks'] as num?)?.toInt() ?? 0;
+    
+    final aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
+    final int aiScore = (aiInsight?['score'] as num?)?.toInt() ?? 0;
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: RefreshIndicator(
         onRefresh: _refreshDashboard,
         child: RoleDashboard(
-          title: "Student Dashboard",
+          title: "Student OJT Dashboard",
           color: AppTheme.studentPrimary,
           tasks: const [],
+          dashboardData: {
+            "role": "student",
+            "hours": {
+              "completed": completedHours,
+              "required": requiredHours,
+            },
+            "attendance": {
+              "days_present": daysPresent,
+              "absent_days": absentDays,
+              "late_count": lateCount,
+            },
+            "daily_tasks": {
+              "completed_tasks": completedTasks,
+              "pending_tasks": pendingTasks,
+            },
+            "ai_insight": {
+              "score": aiScore,
+              "risk_level": aiInsight?['risk_level'],
+              "trend": aiInsight?['trend'],
+            }
+          },
           appBarActions: [
             IconButton(
               icon: _isRefreshing
@@ -461,6 +502,32 @@ class _StudentDashboardState extends State<StudentDashboard>
               tooltip: 'Refresh Dashboard',
             ),
           ],
+          headerContent: _lastSyncTime != null 
+            ? Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isFromCache ? Icons.cloud_off : Icons.sync,
+                      size: 14,
+                      color: Colors.white.withOpacity(0.8),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _isFromCache 
+                        ? 'Offline snapshot' 
+                        : 'Live snapshot: ${DateFormat('HH:mm').format(DateTime.parse(_lastSyncTime!))}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withOpacity(0.8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : null,
           customActions: [
             // Ensure status logic allows OJT actions, otherwise block operational widgets
             if (_studentStatus != null && _studentStatus?['can_perform_ojt_actions'] == false) ...[
@@ -469,6 +536,10 @@ class _StudentDashboardState extends State<StudentDashboard>
             ],
 
             if (_studentStatus == null || _studentStatus?['can_perform_ojt_actions'] != false) ...[
+              // ── 0.5 Profile Header ──
+              _buildAnimatedCard(_buildProfileHeader(), delay: 0),
+              const SizedBox(height: AppTheme.spacing16),
+              
               // ── 1. Hero Performance Card (Progress Summary) ──
               _buildAnimatedCard(_buildHeroPerformanceCard(), delay: 0),
               const SizedBox(height: AppTheme.spacing16),
@@ -578,9 +649,8 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // ── 1. Hero Performance Card ──
-  Widget _buildHeroPerformanceCard() {
-    // Profile image provider
+  // ── Profile Header ──
+  Widget _buildProfileHeader() {
     ImageProvider? profileImageProvider;
     if (!kIsWeb && _profileImage != null) {
       try {
@@ -594,330 +664,207 @@ class _StudentDashboardState extends State<StudentDashboard>
       profileImageProvider = MemoryImage(_profileImageBytes!);
     }
 
-    // AI insight data
-    final aiInsight = _studentStatus?['ai_insight'] != null 
-        ? Map<String, dynamic>.from(_studentStatus!['ai_insight'] as Map)
-        : null;
-    final mlMap = aiInsight?['ml_prediction'] != null 
-        ? Map<String, dynamic>.from(aiInsight!['ml_prediction'] as Map)
-        : null;
-    final riskLevel = (mlMap?['risk_level'] as String? ?? 'LOW').toUpperCase();
-    final topReasons = (mlMap?['top_reasons'] as List?)?.cast<String>() ?? [];
-    final recommendation = aiInsight?['recommendation'] as String? ?? mlMap?['recommendation'] as String?;
-    
-    final gradingMap = aiInsight?['grading'] != null 
-        ? Map<String, dynamic>.from(aiInsight!['grading'] as Map)
-        : null;
-    final forecastedGrade = (gradingMap?['forecasted_grade'] as num?)?.toDouble();
-    
-    final integrityMap = aiInsight?['integrity'] != null 
-        ? Map<String, dynamic>.from(aiInsight!['integrity'] as Map)
-        : null;
-    final integrityScore = (integrityMap?['integrity_score'] as num?)?.toDouble();
-
-    final hoursMap = _studentStatus?['hours'] != null 
-        ? Map<String, dynamic>.from(_studentStatus!['hours'] as Map)
-        : null;
-    final int completedHours = (hoursMap?['completed'] as num?)?.toInt() ?? 0;
-    final int requiredHours = (hoursMap?['required'] as num?)?.toInt() ?? 300;
-    
-    // Dynamic Score = (Completed / Required) * 100
-    int computedPct = requiredHours > 0 
-        ? ((completedHours / requiredHours) * 100).clamp(0, 100).toInt() 
-        : 0;
-
-    // Use ML Progress Score if available, otherwise computed fallback
-    final int progressPct = (aiInsight?['score'] as num?)?.toInt() ?? computedPct;
-
-    final String statusLabel;
-    final Color statusColor;
-    
-    // Set color/label dynamically based on actual progress instead of hardcoded risk
-    if (progressPct >= 80 || riskLevel == 'LOW') {
-      statusLabel = 'On Track';
-      statusColor = AppTheme.successColor;
-    } else if (progressPct >= 50 || riskLevel == 'MEDIUM') {
-      statusLabel = 'Needs Attention';
-      statusColor = AppTheme.warningColor;
-    } else {
-      statusLabel = 'Critical Attention';
-      statusColor = AppTheme.errorColor;
-    }
-
-    final aiPrediction = aiInsight?['ai_prediction'] != null 
-        ? Map<String, dynamic>.from(aiInsight!['ai_prediction'] as Map)
-        : null;
-    String trendDirection = 'Stable';
-    String trendReason = 'Consistent performance';
-    if (aiPrediction != null && aiPrediction['trend'] != null) {
-      final trend = Map<String, dynamic>.from(aiPrediction['trend'] as Map);
-      trendDirection = trend['status'] ?? 'Stable';
-      trendReason = trend['reason'] ?? 'Consistent performance';
-    } else {
-       // fallback inferred trend
-       if (progressPct >= 80) { trendDirection = 'Improving'; trendReason = 'Progressing strongly'; }
-       else if (progressPct >= 50) { trendDirection = 'Stable'; trendReason = 'Meeting expectations'; }
-       else { trendDirection = 'Declining'; trendReason = 'Hours tracking behind schedule'; }
-    }
-
-    final double progressFrac = progressPct / 100;
-
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      padding: const EdgeInsets.all(AppTheme.spacing16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.studentPrimary,
+            AppTheme.studentPrimary.withOpacity(0.8),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: const [AppTheme.cardShadow],
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.studentPrimary.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: _statusLoading
-          ? const SizedBox(height: 140, child: Center(child: CircularProgressIndicator()))
-          : Column(
+      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      padding: const EdgeInsets.all(AppTheme.spacing20),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: CircleAvatar(
+              radius: 36,
+              backgroundImage: profileImageProvider,
+              backgroundColor: Colors.white,
+              child: profileImageProvider == null
+                  ? Icon(Icons.person_rounded, size: 36, color: AppTheme.studentPrimary)
+                  : null,
+            ).animate().scale(duration: 600.ms, curve: Curves.easeOutBack),
+          ),
+          const SizedBox(width: AppTheme.spacing16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top row: avatar + identity + circular progress
-                Row(
-                  children: [
-                    // Avatar
-                    CircleAvatar(
-                      radius: 32,
-                      backgroundImage: profileImageProvider,
-                      backgroundColor: AppTheme.studentPrimary.withOpacity(0.1),
-                      child: profileImageProvider == null
-                          ? Icon(Icons.person_rounded, size: 32, color: AppTheme.studentPrimary)
-                          : null,
-                    ),
-                    const SizedBox(width: AppTheme.spacing12),
-
-                    // Name + ID + course
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _studentName ?? "Loading...",
-                            style: AppTheme.heading3.copyWith(height: 1.2),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            "${_studentId ?? 'N/A'} · ${_course ?? 'N/A'}",
-                            style: AppTheme.bodySmall.copyWith(color: Colors.grey[600]),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: AppTheme.spacing12),
-
-                    // Circular AI progress
-                    SizedBox(
-                      width: 76,
-                      height: 76,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          CircularProgressIndicator(
-                            value: progressFrac,
-                            strokeWidth: 7,
-                            backgroundColor: statusColor.withOpacity(0.08),
-                            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-                            strokeCap: StrokeCap.round,
-                          ),
-                          Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '$progressPct%',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w900,
-                                    color: statusColor,
-                                    height: 1.1,
-                                  ),
-                                ),
-                                Text(
-                                  statusLabel.split(' ').first, // Just "On" or "Needs"
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 7,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.grey[500],
-                                    height: 1.1,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                Text(
+                  _studentName ?? "Loading Profile...",
+                  style: AppTheme.heading2.copyWith(color: Colors.white),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                
-                // Add AI Metrics Row Right Below the Avatar Profile
-                if (forecastedGrade != null || integrityScore != null) ...[
-                  const SizedBox(height: AppTheme.spacing16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.studentPrimary.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.studentPrimary.withOpacity(0.1)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        if (forecastedGrade != null)
-                           Expanded(
-                             child: Column(
-                               children: [
-                                 Row(
-                                   mainAxisAlignment: MainAxisAlignment.center,
-                                   children: [
-                                     Icon(Icons.school_outlined, size: 16, color: AppTheme.studentPrimary),
-                                     const SizedBox(width: 6),
-                                     Text('Forecasted Grade', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-                                   ]
-                                 ),
-                                 const SizedBox(height: 4),
-                                 Text('${forecastedGrade.toStringAsFixed(1)} / 100', style: TextStyle(fontSize: 18, color: AppTheme.studentPrimary, fontWeight: FontWeight.bold)),
-                               ],
-                             )
-                           ),
-                        if (forecastedGrade != null && integrityScore != null) 
-                          Container(width: 1, height: 30, color: Colors.grey.shade300),
-                        if (integrityScore != null)
-                           Expanded(
-                             child: Column(
-                               children: [
-                                 Row(
-                                   mainAxisAlignment: MainAxisAlignment.center,
-                                   children: [
-                                     Icon(Icons.verified_user_outlined, size: 16, color: integrityScore >= 80 ? Colors.green : Colors.orange),
-                                     const SizedBox(width: 6),
-                                     Text('Integrity Score', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-                                   ]
-                                 ),
-                                 const SizedBox(height: 4),
-                                 Text('${integrityScore.toInt()} / 100', style: TextStyle(fontSize: 18, color: integrityScore >= 80 ? Colors.green : Colors.orange, fontWeight: FontWeight.bold)),
-                               ],
-                             )
-                           ),
-                      ]
-                    )
-                  )
-                ],
-
-                const SizedBox(height: AppTheme.spacing12),
-                PerformanceTrendIndicator(
-                  progressScore: progressPct,
-                  trendDirection: trendDirection,
-                  trendReason: trendReason,
+                const SizedBox(height: 4),
+                Text(
+                  "ID: ${_studentId ?? 'N/A'}",
+                  style: AppTheme.bodyMedium.copyWith(color: Colors.white.withOpacity(0.9)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-
-                // AI status error banner
-                if (_statusError != null) ...[
-                  const SizedBox(height: AppTheme.spacing8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppTheme.spacing12,
-                      vertical: AppTheme.spacing8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.warningColor.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded, size: 16, color: AppTheme.warningColor),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'AI insights unavailable — tap refresh to retry.',
-                            style: AppTheme.bodySmall.copyWith(color: AppTheme.warningColor),
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: _refreshDashboard,
-                          child: Text(
-                            'Retry',
-                            style: AppTheme.bodySmall.copyWith(
-                              color: AppTheme.warningColor,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                // AI insight bullets (up to 2)
-                if (topReasons.isNotEmpty) ...[
-                  const SizedBox(height: AppTheme.spacing12),
-                  const Divider(height: 1),
-                  const SizedBox(height: AppTheme.spacing8),
-                  ...topReasons.take(2).map((r) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(Icons.circle, size: 5, color: statusColor),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(r, style: AppTheme.bodySmall.copyWith(color: Colors.grey[700])),
-                            ),
-                          ],
-                        ),
-                      )),
-                ],
-
-                // Recommendation chip
-                if (recommendation != null && recommendation.isNotEmpty) ...[
-                  const SizedBox(height: AppTheme.spacing8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppTheme.infoColor.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.lightbulb_outline, size: 14, color: AppTheme.infoColor),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            recommendation,
-                            style: AppTheme.bodySmall.copyWith(
-                              color: AppTheme.infoColor,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                // No AI data yet
-                if (topReasons.isEmpty && _statusError == null && !_statusLoading)
-                  Padding(
-                    padding: const EdgeInsets.only(top: AppTheme.spacing8),
-                    child: Text(
-                      'AI insights will appear after your first evaluation.',
-                      textAlign: TextAlign.center,
-                      style: AppTheme.bodySmall.copyWith(color: Colors.grey[500], fontStyle: FontStyle.italic),
-                    ),
-                  ),
+                const SizedBox(height: 2),
+                Text(
+                  "${_course ?? 'No Course Assigned'}",
+                  style: AppTheme.bodySmall.copyWith(color: Colors.white.withOpacity(0.8)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
+          ),
+        ],
+      ),
     );
   }
 
+  // ── 1. Hero Performance Card ──
+  Widget _buildHeroPerformanceCard() {
+    final hoursMap = _studentStatus?['hours'] as Map<String, dynamic>?;
+    final int completedHours = (hoursMap?['completed'] as num?)?.toInt() ?? 0;
+    final int requiredHours = (hoursMap?['required'] as num?)?.toInt() ?? 300;
+    
+    final aiInsight = _studentStatus?['ai_insight'] != null 
+        ? Map<String, dynamic>.from(_studentStatus!['ai_insight'] as Map)
+        : null;
+        
+    int computedPct = requiredHours > 0 
+        ? ((completedHours / requiredHours) * 100).clamp(0, 100).toInt() 
+        : 0;
+    final int progressPct = (aiInsight?['score'] as num?)?.toInt() ?? computedPct;
+
+    final attendanceMap = _studentStatus?['attendance'] as Map<String, dynamic>?;
+    final int daysPresent = (attendanceMap?['days_present'] as num?)?.toInt() ?? 0;
+    
+    final dailyTasksMap = _studentStatus?['daily_tasks'] as Map<String, dynamic>?;
+    final int completedTasks = (dailyTasksMap?['completed_tasks'] as num?)?.toInt() ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.trending_up_rounded, color: AppTheme.studentPrimary),
+              const SizedBox(width: 8),
+              Text(
+                'Progress Overview',
+                style: AppTheme.heading3.copyWith(fontSize: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildProgressStat(
+                  'Progress Score',
+                  '$progressPct%',
+                  Icons.score_rounded,
+                  AppTheme.studentPrimary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildProgressStat(
+                  'Completed Hours',
+                  '$completedHours / $requiredHours',
+                  Icons.access_time_rounded,
+                  AppTheme.successColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+               Expanded(
+                child: _buildProgressStat(
+                  'Attendance Status',
+                  '$daysPresent days present',
+                  Icons.event_available_rounded,
+                  AppTheme.infoColor,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildProgressStat(
+                  'Daily Tasks',
+                  '$completedTasks tasks done',
+                  Icons.task_alt_rounded,
+                  AppTheme.warningColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressStat(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(fontSize: 15, color: color, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
 
   // ------------------- Notification Card -------------------
   Widget _buildNotificationCard(Map<String, dynamic> notification) {
@@ -1038,11 +985,67 @@ class _StudentDashboardState extends State<StudentDashboard>
   Widget _buildExplainableAiPanel() {
     final aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
     final topReasons = (aiInsight?['top_reasons'] as List?)?.cast<String>() ?? [];
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: ExplainableAiCard(
-        prediction: aiInsight != null ? (aiInsight['ai_prediction'] ?? aiInsight) : {},
-        isExpanded: true,
+    
+    if (aiInsight == null || topReasons.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.psychology_rounded, color: Colors.purple.shade600),
+              const SizedBox(width: 8),
+              Text(
+                'Why this score?',
+                style: AppTheme.heading3.copyWith(fontSize: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'AI Reasoning',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
+          ),
+          const SizedBox(height: 8),
+          ...topReasons.map((reason) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 6),
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: Colors.purple.shade400,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        reason,
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+        ],
       ),
     );
   }
@@ -1068,29 +1071,94 @@ class _StudentDashboardState extends State<StudentDashboard>
     final aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
     final integrityMap = aiInsight?['integrity'] as Map<String, dynamic>?;
     
-    // Pass null if missing so the badge shows "Unavailable" safely
-    final int? integrityScore;
-    if (integrityMap != null && integrityMap.containsKey('integrity_score') && integrityMap['integrity_score'] != null) {
-      integrityScore = (integrityMap['integrity_score'] as num).toInt();
-    } else {
-      integrityScore = null;
-    }
+    final int? integrityScore = (integrityMap?['integrity_score'] as num?)?.toInt();
     
-    final trustFlags = (integrityMap?['flags'] as List?)?.cast<String>() ?? [];
-
     final attendanceSummary = _studentStatus?['attendance'] as Map<String, dynamic>?;
     final insideGeofence = (attendanceSummary?['inside_geofence'] as bool?) ?? true;
+    final lastAttendanceDate = attendanceSummary?['last_attendance_date'] as String? ?? 'N/A';
 
-    // Check if any record has attendance image as a proxy for photo verification
-    final photoVerified = _attendanceImage != null;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: TrustScoreBadge(
-        trustScore: integrityScore,
-        trustFlags: trustFlags,
-        insideGeofence: insideGeofence,
-        photoPresent: photoVerified,
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.verified_user_rounded, color: Colors.teal.shade700),
+              const SizedBox(width: 8),
+              Text(
+                'Integrity Status',
+                style: AppTheme.heading3.copyWith(fontSize: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Trust Score', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    const SizedBox(height: 4),
+                    Text(
+                      integrityScore != null ? '$integrityScore / 100' : 'N/A',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal.shade800),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Geofence', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(insideGeofence ? Icons.check_circle : Icons.error, size: 16, color: insideGeofence ? Colors.green : Colors.red),
+                        const SizedBox(width: 4),
+                        Text(
+                          insideGeofence ? 'Verified' : 'Outside',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: insideGeofence ? Colors.green : Colors.red),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.history_rounded, size: 16, color: Colors.grey.shade600),
+              const SizedBox(width: 6),
+              Text('Last Record: ', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              Expanded(
+                child: Text(
+                  lastAttendanceDate,
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade800),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1182,17 +1250,19 @@ class _StudentDashboardState extends State<StudentDashboard>
               style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
-          _resourceListTile(
-            icon: Icons.upload_file_rounded,
-            color: AppTheme.studentPrimary,
-            title: 'Upload Progress Report',
-            subtitle: 'Submit your daily report after duty ends',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const StudentProgressReportScreen()),
+          if (_studentStatus == null || _studentStatus?['can_perform_ojt_actions'] != false) ...[
+            _resourceListTile(
+              icon: Icons.upload_file_rounded,
+              color: AppTheme.studentPrimary,
+              title: 'Upload Progress Report',
+              subtitle: 'Submit your daily report after duty ends',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const StudentProgressReportScreen()),
+              ),
             ),
-          ),
-          const Divider(height: 1, indent: 56, endIndent: 16),
+            const Divider(height: 1, indent: 56, endIndent: 16),
+          ],
           _resourceListTile(
             icon: Icons.lightbulb_outline_rounded,
             color: AppTheme.warningColor,
@@ -1226,18 +1296,20 @@ class _StudentDashboardState extends State<StudentDashboard>
               MaterialPageRoute(builder: (_) => const StudentChecklistScreen()),
             ),
           ),
-          const Divider(height: 1, indent: 56, endIndent: 16),
-          _resourceListTile(
-            icon: Icons.task_alt_rounded,
-            color: AppTheme.studentPrimary,
-            title: 'Daily Tasks & Competencies',
-            subtitle: 'Log tasks and track competency progress',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const StudentDailyTasksScreen()),
+          if (_studentStatus == null || _studentStatus?['can_perform_ojt_actions'] != false) ...[
+            const Divider(height: 1, indent: 56, endIndent: 16),
+            _resourceListTile(
+              icon: Icons.task_alt_rounded,
+              color: AppTheme.studentPrimary,
+              title: 'Daily Tasks & Competencies',
+              subtitle: 'Log tasks and track competency progress',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const StudentDailyTasksScreen()),
+              ),
+              last: true,
             ),
-            last: true,
-          ),
+          ],
         ],
       ),
     );

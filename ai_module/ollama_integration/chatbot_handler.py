@@ -41,6 +41,101 @@ run_ai.BASE_KNOWLEDGE_DIR = os.path.join(jrmsu_dir, "data", "jrmsu_knowledge")
 # Import context manager
 from chatbot_context import get_context_manager
 from career_engine import generate_career_briefing
+from insight_engine import predict_performance, build_features_from_snapshot
+
+def _detect_intent(text: str) -> str:
+    """Detect the high-level intent of the user message."""
+    text_lower = text.lower()
+    
+    performance_keywords = ["performance", "risk", "score", "grade", "forecast", "prediction", "how am i doing", "status"]
+    if any(k in text_lower for k in performance_keywords):
+        return "PERFORMANCE"
+        
+    attendance_keywords = ["attendance", "dtr", "hours", "late", "absent", "log"]
+    if any(k in text_lower for k in attendance_keywords):
+        return "ATTENDANCE"
+        
+    requirements_keywords = ["requirement", "journal", "documentation", "submission", "deadline"]
+    if any(k in text_lower for k in requirements_keywords):
+        return "REQUIREMENTS"
+        
+    dashboard_keywords = ["dashboard", "my progress", "my stats", "hours", "total students", "risk", "status", "pending", "evaluation"]
+    if any(k in text_lower for k in dashboard_keywords):
+        return "DASHBOARD"
+        
+    return "GENERAL"
+
+
+def _generate_student_summary(data: Dict) -> str:
+    """Generate a summary for a student's dashboard data."""
+    hours = data.get("hours", {})
+    completed = hours.get("completed", 0)
+    required = hours.get("required", 300)
+    remaining = max(0, required - completed)
+    progress = (completed / required * 100) if required > 0 else 0
+    
+    attendance = data.get("attendance", {})
+    tasks = data.get("daily_tasks", {})
+    """Generate an explanatory summary for a student's dashboard data."""
+    hours = data.get('hours', {})
+    completed = hours.get('completed', 0)
+    required = hours.get('required', 300)
+    
+    attendance = data.get('attendance', {})
+    present = attendance.get('days_present', 0)
+    
+    tasks = data.get('daily_tasks', {})
+    done = tasks.get('completed_tasks', 0)
+    
+    ai = data.get('ai_insight', {})
+    score = ai.get('score', 0)
+    risk = ai.get('risk_level', 'Unknown')
+
+    summary = (
+        f"\nStudent OJT Dashboard Analysis:\n"
+        f"- Progress: The student has completed {completed} out of {required} required hours.\n"
+        f"- Attendance: They have been marked present for {present} days.\n"
+        f"- Task Completion: {done} daily tasks have been successfully submitted and verified.\n"
+        f"- AI Performance: The AI engine assigns a performance score of {score}/100 with a '{risk}' risk level.\n"
+    )
+    return summary
+
+
+def _generate_coordinator_summary(data: Dict) -> str:
+    """Generate an explanatory summary for a coordinator's dashboard data."""
+    summary = (
+        f"\nCoordinator System Overview Analysis:\n"
+        f"- Student Base: There are currently {data.get('total_students', 0)} students under supervision.\n"
+        f"- Risk Monitoring: {data.get('high_risk_students', 0)} students are flagged as High Risk, {data.get('medium_risk_students', 0)} as Medium Risk, and {data.get('low_risk_students', 0)} as Low Risk.\n"
+        f"- OJT Status: {data.get('active_ojt', 0)} students are actively on-site, while {data.get('completed_ojt', 0)} have finished their requirements.\n"
+        f"- Performance Metrics: The system-wide average attendance rate is {data.get('average_attendance', 0):.1f}%, with an average completion ratio of {data.get('average_completion', 0):.1f}%.\n"
+        f"- Grading: The average forecasted grade for the current batch is {data.get('average_forecast_grade', 'N/A')}.\n"
+    )
+    return summary
+
+
+def _generate_supervisor_summary(data: Dict) -> str:
+    """Generate an explanatory summary for a supervisor's dashboard data."""
+    summary = (
+        f"\nIndustry Supervisor Dashboard Analysis:\n"
+        f"- Assigned Students: You are currently managing {data.get('total_assigned', 0)} OJT students.\n"
+        f"- Pending Actions: There are {data.get('pending_evaluations', 0)} performance evaluations awaiting your review.\n"
+        f"- Student Welfare: {data.get('high_risk_students', 0)} students under your care are flagged as needing immediate academic or behavioral attention.\n"
+        f"- Performance Trend: The average forecast score for your assigned students is {data.get('average_forecast_score', 'N/A')}.\n"
+    )
+    return summary
+
+
+def _generate_admin_summary(data: Dict) -> str:
+    """Generate an explanatory summary for an admin's dashboard data."""
+    summary = (
+        f"\nSystem Administration Overview:\n"
+        f"- User Population: The platform has {data.get('total_users', 0)} total registered users.\n"
+        f"- Active Engagement: {data.get('active_users', 0)} users are currently active and verified.\n"
+        f"- Onboarding Queue: {data.get('pending_users', 0)} new registrations are awaiting administrative approval.\n"
+        f"- Staffing: There are {data.get('coordinator_count', 0)} registered OJT coordinators managing the students.\n"
+    )
+    return summary
 
 
 def chatbot_response(
@@ -133,15 +228,56 @@ def chatbot_response(
         # Get conversation history for context-aware responses
         conversation_history = context.get_recent_history(max_turns=5)
         
-        # Inject career and competency data if provided
-        career_briefing = ""
+        # Detect intent
+        intent = _detect_intent(text)
+        logger.info(f"[CHATBOT_HANDLER] Detected intent: {intent}")
+        
+        # Inject dashboard/performance context if provided
+        dashboard_context = ""
         if student_data:
             try:
-                career_briefing = generate_career_briefing(student_data)
+                # Explicit role-based detection first
+                role = student_data.get('role', '').lower()
+                
+                if role == 'coordinator' or "total_students" in student_data:
+                    dashboard_context = _generate_coordinator_summary(student_data)
+                elif role == 'admin' or "total_users" in student_data:
+                    dashboard_context = _generate_admin_summary(student_data)
+                elif role == 'supervisor' or "total_assigned" in student_data:
+                    dashboard_context = _generate_supervisor_summary(student_data)
+                elif role == 'student' or "hours" in student_data:
+                    dashboard_context = _generate_student_summary(student_data)
+                else:
+                    # Fallback for generic "User" role if data is present
+                    dashboard_context = f"\nUser Dashboard Info: {str(student_data)}\n"
+                
+                # Also include career briefing if it's a student
+                if "hours" in student_data:
+                    try:
+                        career_briefing = generate_career_briefing(student_data)
+                        dashboard_context = career_briefing + dashboard_context
+                    except Exception as e:
+                        logger.debug(f"Career briefing skipped: {e}")
+
+                if dashboard_context:
+                    import datetime
+                    # Get local time from the environment/server, formatted for PHT if possible
+                    # Since we're in AGENT context, we can use the provided metadata time
+                    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    text_for_llm = (
+                        f"[SYSTEM CONTEXT]\n"
+                        f"Current Local Time: {current_time_str}\n"
+                        f"{dashboard_context}\n\n"
+                        f"User Question: {text}"
+                    )
+                else:
+                    text_for_llm = text
             except Exception as ce:
-                logger.error(f"[CHATBOT_HANDLER] Error generating career briefing: {ce}")
-        
-        text_for_llm = career_briefing + text if career_briefing else text
+                logger.error(f"[CHATBOT_HANDLER] Error generating dashboard summary: {ce}")
+                text_for_llm = text
+        else:
+            text_for_llm = text
         
         logger.info(f"[CHATBOT_HANDLER] Processing message for session {session_id}")
         logger.debug(f"[CHATBOT_HANDLER] Message: {text[:100]}...")

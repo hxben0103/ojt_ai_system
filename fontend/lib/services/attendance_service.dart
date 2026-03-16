@@ -29,12 +29,15 @@ class AttendanceService {
     }
   }
 
-  // Get today's attendance for a student
-  static Future<Attendance?> getTodayAttendance(int studentId) async {
+  // Get today's attendance for a student (allows passing a specific date)
+  static Future<Attendance?> getTodayAttendance(int studentId, {String? date}) async {
     try {
-      final response = await ApiService.get(
-        '${ApiConfig.attendance}/today/$studentId',
-      );
+      String endpoint = '${ApiConfig.attendance}/today/$studentId';
+      if (date != null && date.isNotEmpty) {
+        endpoint += '?date=$date';
+      }
+
+      final response = await ApiService.get(endpoint);
 
       if (response['attendance'] == null) {
         return null;
@@ -42,7 +45,7 @@ class AttendanceService {
 
       return Attendance.fromJson(response['attendance']);
     } catch (e) {
-      throw Exception('Failed to fetch today\'s attendance: $e');
+      throw Exception('Failed to fetch attendance: $e');
     }
   }
 
@@ -105,6 +108,7 @@ class AttendanceService {
     int? ojtRecordId,
     required String segment,
     String? date,
+    String? timeIn,  // Add explicit time_in parameter
     String? attendanceImage, // Base64 encoded image (legacy)
     // Optional location/trust fields (geofencing + anti-fake GPS)
     double? checkinLat,
@@ -123,6 +127,7 @@ class AttendanceService {
         if (ojtRecordId != null) 'ojt_record_id': ojtRecordId,
         'segment': segment,
         if (date != null) 'date': date,
+        if (timeIn != null) 'time_in': timeIn,
         if (attendanceImage != null) 'attendance_image': attendanceImage,
       };
       if (checkinLat != null) body['checkin_lat'] = checkinLat;
@@ -160,6 +165,7 @@ class AttendanceService {
     required int studentId,
     required String segment,
     String? date,
+    String? timeOut, // Add explicit time_out parameter
     int? attendanceId,
     String? attendanceImage, // Base64 encoded image (legacy)
     // Optional location/trust (checkout for time-out)
@@ -181,6 +187,7 @@ class AttendanceService {
         'student_id': studentId,
         'segment': segment,
         if (date != null) 'date': date,
+        if (timeOut != null) 'time_out': timeOut,
         if (attendanceImage != null) 'attendance_image': attendanceImage,
       };
       if (checkinLat != null) body['checkin_lat'] = checkinLat;

@@ -76,14 +76,14 @@ class AuthService {
 
   // Login user
   static Future<Map<String, dynamic>> login({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
     try {
       final response = await ApiService.post(
         '${ApiConfig.auth}/login',
         {
-          'email': email,
+          'email': identifier,
           'password': password,
         },
       );

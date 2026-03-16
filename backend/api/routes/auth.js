@@ -7,10 +7,10 @@ const { query } = require('../../config/db');
 // Register User
 router.post('/register', async (req, res) => {
   try {
-    const { 
-      full_name, 
-      email, 
-      password, 
+    const {
+      full_name,
+      email,
+      password,
       role,
       // Student fields
       student_id,
@@ -41,8 +41,8 @@ router.post('/register', async (req, res) => {
 
     // Validate required fields
     if (!full_name || !email || !password || !role) {
-      return res.status(400).json({ 
-        error: 'Missing required fields. Please provide full_name, email, password, and role.' 
+      return res.status(400).json({
+        error: 'Missing required fields. Please provide full_name, email, password, and role.'
       });
     }
 
@@ -60,8 +60,8 @@ router.post('/register', async (req, res) => {
     // Validate role
     const validRoles = ['Admin', 'Coordinator', 'Supervisor', 'Student'];
     if (!validRoles.includes(role)) {
-      return res.status(400).json({ 
-        error: `Invalid role. Must be one of: ${validRoles.join(', ')}` 
+      return res.status(400).json({
+        error: `Invalid role. Must be one of: ${validRoles.join(', ')}`
       });
     }
 
@@ -95,9 +95,9 @@ router.post('/register', async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
-        full_name, 
-        email, 
-        password_hash, 
+        full_name,
+        email,
+        password_hash,
         role,
         initialStatus,
         (student_id && String(student_id).trim() !== '') ? String(student_id).trim() : null,
@@ -182,13 +182,13 @@ router.post('/register', async (req, res) => {
       stack: error.stack,
       code: error.code
     });
-    
+
     // Return more detailed error message in development
-    const errorMessage = process.env.NODE_ENV === 'development' 
+    const errorMessage = process.env.NODE_ENV === 'development'
       ? error.message || 'Internal server error'
       : 'Internal server error';
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
@@ -200,14 +200,14 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user
+    // Find user by email or student_id
     const result = await query(
-      'SELECT * FROM users WHERE email = $1',
+      'SELECT * FROM users WHERE email = $1 OR student_id = $1',
       [email]
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid ID/Email or password' });
     }
 
     const user = result.rows[0];
@@ -216,13 +216,13 @@ router.post('/login', async (req, res) => {
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
 
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid ID/Email or password' });
     }
 
     // Check if user is active (Admin users can always log in regardless of status)
     if (user.role !== 'Admin' && user.status !== 'Active') {
       if (user.status === 'Pending') {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: 'Account is pending approval. Please wait for administrator approval.',
           status: 'Pending'
         });
@@ -265,10 +265,10 @@ router.post('/login', async (req, res) => {
       code: error.code
     });
     // Return more detailed error in development
-    const errorMessage = process.env.NODE_ENV === 'development' 
-      ? `Internal server error: ${error.message}` 
+    const errorMessage = process.env.NODE_ENV === 'development'
+      ? `Internal server error: ${error.message}`
       : 'Internal server error';
-    res.status(500).json({ 
+    res.status(500).json({
       error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
@@ -279,13 +279,13 @@ router.post('/login', async (req, res) => {
 router.get('/profile', async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
-    
+
     const result = await query(
       'SELECT * FROM users WHERE user_id = $1',
       [decoded.user_id]
@@ -296,7 +296,7 @@ router.get('/profile', async (req, res) => {
     }
 
     const user = result.rows[0];
-    res.json({ 
+    res.json({
       user: {
         user_id: user.user_id,
         full_name: user.full_name,
@@ -338,7 +338,7 @@ router.get('/users', async (req, res) => {
 const authenticateToken = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
@@ -414,8 +414,8 @@ router.put('/approve/:userId', authenticateToken, async (req, res) => {
     } else if (role === 'Coordinator' && (userToApprove.role === 'Student' || userToApprove.role === 'Supervisor')) {
       // Coordinator approving Student/Supervisor - allowed
     } else {
-      return res.status(403).json({ 
-        error: 'You do not have permission to approve this user' 
+      return res.status(403).json({
+        error: 'You do not have permission to approve this user'
       });
     }
 
@@ -472,8 +472,8 @@ router.put('/reject/:userId', authenticateToken, async (req, res) => {
     } else if (role === 'Coordinator' && (userToReject.role === 'Student' || userToReject.role === 'Supervisor')) {
       // Coordinator rejecting Student/Supervisor - allowed
     } else {
-      return res.status(403).json({ 
-        error: 'You do not have permission to reject this user' 
+      return res.status(403).json({
+        error: 'You do not have permission to reject this user'
       });
     }
 

@@ -9,6 +9,8 @@ class RoleDashboard extends StatefulWidget {
   final List<String>? tasks;
   final List<Widget>? customActions;
   final List<Widget>? appBarActions;
+  final Widget? headerContent;
+  final Map<String, dynamic>? dashboardData;
 
   const RoleDashboard({
     super.key,
@@ -17,6 +19,8 @@ class RoleDashboard extends StatefulWidget {
     this.tasks,
     this.customActions,
     this.appBarActions,
+    this.headerContent,
+    this.dashboardData,
   });
 
   @override
@@ -53,13 +57,20 @@ class _RoleDashboardState extends State<RoleDashboard>
         title: Text(widget.title),
         backgroundColor: widget.color,
         foregroundColor: Colors.white,
-        elevation: 0, // Flat look with body contrast
-        actions: widget.appBarActions,
+        bottom: widget.headerContent != null 
+          ? PreferredSize(
+              preferredSize: const Size.fromHeight(30),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: AppTheme.spacing12),
+                child: widget.headerContent!,
+              ),
+            )
+          : null,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(AppTheme.borderRadiusLarge),
-          ),
-        ),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(AppTheme.borderRadiusLarge),
+              ),
+            ),
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(vertical: AppTheme.spacing16),
@@ -163,7 +174,9 @@ class _RoleDashboardState extends State<RoleDashboard>
                 context,
                 PageRouteBuilder(
                   transitionDuration: const Duration(milliseconds: 500),
-                  pageBuilder: (_, __, ___) => const ChatBotScreen(),
+                  pageBuilder: (_, __, ___) => ChatBotScreen(
+                    dashboardData: widget.dashboardData,
+                  ),
                   transitionsBuilder: (_, animation, __, child) {
                     return SlideTransition(
                       position: Tween<Offset>(

@@ -531,6 +531,18 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       title: "OJT Coordinator Dashboard",
       color: AppTheme.coordinatorPrimary,
       tasks: const [],
+      dashboardData: {
+        "role": "coordinator",
+        "total_students": _totalStudents,
+        "high_risk_students": _highRiskStudents,
+        "medium_risk_students": _mediumRiskStudents,
+        "low_risk_students": _lowRiskStudents,
+        "completed_ojt": _completedOjt,
+        "active_ojt": _activeOjt,
+        "average_completion": _averageCompletionRatio,
+        "average_attendance": _averageAttendanceRate,
+        "average_forecast_grade": _averageForecastedGrade,
+      },
       customActions: [
         _buildAnimatedCard(_buildProfileHeader(), delay: 0),
         const SizedBox(height: AppTheme.spacing12),
@@ -585,46 +597,54 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
       child: Row(
         children: [
-          ModernStatCard(
-            label: 'Students',
-            value: '$_totalStudents',
-            icon: Icons.people_rounded,
-            color: AppTheme.coordinatorPrimary,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const CoordinatorStudentMonitor(),
+          Expanded(
+            child: ModernStatCard(
+              label: 'Students',
+              value: '$_totalStudents',
+              icon: Icons.people_rounded,
+              color: AppTheme.coordinatorPrimary,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CoordinatorStudentMonitor(),
+                ),
               ),
             ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'High Risk',
-            value: '$_highRiskStudents',
-            icon: Icons.warning_amber_rounded,
-            color: AppTheme.errorColor,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const CoordinatorPerformanceAnalysisScreen(),
+          Expanded(
+            child: ModernStatCard(
+              label: 'Flags',
+              value: '$_highRiskStudents',
+              icon: Icons.warning_amber_rounded,
+              color: AppTheme.errorColor,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CoordinatorPerformanceAnalysisScreen(),
+                ),
               ),
             ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Avg Forecast',
-            value: _averageForecastedGrade > 0
-                ? _averageForecastedGrade.toStringAsFixed(1)
-                : 'N/A',
-            icon: Icons.analytics_rounded,
-            color: Colors.blue.shade700,
+          Expanded(
+            child: ModernStatCard(
+              label: 'Avg Grade',
+              value: _averageForecastedGrade > 0
+                  ? _averageForecastedGrade.toStringAsFixed(1)
+                  : 'N/A',
+              icon: Icons.analytics_rounded,
+              color: Colors.blue.shade700,
+            ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Active OJT',
-            value: '$_activeOjt',
-            icon: Icons.work_history_rounded,
-            color: AppTheme.successColor,
+          Expanded(
+            child: ModernStatCard(
+              label: 'Active',
+              value: '$_activeOjt',
+              icon: Icons.work_history_rounded,
+              color: AppTheme.successColor,
+            ),
           ),
         ],
       ),
@@ -673,40 +693,82 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       );
     }
 
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _studentSnapshots.length,
-      separatorBuilder: (context, index) => const Divider(height: 1, indent: 64),
-      itemBuilder: (context, index) {
-        final snapshot = _studentSnapshots[index];
-        final riskColor = snapshot.riskLevel == 'HIGH' ? AppTheme.errorColor : (snapshot.riskLevel == 'MEDIUM' ? AppTheme.warningColor : AppTheme.successColor);
-        
-        return ListTile(
-          onTap: () => _showStudentDetail(snapshot),
-          leading: CircleAvatar(
-            backgroundColor: riskColor.withOpacity(0.1),
-            child: Text(
-              snapshot.studentName[0].toUpperCase(),
-              style: TextStyle(color: riskColor, fontWeight: FontWeight.bold),
-            ),
-          ),
-          title: Text(snapshot.studentName, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
-          subtitle: Row(
-            children: [
-              Text("${(snapshot.completionRatio * 100).toInt()}% Done", style: AppTheme.bodySmall),
-              const SizedBox(width: 8),
-              if (snapshot.isFlagged)
-                IntegrityBadge.flagged(isOut: snapshot.isLatestOut, isCompact: true)
-              else
-                IntegrityBadge.trust(flaggedCount: snapshot.lateCount, isCompact: true),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: DataTable(
+              headingRowColor: MaterialStateProperty.all(Colors.grey.shade50),
+        columnSpacing: 24,
+        horizontalMargin: 16,
+        dataRowMaxHeight: 65,
+        dataRowMinHeight: 60,
+        columns: const [
+          DataColumn(label: Text('Student', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Compliance', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Integrity Flags', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('Action', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: _studentSnapshots.map((snapshot) {
+          final riskColor = snapshot.riskLevel == 'HIGH' ? AppTheme.errorColor : (snapshot.riskLevel == 'MEDIUM' ? AppTheme.warningColor : AppTheme.successColor);
+          
+          return DataRow(
+            cells: [
+              DataCell(
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: riskColor.withOpacity(0.1),
+                      child: Text(
+                        snapshot.studentName[0].toUpperCase(),
+                        style: TextStyle(color: riskColor, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      constraints: const BoxConstraints(maxWidth: 120),
+                      child: Text(
+                        snapshot.studentName,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              DataCell(
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("${(snapshot.completionRatio * 100).toInt()}% Done", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    Text("${snapshot.approvedHours.toStringAsFixed(1)} hrs", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                  ],
+                ),
+              ),
+              DataCell(
+                snapshot.isFlagged
+                    ? IntegrityBadge.flagged(isOut: snapshot.isLatestOut, isCompact: true)
+                    : IntegrityBadge.trust(flaggedCount: snapshot.lateCount, isCompact: true),
+              ),
+              DataCell(
+                IconButton(
+                  icon: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onPressed: () => _showStudentDetail(snapshot),
+                ),
+              ),
             ],
-          ),
-          trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey[300], size: 20),
-        );
-      },
-    );
-  }
+          );
+        }).toList(),
+      ),
+    ),
+  );
+  },
+  );
+}
 
   Widget _buildManagementGroup() {
     return Container(
@@ -1047,6 +1109,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
           padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
           child: IntegrityTimelineCard(
             attendanceHistory: recentEntries,
+            showStudent: true,
           ),
         );
       },

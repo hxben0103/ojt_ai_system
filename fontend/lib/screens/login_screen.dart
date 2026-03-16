@@ -137,7 +137,7 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (id.isEmpty || pass.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter email and password")),
+        const SnackBar(content: Text("Please enter ID/Email and password")),
       );
       return;
     }
@@ -165,7 +165,7 @@ class _LoginScreenState extends State<LoginScreen>
     // For all other users, use real API authentication
     try {
       final response = await AuthService.login(
-        email: id,
+        identifier: id,
         password: pass,
       );
 
@@ -496,12 +496,12 @@ class _LoginScreenState extends State<LoginScreen>
                                   Text("Sign in to your dashboard", style: AppTheme.bodyMedium.copyWith(color: Colors.black54)),
                                   const SizedBox(height: 32),
 
-                                  // Email Field
+                                  // ID/Email Field
                                   TextField(
                                     controller: _idController,
                                     decoration: InputDecoration(
-                                      prefixIcon: const Icon(Icons.email_outlined),
-                                      labelText: 'Email Address',
+                                      prefixIcon: const Icon(Icons.badge_outlined),
+                                      labelText: 'Student/Staff ID or Email',
                                       filled: true,
                                       fillColor: Colors.grey[50],
                                       border: OutlineInputBorder(
@@ -509,7 +509,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         borderSide: BorderSide.none,
                                       ),
                                     ),
-                                    keyboardType: TextInputType.emailAddress,
+                                    keyboardType: TextInputType.text,
                                   ),
                                   const SizedBox(height: 20),
 

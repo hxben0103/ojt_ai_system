@@ -12,7 +12,12 @@ import '../services/auth_service.dart';
 import '../core/ai_config.dart';
 
 class ChatBotScreen extends StatefulWidget {
-  const ChatBotScreen({super.key});
+  final Map<String, dynamic>? dashboardData;
+
+  const ChatBotScreen({
+    super.key,
+    this.dashboardData,
+  });
 
   @override
   State<ChatBotScreen> createState() => _ChatBotScreenState();
@@ -49,6 +54,18 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
   @override
   void initState() {
     super.initState();
+    
+    _focusNode.onKeyEvent = (node, event) {
+      if (!mounted) return KeyEventResult.ignored;
+      if (event is KeyDownEvent && 
+          event.logicalKey == LogicalKeyboardKey.enter && 
+          !HardwareKeyboard.instance.isShiftPressed) {
+        _sendMessage();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    };
+
     // Load greeting when screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadGreeting();
@@ -57,6 +74,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
 
   @override
   void dispose() {
+    _focusNode.onKeyEvent = null; // Detach hotkey listener first
     _controller.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
@@ -157,139 +175,71 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
         await prefs.setString('chatbot_session_id', sessionId);
       }
 
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {"Content-Type": "application/json"},
-        body: json.encode({
+      final client = http.Client();
+      final request = http.Request('POST', Uri.parse(apiUrl))
+        ..headers['Content-Type'] = 'application/json'
+        ..body = json.encode({
           "message": userMessage,
-          "session_id": sessionId, // Include session ID for conversation context
-        }),
-      ).timeout(const Duration(seconds: 120)); // Increased timeout for RAG + Ollama processing
+          "session_id": sessionId,
+          "student_data": widget.dashboardData,
+          "stream": true, // Request streaming
+        });
+
+      final response = await client.send(request).timeout(const Duration(seconds: 120));
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        // Handle new structured response format
-        if (data.containsKey("success") && data["success"] == false) {
-          // Error response from backend
-          final errorMsg = data["message"] as String? ?? 
-                          data["error"] as String? ?? 
-                          "Chatbot service unavailable";
-          
-          setState(() {
-            _messages.add(ChatMessage(
-              text: "⚠️ $errorMsg",
-              isUser: false,
-              timestamp: DateTime.now(),
-            ));
-            _isTyping = false;
-          });
-          _scrollToBottom();
-          return;
-        }
-        
-        // Success response - get answer from structured format (supports both old and new formats)
-        final botReply = data["answer"] as String? ?? 
-                        data["response"] as String? ?? 
-                        data["message"] as String?;
-        
-        // Check if this is a fallback response (low confidence) - new format only
-        final isFallback = data["is_fallback"] as bool? ?? false;
-        final confidenceScore = data["confidence_score"] as double?;
-        
-        if (botReply != null && botReply.isNotEmpty) {
-          // Add warning if this is a low-confidence response (structured format)
-          String displayText = botReply;
-          if (isFallback) {
-            displayText = "$botReply\n\n⚠️ Note: This is a low-confidence answer. Please consult your OJT coordinator for confirmation.";
-            debugPrint('[CHATBOT] Received fallback response (low confidence: ${confidenceScore ?? "unknown"})');
-          }
-          debugPrint('[CHATBOT] Bot reply received: ${botReply.length} characters');
-          debugPrint('[CHATBOT] Bot reply preview: ${botReply.substring(0, botReply.length > 150 ? 150 : botReply.length)}...');
-          
-          // Check if the reply is actually an error message
-          if (botReply.startsWith("⚠️") || botReply.startsWith("🚫") || botReply.startsWith("Error:")) {
-            debugPrint('[CHATBOT] Warning: Response looks like an error: $botReply');
-          }
-          
-          // Create streaming message and show it word by word
-          final messageId = DateTime.now().millisecondsSinceEpoch.toString();
-          final streamingMsg = ChatMessage(
-            text: '',
-            isUser: false,
-            timestamp: DateTime.now(),
-            messageId: messageId,
-          );
-          
-          debugPrint('[CHATBOT] Creating streaming message with ID: $messageId');
-          setState(() {
-            _streamingMessage = streamingMsg;
-            _messages.add(streamingMsg);
-            _isTyping = true;
-            _streamingText = '';
-          });
-          
-          debugPrint('[CHATBOT] Starting to stream ${displayText.split(' ').length} words...');
-          // Stream the response word by word
-          await _streamResponse(displayText, streamingMsg);
-          debugPrint('[CHATBOT] Streaming completed');
-          
-          setState(() {
-            _isTyping = false;
-            _streamingMessage = null;
-            _streamingText = '';
-          });
+        final messageId = DateTime.now().millisecondsSinceEpoch.toString();
+        final streamingMsg = ChatMessage(
+          text: '',
+          isUser: false,
+          timestamp: DateTime.now(),
+          messageId: messageId,
+        );
 
-          // Log the interaction to backend (non-blocking)
-          // Use original botReply (without fallback warning) for logging
-          _logChatbotInteraction(userMessage, botReply);
-        } else {
-          setState(() {
-            _messages.add(ChatMessage(
-              text: "⚠️ Received empty response from server",
-              isUser: false,
-              timestamp: DateTime.now(),
-            ));
-            _isTyping = false;
-          });
-        }
-      } else {
-        // Server returned non-200 status - handle structured error response
-        String errorMsg = "⚠️ Server error: ${response.statusCode}";
-        try {
-          final errorData = json.decode(response.body);
-          
-          // Handle new structured error format
-          if (errorData.containsKey("success") && errorData["success"] == false) {
-            errorMsg = errorData["message"] as String? ?? 
-                      errorData["error"] as String? ?? 
-                      "Chatbot service unavailable";
-          } else if (errorData.containsKey("message")) {
-            errorMsg = errorData["message"] as String;
-          } else if (errorData.containsKey("error")) {
-            final errorText = errorData["error"];
-            if (errorText is String && errorText.isNotEmpty) {
-              errorMsg = "⚠️ $errorText";
-            } else if (errorText is Map && errorText.containsKey("message")) {
-              errorMsg = errorText["message"] as String;
-            }
-          } else if (errorData.containsKey("response")) {
-            errorMsg = errorData["response"] as String;
-          }
-        } catch (e) {
-          debugPrint('Failed to parse error response: $e');
-        }
-        
-        debugPrint('Server error response: Status ${response.statusCode}, Message: $errorMsg');
-        
         setState(() {
-          _messages.add(ChatMessage(
-            text: errorMsg,
-            isUser: false,
-            timestamp: DateTime.now(),
-          ));
-          _isTyping = false;
+          _streamingMessage = streamingMsg;
+          _messages.add(streamingMsg);
+          _isTyping = true;
+          _streamingText = '';
         });
+
+        // Parse NDJSON stream
+        bool hasReceivedData = false;
+        await response.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .forEach((line) {
+          if (line.trim().isEmpty) return;
+          try {
+            final data = json.decode(line);
+            if (data['success'] == true) {
+              hasReceivedData = true;
+              final botReply = data["answer"] as String? ?? 
+                              data["response"] as String? ?? 
+                              data["message"] as String?;
+              
+              if (botReply != null) {
+                _updateStreamingMessage(messageId, botReply);
+              }
+            } else {
+              _showErrorMessage(data['message'] ?? 'Service Error');
+            }
+          } catch (e) {
+            debugPrint('Error parsing streaming line: $e');
+          }
+        });
+
+        if (!hasReceivedData) {
+          _showErrorMessage("Received empty response from server");
+        }
+
+        setState(() {
+          _isTyping = false;
+          _streamingMessage = null;
+          _streamingText = '';
+        });
+      } else {
+        _showErrorMessage("Server error: ${response.statusCode}");
       }
     } on http.ClientException catch (e) {
       setState(() {
@@ -328,6 +278,43 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     });
     }
 
+    _scrollToBottom();
+  }
+
+  void _updateStreamingMessage(String messageId, String text) {
+    if (!mounted) return;
+    setState(() {
+      int index = -1;
+      for (int i = 0; i < _messages.length; i++) {
+        if (_messages[i].messageId == messageId) {
+          index = i;
+          break;
+        }
+      }
+
+      if (index != -1) {
+        _messages[index] = ChatMessage(
+          text: text,
+          isUser: false,
+          timestamp: _messages[index].timestamp,
+          messageId: messageId,
+        );
+      }
+      _streamingText = text;
+    });
+    _scrollToBottom();
+  }
+
+  void _showErrorMessage(String message) {
+    if (!mounted) return;
+    setState(() {
+      _messages.add(ChatMessage(
+        text: "⚠️ $message",
+        isUser: false,
+        timestamp: DateTime.now(),
+      ));
+      _isTyping = false;
+    });
     _scrollToBottom();
   }
 
@@ -452,51 +439,64 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.black87),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Colors.indigo.shade400, Colors.indigo.shade600],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.indigo.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.smart_toy, color: Colors.white, size: 22),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            Row(
               children: [
-                Text(
-                  "AI JRMSU Assistant",
-                  style: TextStyle(
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                    ),
-                ),
-                Text(
-                    "Online • Ready to help",
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.green,
-                      fontWeight: FontWeight.w500,
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.indigo.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFF4338CA)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
                   ),
-                ],
-              ),
+                  child: const Center(
+                    child: Icon(Icons.smart_toy_rounded, 
+                      color: Colors.white, size: 20),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "JRMSU AI Assistant",
+                      style: TextStyle(
+                        color: Color(0xFF1E293B),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        _StatusPulsingDot(),
+                        SizedBox(width: 6),
+                        Text(
+                          "Active Now",
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF10B981),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
@@ -538,99 +538,101 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                                 TextButton(
                                   onPressed: () => Navigator.pop(context),
                                   child: const Text('OK'),
-                ),
-              ],
+                                ),
+                              ],
                             ),
                           );
                         },
-            ),
-          ],
-        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _messages.isEmpty && !_hasShownGreeting
-                ? _buildEmptyState()
-                : ListView.builder(
-              controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              itemCount: _messages.length + (_isTyping ? 1 : 0),
-              itemBuilder: (context, index) {
-                      // Show typing indicator only if we're waiting for initial response
-                      if (_isTyping && _streamingMessage == null && index == _messages.length) {
-                  return _buildTypingIndicator();
-                }
-
-                      if (index >= _messages.length) {
-                        return const SizedBox.shrink();
-                      }
-
-                final msg = _messages[index];
-                      return _buildMessageBubble(msg);
-              },
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: _messages.isEmpty && !_hasShownGreeting
+                  ? _buildEmptyState()
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      itemCount: _messages.length + (_isTyping ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (_isTyping && _streamingMessage == null && index == _messages.length) {
+                          return _buildTypingIndicator();
+                        }
+                        if (index >= _messages.length) return const SizedBox.shrink();
+                        
+                        final msg = _messages[index];
+                        return _buildMessageBubble(msg, index);
+                      },
+                    ),
             ),
-          ),
-          _buildMessageInput(),
-        ],
+            _buildMessageInput(),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
-                colors: [Colors.indigo.shade400, Colors.indigo.shade600],
+                  colors: [Colors.indigo.shade400, Colors.indigo.shade600],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
               ),
-            child: const Icon(Icons.smart_toy, color: Colors.white, size: 40),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'AI JRMSU Assistant',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade800,
+              child: const Icon(Icons.smart_toy, color: Colors.white, size: 40),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Ask me anything about OJT procedures,\nrequirements, or guidelines.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
+            const SizedBox(height: 24),
+            Text(
+              'AI JRMSU Assistant',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade800,
+              ),
             ),
-          ),
-          const SizedBox(height: 32),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            alignment: WrapAlignment.center,
-            children: [
-              _buildSuggestionChip('What are the OJT requirements?'),
-              _buildSuggestionChip('How do I submit attendance?'),
-              _buildSuggestionChip('What is the evaluation process?'),
-            ],
+            const SizedBox(height: 8),
+            Text(
+              'Ask me anything about OJT procedures,\nrequirements, or guidelines.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+              ),
             ),
-        ],
-          ),
+            const SizedBox(height: 32),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
+              children: [
+                _buildSuggestionChip('What are the OJT requirements?'),
+                _buildSuggestionChip('How do I submit attendance?'),
+                _buildSuggestionChip('What is the evaluation process?'),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -647,137 +649,125 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     );
   }
 
-  Widget _buildMessageBubble(ChatMessage msg) {
+  Widget _buildMessageBubble(ChatMessage msg, int index) {
     final isUser = msg.isUser;
     
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+    return Container(
+      key: ValueKey(msg.messageId ?? 'msg_$index'), // Stabilize widget in list
+      margin: const EdgeInsets.only(bottom: 20),
       child: Row(
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isUser) ...[
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Colors.indigo.shade400, Colors.indigo.shade600],
-      ),
-              ),
-              child: const Icon(Icons.smart_toy, color: Colors.white, size: 18),
-            ),
-            const SizedBox(width: 8),
+            _buildAvatar(true),
+            const SizedBox(width: 10),
           ],
           Flexible(
             child: Container(
               constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75,
+                maxWidth: MediaQuery.of(context).size.width * 0.78,
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               decoration: BoxDecoration(
-                color: isUser
-                    ? Colors.indigo.shade600
-                    : Colors.white,
+                gradient: isUser
+                    ? const LinearGradient(
+                        colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : null,
+                color: isUser ? null : Colors.white,
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(isUser ? 20 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 20),
+                  topLeft: const Radius.circular(22),
+                  topRight: const Radius.circular(22),
+                  bottomLeft: Radius.circular(isUser ? 22 : 4),
+                  bottomRight: Radius.circular(isUser ? 4 : 22),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+                    color: isUser 
+                        ? const Color(0xFF6366F1).withOpacity(0.15)
+                        : Colors.black.withOpacity(0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
+                border: isUser ? null : Border.all(color: const Color(0xFFF1F5F9)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                   // Message content with markdown support
-                   // During streaming, show plain text to avoid markdown parsing issues
-                   isUser
-                       ? Text(
-                           msg.text,
-                           style: const TextStyle(
-                             color: Colors.white,
-                             fontSize: 15,
-                             height: 1.5,
-                           ),
-                         )
-                       : (_streamingMessage != null && 
-                          msg.messageId == _streamingMessage?.messageId && 
-                          _isTyping &&
-                          msg.text.isNotEmpty
-                           ? Text(
-                               msg.text,
-                               style: const TextStyle(
-                                 color: Colors.black87,
-                                 fontSize: 15,
-                                 height: 1.6,
-                               ),
-                             )
-                           : (msg.text.isEmpty 
-                              ? const Text(
-                                  '...',
-                                  style: TextStyle(
-                                    color: Colors.grey,
+                  // Message content
+                  isUser
+                      ? Text(
+                          msg.text,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            height: 1.5,
+                          ),
+                        )
+                      : (_streamingMessage != null && 
+                         msg.messageId == _streamingMessage?.messageId && 
+                         _isTyping &&
+                         msg.text.isNotEmpty
+                          ? Text(
+                              msg.text,
+                              style: const TextStyle(
+                                color: Color(0xFF1E293B),
+                                fontSize: 15,
+                                height: 1.6,
+                              ),
+                            )
+                          : (msg.text.isEmpty 
+                             ? _BlinkingCursorIndicator()
+                             : MarkdownBody(
+                                data: msg.text,
+                                styleSheet: MarkdownStyleSheet(
+                                  p: const TextStyle(
+                                    color: Color(0xFF334155),
                                     fontSize: 15,
+                                    height: 1.6,
                                   ),
-                                )
-                              : MarkdownBody(
-                               data: msg.text,
-                          styleSheet: MarkdownStyleSheet(
-                            p: const TextStyle(
-                              color: Colors.black87,
-                              fontSize: 15,
-                              height: 1.6,
-                            ),
-                            code: TextStyle(
-                              backgroundColor: Colors.grey.shade200,
-                              color: Colors.indigo.shade700,
-                              fontFamily: 'monospace',
-                              fontSize: 13,
-                            ),
-                            codeblockDecoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            blockquote: TextStyle(
-                              color: Colors.grey.shade700,
-                              fontStyle: FontStyle.italic,
-                            ),
-                            listBullet: TextStyle(color: Colors.indigo.shade600),
-                            h1: TextStyle(
-                              color: Colors.black87,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 20,
-                            ),
-                            h2: TextStyle(
-                              color: Colors.black87,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
-                            h3: TextStyle(
-                              color: Colors.black87,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                            a: TextStyle(
-                              color: Colors.indigo.shade600,
-                              decoration: TextDecoration.underline,
-                             ),
-                           ),
-                           onTapLink: (text, href, title) {
-                             if (href != null) {
-                               launchUrl(Uri.parse(href));
-                             }
-                           },
-                         ))),
-                  const SizedBox(height: 4),
+                                  strong: const TextStyle(
+                                    color: Color(0xFF1E293B),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  code: TextStyle(
+                                    backgroundColor: const Color(0xFFF8FAFC),
+                                    color: const Color(0xFF6366F1),
+                                    fontFamily: 'monospace',
+                                    fontSize: 13,
+                                  ),
+                                  codeblockDecoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  blockquote: TextStyle(
+                                    color: Colors.grey.shade700,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                  listBullet: const TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold),
+                                  h3: const TextStyle(
+                                    color: Color(0xFF1E293B),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 17,
+                                  ),
+                                  a: const TextStyle(
+                                    color: Color(0xFF4F46E5),
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                                onTapLink: (text, href, title) {
+                                  if (href != null) {
+                                    launchUrl(Uri.parse(href));
+                                  }
+                                },
+                              ))),
+                  const SizedBox(height: 8),
                   // Timestamp and actions
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -786,9 +776,10 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                         _formatTime(msg.timestamp),
                         style: TextStyle(
                           color: isUser
-                              ? Colors.white70
-                              : Colors.grey.shade600,
+                              ? Colors.white.withOpacity(0.7)
+                              : const Color(0xFF94A3B8),
                           fontSize: 11,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       if (!isUser) ...[
@@ -801,7 +792,6 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                             color: Colors.grey.shade600,
                           ),
                         ),
-                        // Retry button for error messages
                         if (msg.messageId == 'error_retry' && _lastUserMessage != null) ...[
                           const SizedBox(width: 8),
                           InkWell(
@@ -828,187 +818,166 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
           ),
           if (isUser) ...[
             const SizedBox(width: 8),
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.indigo.shade100,
-              ),
-              child: Icon(
-                Icons.person,
-                color: Colors.indigo.shade700,
-                size: 18,
-              ),
-            ),
+            _buildAvatar(false),
           ],
         ],
       ),
-    ).animate().fade(duration: 300.ms).slideX(
-          begin: isUser ? 0.2 : -0.2,
-          curve: Curves.easeOut,
     );
   }
 
   Widget _buildTypingIndicator() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(left: 16, bottom: 20),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [Colors.indigo.shade400, Colors.indigo.shade600],
-              ),
-            ),
-            child: const Icon(Icons.smart_toy, color: Colors.white, size: 18),
-          ),
+          _buildAvatar(true),
           const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
+            decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+                bottomLeft: Radius.circular(4),
+                bottomRight: Radius.circular(20),
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
               ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (index) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3),
-              child: Animate(
-                effects: [
-                  FadeEffect(
-                        duration: 600.ms,
-                        delay: (index * 200).ms,
-                    curve: Curves.easeInOut,
-                  ),
-                  ScaleEffect(
-                        duration: 600.ms,
-                        delay: (index * 200).ms,
-                    begin: const Offset(0.8, 0.8),
-                    end: const Offset(1.0, 1.0),
-                    curve: Curves.easeInOut,
-                  ),
-                ],
-                onPlay: (controller) => controller.repeat(reverse: true),
-                child: Container(
-                  width: 8,
-                  height: 8,
-                      decoration: BoxDecoration(
-                        color: Colors.indigo.shade400,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            );
-          }),
             ),
+            child: const _BlinkingDots(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAvatar(bool isBot) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isBot ? null : const Color(0xFFE2E8F0),
+        gradient: isBot ? const LinearGradient(
+          colors: [Color(0xFF6366F1), Color(0xFF4338CA)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ) : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Icon(
+          isBot ? Icons.smart_toy_rounded : Icons.person_rounded,
+          color: isBot ? Colors.white : const Color(0xFF64748B),
+          size: 18,
+        ),
       ),
     );
   }
 
   Widget _buildMessageInput() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       decoration: BoxDecoration(
         color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                textCapitalization: TextCapitalization.sentences,
-                maxLines: null,
-                minLines: 1,
-                decoration: InputDecoration(
-                  hintText: "Type your message...",
-                  hintStyle: TextStyle(color: Colors.grey.shade400),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide(color: Colors.indigo.shade400, width: 2),
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              textCapitalization: TextCapitalization.sentences,
+              maxLines: 4,
+              minLines: 1,
+              style: const TextStyle(fontSize: 15, color: Color(0xFF1E293B)),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                hintText: "Ask about your progress...",
+                hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                 ),
-                onSubmitted: (_) => _sendMessage(),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
+                ),
               ),
             ),
-            const SizedBox(width: 12),
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Colors.indigo.shade600, Colors.indigo.shade400],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.indigo.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _isTyping ? null : _sendMessage,
-                  borderRadius: BorderRadius.circular(30),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    child: _isTyping
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : const Icon(Icons.send, color: Colors.white, size: 20),
-                  ),
-                ),
-              ),
+          ),
+          const SizedBox(width: 12),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: _buildSendButton(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSendButton() {
+    return InkWell(
+      onTap: _isTyping ? null : _sendMessage,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF6366F1).withOpacity(0.35),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
+        child: _isTyping
+            ? const Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              )
+            : const Icon(Icons.send_rounded, color: Colors.white, size: 22),
       ),
     );
   }
@@ -1044,5 +1013,153 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
       // Silently fail - logging should not break the user experience
         debugPrint('Failed to save chatbot log: ${e.toString()}');
     }
+  }
+}
+
+// --- Helper UI Components ---
+
+class _StatusPulsingDot extends StatefulWidget {
+  const _StatusPulsingDot();
+
+  @override
+  State<_StatusPulsingDot> createState() => _StatusPulsingDotState();
+}
+
+class _StatusPulsingDotState extends State<_StatusPulsingDot>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: const BoxDecoration(
+          color: Color(0xFF10B981),
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}
+
+class _BlinkingCursorIndicator extends StatefulWidget {
+  const _BlinkingCursorIndicator();
+
+  @override
+  State<_BlinkingCursorIndicator> createState() => _BlinkingCursorIndicatorState();
+}
+
+class _BlinkingCursorIndicatorState extends State<_BlinkingCursorIndicator>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: Container(
+        width: 8,
+        height: 18,
+        decoration: BoxDecoration(
+          color: const Color(0xFF6366F1),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+class _BlinkingDots extends StatefulWidget {
+  const _BlinkingDots();
+
+  @override
+  State<_BlinkingDots> createState() => _BlinkingDotsState();
+}
+
+class _BlinkingDotsState extends State<_BlinkingDots>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (index) {
+        return AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final double delay = index * 0.2;
+            double value = (_controller.value - delay).clamp(0.0, 1.0);
+            if (value > 0.5) value = 1.0 - value;
+            value *= 2; // Normalize to 0-1 range for the pulse
+            
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.5),
+              child: Opacity(
+                opacity: (0.3 + (0.7 * value)).clamp(0.0, 1.0),
+                child: Transform.scale(
+                  scale: (0.8 + (0.3 * value)).clamp(0.0, 1.0),
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF94A3B8),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      }),
+    );
   }
 }

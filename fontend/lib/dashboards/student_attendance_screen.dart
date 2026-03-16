@@ -20,7 +20,9 @@ import '../services/location_security_service.dart';
 import '../core/attendance_constants.dart';
 import '../models/attendance.dart';
 import '../utils/web_image_picker.dart';
+import '../core/app_theme.dart';
 import '../widgets/geofence_verification_panel.dart';
+import '../widgets/attendance_integrity_row.dart';
 import '../../widgets/restricted_access_screen.dart';
 
 class StudentAttendanceScreen extends StatefulWidget {
@@ -39,11 +41,22 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   bool _isLoading = false;
   bool _isInitializing = true;
   Attendance? _todayAttendance;
+  List<Attendance> _attendanceHistory = [];
   int? _studentId;
   int? _ojtRecordId;
   String? _companyName; // For geofence site lookup
   String? _companyAddress; // For display
   bool _canPerformOjtActions = false; // Restrict UI access flag
+
+  // Geofence/Location details for persistent display
+  String? _siteName;
+  String? _siteAddress;
+  double? _distanceToSite;
+  double? _gpsAccuracy;
+  bool? _isInsideGeofence;
+  int? _lastTrustScore;
+  double? _currentLat;
+  double? _currentLng;
   
   // Map segment constants to display labels
   final Map<String, String> _segmentToLabel = {
@@ -65,10 +78,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   };
 
   bool get isComplete =>
-      timeLogs["Morning In"]!.isNotEmpty &&
-      timeLogs["Morning Out"]!.isNotEmpty &&
-      timeLogs["Afternoon In"]!.isNotEmpty &&
-      timeLogs["Afternoon Out"]!.isNotEmpty;
+      _todayAttendance?.afternoonOut != null ||
+      (_todayAttendance?.overtimeOut != null) ||
+      (timeLogs["Afternoon Out"]?.isNotEmpty ?? false);
 
   @override
   void initState() {
@@ -95,9 +107,11 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       final prefs = await SharedPreferences.getInstance();
       final lastAttendanceDate = prefs.getString('last_attendance_date');
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      print('🔍 [Attendance] _checkAndResetDailyState: lastDate=$lastAttendanceDate, today=$today');
 
       // Always reset time logs first, then check if we need to clear other state
       bool isNewDay = lastAttendanceDate != today;
+      print('🔍 [Attendance] isNewDay: $isNewDay');
       
       // Reset in-memory state - always clear time logs to start fresh
       if (mounted) {
@@ -181,8 +195,12 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         _canPerformOjtActions = false;
       }
 
-      // Load today's attendance
+      // Load today's attendance and history
       await _loadTodayAttendance();
+      await _fetchAttendanceHistory();
+      
+      // Attempt to get current location for the persistent panel (non-blocking)
+      _updateLocationSilently();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -207,19 +225,24 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       
       // Get today's date to verify attendance is from today
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      print('🔍 [Attendance] _loadTodayAttendance: fetching for student $_studentId, date $today');
       
-      final attendance = await AttendanceService.getTodayAttendance(_studentId!);
+      final attendance = await AttendanceService.getTodayAttendance(_studentId!, date: today);
+      print('🔍 [Attendance] _loadTodayAttendance: received attendance: ${attendance?.attendanceId}, morningIn: ${attendance?.morningIn}');
       
       if (mounted) {
         setState(() {
           // Only set today's attendance if it exists and is from today
           if (attendance != null) {
             // Verify the attendance date matches today
-            final attendanceDate = attendance.date != null 
-                ? DateFormat('yyyy-MM-dd').format(attendance.date!)
-                : null;
+            final attendanceDate = attendance.date;
+            final isSameDay = attendanceDate.year == DateTime.now().year && 
+                            attendanceDate.month == DateTime.now().month && 
+                            attendanceDate.day == DateTime.now().day;
             
-            if (attendanceDate == today) {
+            print('🔍 [Attendance] Date comparison: attendanceDate=$attendanceDate, today=${DateTime.now()}, isSameDay=$isSameDay');
+            
+            if (isSameDay) {
               // Only populate time logs if attendance exists for TODAY
               _todayAttendance = attendance;
               // Convert database time format (HH:MM:SS) to display format (hh:mm a)
@@ -293,6 +316,52 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     return time;
   }
 
+  Future<void> _fetchAttendanceHistory() async {
+    if (_studentId == null) return;
+    try {
+      final history = await AttendanceService.getAttendance(studentId: _studentId!);
+      // Sort by date descending
+      history.sort((a, b) => b.date.compareTo(a.date));
+      if (mounted) {
+        setState(() {
+          _attendanceHistory = history;
+        });
+      }
+    } catch (e) {
+      print('Error fetching attendance history: $e');
+    }
+  }
+
+  Future<void> _updateLocationSilently() async {
+    if (kIsWeb) return;
+    try {
+      final position = await LocationService.getCurrentPosition();
+      if (position != null && mounted) {
+        final sites = await OjtSitesService.getSitesByCompanyName(_companyName);
+        if (sites.isNotEmpty) {
+          final nearestSite = sites.first; // Simpler for now
+          final check = GeofenceService.check(
+            nearestSite,
+            position.latitude,
+            position.longitude,
+          );
+          
+          setState(() {
+            _currentLat = position.latitude;
+            _currentLng = position.longitude;
+            _gpsAccuracy = position.accuracy;
+            _siteName = nearestSite.name;
+            _siteAddress = nearestSite.address;
+            _distanceToSite = check.distanceMeters;
+            _isInsideGeofence = check.inside;
+          });
+        }
+      }
+    } catch (e) {
+      print('Silent location update failed: $e');
+    }
+  }
+
   // ---------------- Camera & Attendance ----------------
   Future<bool> _requestCameraPermission() async {
     try {
@@ -336,7 +405,8 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     }
   }
 
-  Future<void> _handleAttendance(String label) async {
+  Future<void> _handleAttendance(String segment) async {
+    final label = _segmentToLabel[segment] ?? segment;
     if (_studentId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("User not logged in")),
@@ -344,24 +414,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       return;
     }
 
-    // Find segment constant for this label
-    String? segment;
-    bool isTimeIn = false;
-    
-    for (var entry in _segmentToLabel.entries) {
-      if (entry.value == label) {
-        segment = entry.key;
-        isTimeIn = AttendanceSegments.isTimeIn(segment);
-        break;
-      }
-    }
-
-    if (segment == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Invalid attendance label: $label")),
-      );
-      return;
-    }
+    final isTimeIn = AttendanceSegments.isTimeIn(segment);
 
     // Check if already logged
     if (timeLogs[label]!.isNotEmpty) {
@@ -612,8 +665,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         // Encode image to base64 for database storage
         final base64Image = base64Encode(imageBytes);
         
-        // Get current date in YYYY-MM-DD format
-        final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        // Get current date and time in local format
+        final now = DateTime.now();
+        final today = DateFormat('yyyy-MM-dd').format(now);
+        final currentTime = DateFormat('HH:mm:ss').format(now);
         
         // Save the attendance date to SharedPreferences for daily reset check
         final prefs = await SharedPreferences.getInstance();
@@ -632,6 +687,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
             ojtRecordId: _ojtRecordId,
             segment: segment,
             date: today,
+            timeIn: currentTime,
             attendanceImage: base64Image,
             checkinLat: checkinLat,
             checkinLng: checkinLng,
@@ -646,6 +702,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
             studentId: _studentId!,
             segment: segment,
             date: today,
+            timeOut: currentTime,
             attendanceId: _todayAttendance?.attendanceId,
             attendanceImage: base64Image,
             checkinLat: checkinLat,
@@ -691,6 +748,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
               backgroundColor: Colors.green,
             ),
           );
+          // Refresh only history and location; today's state is already updated locally
+          _fetchAttendanceHistory();
+          _updateLocationSilently();
         }
 
 
@@ -898,180 +958,515 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     );
   }
 
-  // ---------------- UI ----------------
+  // ---------------- UI Components ----------------
+
+  Widget _buildHeaderCard() {
+    final now = DateFormat('MMMM d, yyyy').format(DateTime.now());
+    String status = "Ready to Time In";
+    Color statusColor = AppTheme.warningColor;
+    
+    if (_todayAttendance != null) {
+      if (_todayAttendance!.morningIn != null && _todayAttendance!.afternoonOut == null) {
+        status = "On Duty";
+        statusColor = AppTheme.successColor;
+      } else if (_todayAttendance!.afternoonOut != null) {
+        status = "Completed for Today";
+        statusColor = AppTheme.infoColor;
+      }
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.spacing16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Attendance Today", style: AppTheme.bodySmall),
+                    Text(now, style: AppTheme.heading3),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusColor.withOpacity(0.5)),
+                  ),
+                  child: Text(
+                    status,
+                    style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppTheme.spacing16),
+            const Divider(),
+            const SizedBox(height: AppTheme.spacing8),
+            Row(
+              children: [
+                const Icon(Icons.schedule, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Schedule: 8:00 AM – 12:00 PM | 1:00 PM – 5:00 PM",
+                    style: AppTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Have a productive day at your OJT site!",
+              style: AppTheme.bodyMedium.copyWith(fontStyle: FontStyle.italic, color: Colors.blueGrey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGeofencePanel() {
+    final bool isOutside = _isInsideGeofence == false;
+    final Color panelColor = isOutside ? AppTheme.errorColor : AppTheme.successColor;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.spacing16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.location_on, color: panelColor),
+                const SizedBox(width: 8),
+                Text("Geofence Verification", style: AppTheme.heading3),
+                const Spacer(),
+                if (_isInsideGeofence != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: panelColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _isInsideGeofence! ? "Verified" : "Outside Area",
+                      style: TextStyle(color: panelColor, fontWeight: FontWeight.bold, fontSize: 10),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppTheme.spacing12),
+            Text(_siteName ?? _companyName ?? "Loading site details...", style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.bold)),
+            Text(_siteAddress ?? _companyAddress ?? "Checking location...", style: AppTheme.bodySmall),
+            const SizedBox(height: AppTheme.spacing12),
+            if (_currentLat != null) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildLocationInfo("Coordinates", "${_currentLat!.toStringAsFixed(4)}, ${_currentLng!.toStringAsFixed(4)}"),
+                  _buildLocationInfo("Distance", _distanceToSite != null ? "${_distanceToSite!.toStringAsFixed(1)}m" : "N/A"),
+                  _buildLocationInfo("Accuracy", _gpsAccuracy != null ? "±${_gpsAccuracy!.toStringAsFixed(1)}m" : "N/A"),
+                ],
+              ),
+            ],
+            if (isOutside) ...[
+              const SizedBox(height: AppTheme.spacing12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.errorColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: AppTheme.errorColor),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        "You are outside the authorized OJT site. Attendance cannot be submitted.",
+                        style: AppTheme.bodySmall.copyWith(color: AppTheme.errorColor, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationInfo(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Text(value, style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+
+  Widget _buildPhotoCard() {
+    if (_attendanceImageBytes == null) return const SizedBox.shrink();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.spacing16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Photo Evidence", style: AppTheme.heading3),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _attendanceImageBytes = null;
+                    });
+                  },
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text("Retake", style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppTheme.spacing8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Stack(
+                children: [
+                  Image.memory(
+                    _attendanceImageBytes!,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [Colors.black54, Colors.transparent],
+                        ),
+                      ),
+                      child: Text(
+                        "Recorded time is based on this photo's capture timestamp.",
+                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildComputationCard() {
+    if (_todayAttendance == null) return const SizedBox.shrink();
+
+    final double credited = _todayAttendance!.regularHours ?? 0.0;
+    final int deduction = _todayAttendance!.deductionMinutes ?? 0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.spacing16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Attendance Summary", style: AppTheme.heading3),
+            const SizedBox(height: AppTheme.spacing16),
+            Row(
+              children: [
+                Expanded(child: _buildSummaryItem("Morning In", _formatTimeForDisplay(_todayAttendance!.morningIn))),
+                Expanded(child: _buildSummaryItem("Morning Out", _formatTimeForDisplay(_todayAttendance!.morningOut))),
+              ],
+            ),
+            const SizedBox(height: AppTheme.spacing12),
+            Row(
+              children: [
+                Expanded(child: _buildSummaryItem("Afternoon In", _formatTimeForDisplay(_todayAttendance!.afternoonIn))),
+                Expanded(child: _buildSummaryItem("Afternoon Out", _formatTimeForDisplay(_todayAttendance!.afternoonOut))),
+              ],
+            ),
+            if (_todayAttendance!.overtimeIn != null) ...[
+              const SizedBox(height: AppTheme.spacing12),
+              Row(
+                children: [
+                  Expanded(child: _buildSummaryItem("Overtime In", _formatTimeForDisplay(_todayAttendance!.overtimeIn))),
+                  Expanded(child: _buildSummaryItem("Overtime Out", _formatTimeForDisplay(_todayAttendance!.overtimeOut))),
+                ],
+              ),
+            ],
+            const Divider(height: 32),
+            Row(
+              children: [
+                Expanded(child: _buildSummaryItem("Late Deduction", "$deduction mins", icon: Icons.timer_off_outlined, color: deduction > 0 ? AppTheme.errorColor : null)),
+                Expanded(child: _buildSummaryItem("Credited Hours", "${credited.toStringAsFixed(1)} hrs", icon: Icons.check_circle_outline, color: AppTheme.successColor)),
+              ],
+            ),
+            const SizedBox(height: AppTheme.spacing12),
+            Text(
+              "Note: Early arrival gives no extra credit. Late arrivals are rounded to the next 30-minute block.",
+              style: AppTheme.caption.copyWith(fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryItem(String label, String value, {IconData? icon, Color? color}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTheme.bodySmall),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            if (icon != null) Icon(icon, size: 16, color: color ?? Colors.blueGrey),
+            if (icon != null) const SizedBox(width: 4),
+            Text(
+              value.isEmpty ? "--:--" : value,
+              style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.bold, color: color),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons() {
+    final now = DateTime.now();
+    final isAfternoonTime = now.hour > 12 || (now.hour == 12 && now.minute >= 30);
+    String? nextInSegment;
+    String? nextOutSegment;
+
+    if (_todayAttendance == null) {
+      // If first punch of the day, suggest based on time
+      nextInSegment = isAfternoonTime ? AttendanceSegments.afternoonIn : AttendanceSegments.morningIn;
+    } else {
+      final att = _todayAttendance!;
+      
+      // If nothing logged yet but it's afternoon, allow skipping morning
+      if (att.morningIn == null && att.afternoonIn == null && isAfternoonTime) {
+        nextInSegment = AttendanceSegments.afternoonIn;
+      }
+      // Otherwise maintain strict linear sequence for current active block
+      else if (att.morningIn == null) {
+        nextInSegment = AttendanceSegments.morningIn;
+      } else if (att.morningOut == null) {
+        nextOutSegment = AttendanceSegments.morningOut;
+      } else if (att.afternoonIn == null) {
+        nextInSegment = AttendanceSegments.afternoonIn;
+      } else if (att.afternoonOut == null) {
+        nextOutSegment = AttendanceSegments.afternoonOut;
+      } else if (att.overtimeIn == null) {
+        nextInSegment = AttendanceSegments.overtimeIn;
+      } else if (att.overtimeOut == null) {
+        nextOutSegment = AttendanceSegments.overtimeOut;
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      child: Column(
+        children: [
+          _buildMajorButton(
+            label: nextInSegment != null ? "TIME IN (${AttendanceSegments.getLabel(nextInSegment)})" : "ALL IN RECORDED",
+            onPressed: (_isLoading || _isInsideGeofence == false || nextInSegment == null) 
+              ? null 
+              : () => _handleAttendance(nextInSegment!),
+            color: AppTheme.studentPrimary,
+            icon: Icons.login,
+          ),
+          const SizedBox(height: AppTheme.spacing12),
+          _buildMajorButton(
+            label: nextOutSegment != null ? "TIME OUT (${AttendanceSegments.getLabel(nextOutSegment)})" : "TIME OUT RECORDED",
+            onPressed: (_isLoading || _isInsideGeofence == false || nextOutSegment == null)
+              ? null
+              : () => _handleAttendance(nextOutSegment!),
+            color: Colors.orange,
+            icon: Icons.logout,
+          ),
+          if (_isInsideGeofence == false)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Text(
+                "Time In/Out disabled because you are outside geofence.",
+                style: TextStyle(color: AppTheme.errorColor, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMajorButton({required String label, required VoidCallback? onPressed, required Color color, required IconData icon}) {
+    return SizedBox(
+      width: double.infinity,
+      height: 64,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Icon(icon),
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          disabledBackgroundColor: Colors.grey[300],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistorySection() {
+    if (_attendanceHistory.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(AppTheme.spacing16),
+        child: Center(child: Text("No attendance records yet.", style: AppTheme.bodySmall)),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16, vertical: 8),
+          child: Text("Recent History", style: AppTheme.heading3),
+        ),
+        ..._attendanceHistory.take(5).map((att) => _buildHistoryCard(att)),
+      ],
+    );
+  }
+
+  Widget _buildHistoryCard(Attendance att) {
+    final dateStr = DateFormat('EEE, MMM d').format(att.date);
+    final firstIn = att.morningIn ?? att.afternoonIn ?? att.overtimeIn ?? att.timeIn;
+    final lastOut = att.overtimeOut ?? att.afternoonOut ?? att.morningOut ?? att.timeOut;
+    
+    return Card(
+      child: ListTile(
+        title: Text(dateStr, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.bold)),
+        subtitle: Row(
+          children: [
+            Text("${_formatTimeForDisplay(firstIn)} - ${_formatTimeForDisplay(lastOut)}", style: AppTheme.bodySmall),
+            const Spacer(),
+            Text("${att.regularHours?.toStringAsFixed(1)} hrs", style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.bold, color: AppTheme.successColor)),
+          ],
+        ),
+        trailing: Icon(
+          att.insideGeofence == true ? Icons.verified : Icons.warning_amber_rounded,
+          color: att.insideGeofence == true ? AppTheme.successColor : AppTheme.warningColor,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRulesCard() {
+    return Card(
+      color: Colors.blueGrey[50],
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.spacing16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.info_outline, size: 18, color: Colors.blueGrey),
+                const SizedBox(width: 8),
+                Text("Attendance Rules", style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _buildRuleBullet("Regular hours: 8:00 AM–12:00 PM and 1:00 PM–5:00 PM."),
+            _buildRuleBullet("Late arrivals are rounded in 30-minute blocks."),
+            _buildRuleBullet("Early arrival does not add extra regular hours."),
+            _buildRuleBullet("Staying beyond regular schedule requires OT approval."),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRuleBullet(String rule) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("• ", style: TextStyle(fontWeight: FontWeight.bold)),
+          Expanded(child: Text(rule, style: AppTheme.bodySmall)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final now = DateFormat('MMM d, yyyy').format(DateTime.now());
-
     if (!_isInitializing && !_canPerformOjtActions) {
       return const RestrictedAccessScreen();
     }
 
     if (_isInitializing) {
       return Scaffold(
-        appBar: AppBar(
-          title: Row(
-            children: [
-              Image.network(
-                "https://cdn-icons-png.flaticon.com/512/2910/2910768.png",
-                width: 26,
-                height: 26,
-              ),
-              const SizedBox(width: 8),
-              const Text("Daily Time Record"),
-            ],
-          ),
-          backgroundColor: Colors.orange,
-        ),
+        appBar: AppBar(title: const Text("Daily Time Record")),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            Image.network(
-              "https://cdn-icons-png.flaticon.com/512/2910/2910768.png",
-              width: 26,
-              height: 26,
-            ),
-            const SizedBox(width: 8),
-            const Text("Daily Time Record"),
-          ],
-        ),
-        backgroundColor: Colors.orange,
+        title: const Text("Student Attendance"),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
               _loadTodayAttendance();
+              _fetchAttendanceHistory();
+              _updateLocationSilently();
             },
             tooltip: 'Refresh',
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Date + Table
-          Card(
-            elevation: 5,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  if (_companyName != null && _companyName!.isNotEmpty) ...[
-                    Row(
-                      children: [
-                        const Icon(Icons.business, color: Colors.blueGrey, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            "Company: $_companyName",
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.location_on, color: Colors.redAccent, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _companyAddress ?? "Location address not provided",
-                            style: TextStyle(color: Colors.grey[700], fontSize: 14),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 24),
-                  ],
-                  Text("Date: $now",
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 18)),
-                  const SizedBox(height: 10),
-                  Table(
-                    border: TableBorder.all(color: Colors.grey),
-                    columnWidths: const {
-                      0: FlexColumnWidth(2),
-                      1: FlexColumnWidth(2),
-                    },
-                    children: [
-                      _buildTableRow("Morning In", timeLogs["Morning In"]),
-                      _buildTableRow("Morning Out", timeLogs["Morning Out"]),
-                      _buildTableRow("Afternoon In", timeLogs["Afternoon In"]),
-                      _buildTableRow(
-                          "Afternoon Out", timeLogs["Afternoon Out"]),
-                      _buildTableRow("Overtime In", timeLogs["Overtime In"]),
-                      _buildTableRow("Overtime Out", timeLogs["Overtime Out"]),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Attendance buttons with camera icon
-          ...timeLogs.keys.map((label) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: timeLogs[label]!.isNotEmpty
-                        ? Colors.green
-                        : Colors.orange,
-                    minimumSize: const Size(double.infinity, 56),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  icon: Icon(
-                    timeLogs[label]!.isNotEmpty
-                        ? Icons.check_circle
-                        : Icons.camera_alt,
-                    size: 24,
-                    color: Colors.white,
-                  ),
-                  label: Text(
-                    timeLogs[label]!.isNotEmpty
-                        ? "$label - Recorded ✓"
-                        : kIsWeb 
-                            ? "Select Photo for $label"
-                            : "Open Camera for $label",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  onPressed: (_isLoading || timeLogs[label]!.isNotEmpty)
-                      ? null
-                      : () => _handleAttendance(label),
-                ),
-              )),
-
-          const SizedBox(height: 30),
-
-          if (_attendanceImageBytes != null)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.memory(
-                _attendanceImageBytes!,
-                height: 200,
-                width: double.infinity,
-                fit: BoxFit.cover,
-              ),
-            ),
-        ],
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _loadTodayAttendance();
+          await _fetchAttendanceHistory();
+          _updateLocationSilently();
+        },
+        child: ListView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          children: [
+            _buildHeaderCard(),
+            _buildGeofencePanel(),
+            _buildPhotoCard(),
+            _buildComputationCard(),
+            const SizedBox(height: AppTheme.spacing16),
+            _buildActionButtons(),
+            const SizedBox(height: AppTheme.spacing24),
+            _buildRulesCard(),
+            _buildHistorySection(),
+            const SizedBox(height: AppTheme.spacing32),
+          ],
+        ),
       ),
     );
   }

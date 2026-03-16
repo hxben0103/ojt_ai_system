@@ -441,8 +441,8 @@ router.get('/supervisors/:supervisorId/pending-tasks', authenticateToken, async 
        LEFT JOIN task_competencies tc ON t.task_id = tc.task_id
        LEFT JOIN competencies c ON tc.competency_id = c.competency_id
        WHERE o.supervisor_id = $1 
-         AND t.status = 'Pending'
-       ORDER BY t.date DESC, t.created_at DESC`,
+       ORDER BY t.date DESC, t.created_at DESC
+       LIMIT 50`,
       [supervisorId]
     );
 

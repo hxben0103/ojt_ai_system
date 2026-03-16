@@ -21,6 +21,9 @@ class Attendance {
   final String? overtimeIn;
   final String? overtimeOut;
   final String? status; // 'Pending', 'Approved', 'Rejected'
+  final int? deductionMinutes;
+  final double? regularHours;
+  final double? overtimeHours;
 
   // Evidence fields (geofence, trust, photo path) for coordinator/admin
   final String? verificationStatus; // AUTO_VERIFIED, FLAGGED, MANUAL_REVIEW
@@ -56,6 +59,9 @@ class Attendance {
     this.overtimeIn,
     this.overtimeOut,
     this.status,
+    this.deductionMinutes,
+    this.regularHours,
+    this.overtimeHours,
     this.verificationStatus,
     this.checkinLat,
     this.checkinLng,
@@ -76,7 +82,7 @@ class Attendance {
       studentId: json['student_id'] as int,
       // Handle both 'student_name' (from stored procedure) and 'full_name' (from direct query)
       studentName: json['student_name'] as String? ?? json['full_name'] as String?,
-      date: DateTime.parse(json['date'] as String),
+      date: DateTime.parse((json['date'] as String).split('T')[0]),
       timeIn: json['time_in'] as String?,
       timeOut: json['time_out'] as String?,
       totalHours: json['total_hours'] != null
@@ -97,6 +103,15 @@ class Attendance {
       overtimeIn: json['overtime_in'] as String?,
       overtimeOut: json['overtime_out'] as String?,
       status: json['status'] as String? ?? 'Pending',
+      deductionMinutes: json['deduction_minutes'] != null 
+          ? int.parse(json['deduction_minutes'].toString()) 
+          : 0,
+      regularHours: json['regular_hours'] != null
+          ? double.parse(json['regular_hours'].toString())
+          : 0.0,
+      overtimeHours: json['overtime_hours'] != null
+          ? double.parse(json['overtime_hours'].toString())
+          : 0.0,
       verificationStatus: json['verification_status'] as String?,
       checkinLat: _toDouble(json['checkin_lat']),
       checkinLng: _toDouble(json['checkin_lng']),
@@ -139,6 +154,9 @@ class Attendance {
       if (overtimeIn != null) 'overtime_in': overtimeIn,
       if (overtimeOut != null) 'overtime_out': overtimeOut,
       if (status != null) 'status': status,
+      if (deductionMinutes != null) 'deduction_minutes': deductionMinutes,
+      if (regularHours != null) 'regular_hours': regularHours,
+      if (overtimeHours != null) 'overtime_hours': overtimeHours,
       if (verificationStatus != null) 'verification_status': verificationStatus,
       if (checkinPhotoPath != null) 'checkin_photo_path': checkinPhotoPath,
       if (checkoutPhotoPath != null) 'checkout_photo_path': checkoutPhotoPath,
@@ -166,6 +184,9 @@ class Attendance {
     String? overtimeIn,
     String? overtimeOut,
     String? status,
+    int? deductionMinutes,
+    double? regularHours,
+    double? overtimeHours,
     String? verificationStatus,
     double? checkinLat,
     double? checkinLng,
@@ -199,6 +220,9 @@ class Attendance {
       overtimeIn: overtimeIn ?? this.overtimeIn,
       overtimeOut: overtimeOut ?? this.overtimeOut,
       status: status ?? this.status,
+      deductionMinutes: deductionMinutes ?? this.deductionMinutes,
+      regularHours: regularHours ?? this.regularHours,
+      overtimeHours: overtimeHours ?? this.overtimeHours,
       verificationStatus: verificationStatus ?? this.verificationStatus,
       checkinLat: checkinLat ?? this.checkinLat,
       checkinLng: checkinLng ?? this.checkinLng,

@@ -2,14 +2,17 @@ const { Pool } = require('pg');
 const dns = require('dns');
 require('dotenv').config({ path: './config/env/.env' });
 
-// Force Node.js to use IPv6 when no IPv4 record exists
-// Supabase free-tier databases only have IPv6 DNS records
-dns.setDefaultResultOrder('verbatim');
+// Force Node.js to prefer IPv4 and use Google DNS
+// This helps in environments where local DNS is unreliable or blocking Supabase
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+dns.setDefaultResultOrder('ipv4first');
 
 // PostgreSQL Database Connection (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: false, // For Supabase IPv4 fallback which doesn't support SSL locally
+  ssl: {
+    rejectUnauthorized: false // Required for some Supabase pooler configurations
+  }
 });
 
 // Test connection

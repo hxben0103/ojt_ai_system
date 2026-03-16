@@ -51,7 +51,9 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
           o.student_id,
           o.required_hours,
           o.status,
-          u.full_name AS student_name
+          u.full_name AS student_name,
+          -- Dynamic expected days based on 8-hour workday
+          CEIL(o.required_hours / 8.0) AS expected_days
         FROM ojt_records o
         JOIN users u ON o.student_id = u.user_id
         WHERE o.status IN ('Ongoing', 'Active') ${coordFilter}
@@ -61,42 +63,51 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
           a.student_id,
           COALESCE(SUM(a.total_hours), 0)                           AS total_hours_completed,
           COALESCE(COUNT(DISTINCT a.date), 0)                       AS days_present,
-          COALESCE(COUNT(CASE WHEN a.time_in IS NOT NULL AND a.time_in > '09:00:00' THEN 1 END), 0) AS late_count
+          COALESCE(COUNT(CASE WHEN a.morning_in IS NOT NULL AND a.morning_in > '08:00:00' THEN 1 END), 0) AS late_count
         FROM attendance a
         WHERE a.status = 'Approved'
         GROUP BY a.student_id
       ),
+      -- Unified WPR logic: Σ(hours * point_value) / Σ(hours)
       task_agg AS (
         SELECT 
           t.student_id,
           COUNT(DISTINCT t.task_id)                                 AS total_tasks_logged,
           COALESCE(SUM(t.hours_worked), 0)                          AS total_task_hours,
-          COUNT(DISTINCT tc.competency_id)                          AS number_of_distinct_competencies
+          COUNT(DISTINCT tc.competency_id)                          AS number_of_distinct_competencies,
+          CASE 
+            WHEN SUM(t.hours_worked) > 0 
+            THEN ROUND(SUM(t.hours_worked * c.point_value)::NUMERIC / SUM(t.hours_worked), 2)
+            ELSE 0 
+          END AS wpr_score
         FROM ojt_daily_tasks t
         LEFT JOIN task_competencies tc ON t.task_id = tc.task_id
+        LEFT JOIN competencies c ON tc.competency_id = c.competency_id
         WHERE t.status = 'Approved'
         GROUP BY t.student_id
       ),
       eval_agg AS (
         SELECT 
           e.student_id,
-          AVG(CASE WHEN u.role = 'Coordinator' THEN e.total_score END) AS coordinator_eval_grade,
-          AVG(CASE WHEN u.role = 'Supervisor' THEN e.total_score END)  AS supervisor_eval_grade,
-          AVG(e.total_score)                                           AS narrative_report_grade
+          AVG(CASE WHEN e.evaluation_type = 'CE' OR (e.evaluation_type IS NULL AND u.role = 'Coordinator') THEN e.total_score END) AS coordinator_eval_grade,
+          AVG(CASE WHEN e.evaluation_type = 'SE' OR (e.evaluation_type IS NULL AND u.role = 'Supervisor') THEN e.total_score END) AS supervisor_eval_grade,
+          AVG(CASE WHEN e.evaluation_type = 'NR' OR (e.evaluation_type IS NULL AND u.role NOT IN ('Coordinator', 'Supervisor')) THEN e.total_score END) AS narrative_report_grade
         FROM evaluations e
-        JOIN users u ON e.supervisor_id = u.user_id
+        LEFT JOIN users u ON e.supervisor_id = u.user_id
         GROUP BY e.student_id
       )
       SELECT 
         a_ojt.student_id,
         a_ojt.student_name,
         a_ojt.required_hours,
+        a_ojt.expected_days,
         COALESCE(att.total_hours_completed, 0)              AS total_hours_completed,
         COALESCE(att.days_present, 0)                       AS days_present,
         COALESCE(att.late_count, 0)                         AS late_count,
         COALESCE(tsk.total_tasks_logged, 0)                 AS total_tasks_logged,
         COALESCE(tsk.total_task_hours, 0)                   AS total_task_hours,
         COALESCE(tsk.number_of_distinct_competencies, 0)    AS number_of_distinct_competencies,
+        COALESCE(tsk.wpr_score, 0)                          AS weekly_progress_grade,
         COALESCE(ev.coordinator_eval_grade, 0)              AS coordinator_eval_grade,
         COALESCE(ev.supervisor_eval_grade, 0)               AS supervisor_eval_grade,
         COALESCE(ev.narrative_report_grade, 0)              AS narrative_report_grade
@@ -209,12 +220,12 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
       const completedHours = toNumber(row.total_hours_completed, 0);
       const hoursRatio = requiredHours > 0 ? completedHours / requiredHours : 0;
 
-      const attendanceRate = 25 > 0
-        ? Math.min((toNumber(row.days_present, 0) / 25) * 100, 100)
+      const attendanceRate = toNumber(row.expected_days, 25) > 0
+        ? Math.min((toNumber(row.days_present, 0) / toNumber(row.expected_days, 25)) * 100, 100)
         : 0;
 
-      // Approximate WPR as narrative_report_grade for now
-      const weeklyProgressGrade = toNumber(row.narrative_report_grade, 0);
+      // Use unified weekly_progress_grade from query
+      const weeklyProgressGrade = toNumber(row.weekly_progress_grade, 0);
       const narrativeReportGrade = toNumber(row.narrative_report_grade, 0);
       const coordinatorEvalGrade = toNumber(row.coordinator_eval_grade, 0);
       const supervisorEvalGrade = toNumber(row.supervisor_eval_grade, 0);

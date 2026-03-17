@@ -41,8 +41,12 @@ flutter:
   assets:
     - assets/images/ojt.png
     - assets/images/logo.gif
-
-
-
-
-
+  fonts:
+    - family: NotoColorEmoji
+      fonts:
+        - asset: assets/fonts/NotoColorEmoji.ttf
+          weight: 400
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+          weight: 400

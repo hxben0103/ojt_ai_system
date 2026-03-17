@@ -1,11 +1,31 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../../config/db');
+const jwt = require('jsonwebtoken');
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 
 // Get all evaluations
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { student_id, supervisor_id } = req.query;
+    const { role, user_id } = req.user;
     
     let sql = `
       SELECT e.*, 
@@ -14,11 +34,19 @@ router.get('/', async (req, res) => {
       FROM evaluations e
       JOIN users u1 ON e.student_id = u1.user_id
       JOIN users u2 ON e.supervisor_id = u2.user_id
+      -- Join OJT records for coordinator filtering
+      LEFT JOIN ojt_records o ON e.student_id = o.student_id AND o.status IN ('Ongoing', 'Active')
       WHERE 1=1
     `;
     const params = [];
     let paramCount = 1;
 
+    // Data Isolation: Coordinators only see their students
+    if (role === 'Coordinator') {
+      sql += ` AND o.coordinator_id = $${paramCount}`;
+      params.push(user_id);
+      paramCount++;
+    }
     if (student_id) {
       sql += ` AND e.student_id = $${paramCount}`;
       params.push(student_id);
@@ -42,7 +70,7 @@ router.get('/', async (req, res) => {
 });
 
 // Create evaluation - Using stored procedure
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const { 
       student_id, supervisor_id, criteria, total_score, feedback,
@@ -83,7 +111,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update evaluation - Using stored procedure
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { criteria, total_score, feedback, status } = req.body;
@@ -125,9 +153,24 @@ router.put('/:id', async (req, res) => {
 });
 
 // Get evaluation by ID - Using stored procedure
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const { role, user_id } = req.user;
+
+    // Data Isolation: For coordinators, verify the student in this evaluation belongs to them
+    if (role === 'Coordinator') {
+       const accessCheck = await query(
+         `SELECT e.eval_id 
+          FROM evaluations e
+          JOIN ojt_records o ON e.student_id = o.student_id
+          WHERE e.eval_id = $1 AND o.coordinator_id = $2 AND o.status IN ('Ongoing', 'Active')`,
+         [id, user_id]
+       );
+       if (accessCheck.rows.length === 0) {
+         return res.status(403).json({ error: 'Access Denied', message: 'You can only view evaluations for students assigned to you.' });
+       }
+    }
 
     const result = await query('SELECT get_evaluation($1) as evaluation', [id]);
     const evaluation = result.rows[0].evaluation;

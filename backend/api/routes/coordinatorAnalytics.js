@@ -1,6 +1,25 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../../config/db');
+const jwt = require('jsonwebtoken');
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 
 /**
  * Coordinator Analytics API
@@ -30,17 +49,24 @@ function toNumber(value, fallback = 0) {
  * - competency_summary: top competencies by total hours
  * - evaluation_summary: avg WPR / NR / CE / SE and projected final grade
  */
-router.get('/analytics/coordinator/overview', async (req, res) => {
+router.get('/analytics/coordinator/overview', authenticateToken, async (req, res) => {
   try {
     console.log('📊 [Coordinator Analytics] Fetching overview...');
-    const { coordinator_id } = req.query;
+    const { role, user_id } = req.user;
+    
+    // Data Isolation: Enforce coordinator_id if role is Coordinator
+    let currentCoordinatorId = req.query.coordinator_id;
+    if (role === 'Coordinator') {
+      currentCoordinatorId = user_id;
+    }
+
     let baseResult;
     try {
       // 1) Base set of active OJT students with required hours & names
       const baseParams = [];
       let coordFilter = '';
-      if (coordinator_id) {
-        baseParams.push(coordinator_id);
+      if (currentCoordinatorId) {
+        baseParams.push(currentCoordinatorId);
         coordFilter = `AND o.coordinator_id = $${baseParams.length}`;
       }
       baseResult = await query(
@@ -65,7 +91,7 @@ router.get('/analytics/coordinator/overview', async (req, res) => {
           COALESCE(COUNT(DISTINCT a.date), 0)                       AS days_present,
           COALESCE(COUNT(CASE WHEN a.morning_in IS NOT NULL AND a.morning_in > '08:00:00' THEN 1 END), 0) AS late_count
         FROM attendance a
-        WHERE a.status = 'Approved'
+        WHERE a.status IN ('Approved', 'Pending')
         GROUP BY a.student_id
       ),
       -- Unified WPR logic: Σ(hours * point_value) / Σ(hours)

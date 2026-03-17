@@ -100,18 +100,82 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
   final DateFormat _dateFormatter = DateFormat('yyyy-MM-dd');
 
   List<StudentMonitorEntry> _students = [];
+  List<StudentMonitorEntry> _filteredStudents = [];
   bool _isLoading = true;
   bool _isRefreshing = false;
   String? _error;
+  
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  String _sortBy = 'name'; // 'name', 'risk', 'progress', 'integrity'
+  bool _sortAscending = true;
+  bool _isSearching = false;
 
   @override
   void initState() {
     super.initState();
     _loadStudents();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (!mounted) return;
+    setState(() {
+      _searchQuery = _searchController.text.toLowerCase();
+      _applyFilterAndSort();
+    });
+  }
+
+  void _applyFilterAndSort() {
+    List<StudentMonitorEntry> filtered = _students.where((student) {
+      final nameMatches = student.name.toLowerCase().contains(_searchQuery);
+      final companyMatches = student.hostCompany.toLowerCase().contains(_searchQuery);
+      return nameMatches || companyMatches;
+    }).toList();
+
+    filtered.sort((a, b) {
+      int comparison = 0;
+      switch (_sortBy) {
+        case 'name':
+          comparison = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          break;
+        case 'risk':
+          int getRiskPriority(String? risk) {
+            switch (risk?.toUpperCase()) {
+              case 'HIGH': return 3;
+              case 'MEDIUM': return 2;
+              case 'LOW': return 1;
+              default: return 0;
+            }
+          }
+          comparison = getRiskPriority(a.riskLevel).compareTo(getRiskPriority(b.riskLevel));
+          break;
+        case 'progress':
+          comparison = a.completionPercent.compareTo(b.completionPercent);
+          break;
+        case 'integrity':
+          comparison = (a.integrityScore ?? 100).compareTo(b.integrityScore ?? 100);
+          break;
+      }
+      return _sortAscending ? comparison : -comparison;
+    });
+
+    if (!mounted) return;
+    setState(() {
+      _filteredStudents = filtered;
+    });
   }
 
   Future<void> _loadStudents() async {
     if (!_isRefreshing) {
+      if (!mounted) return;
       setState(() {
         _isLoading = true;
         _error = null;
@@ -151,6 +215,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
       if (!mounted) return;
       setState(() {
         _students = entries.whereType<StudentMonitorEntry>().toList();
+        _applyFilterAndSort();
         _isLoading = false;
         _isRefreshing = false;
         _error = null;
@@ -224,10 +289,14 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         if (prediction['ai_prediction'] != null) {
           final aiPred = Map<String, dynamic>.from(prediction['ai_prediction'] as Map);
           
+          // Try to get risk level from ml_prediction object OR top-level risk_level key
           if (aiPred['ml_prediction'] != null) {
             final ml = Map<String, dynamic>.from(aiPred['ml_prediction'] as Map);
-            riskLevel = ml['risk_level'] as String?;
-            riskProbability = (ml['probability'] as num?)?.toDouble();
+            riskLevel = (ml['risk_level'] as String? ?? aiPred['risk_level'] as String?)?.toUpperCase();
+            riskProbability = (ml['probability'] as num? ?? ml['confidence'] as num? ?? aiPred['probability'] as num?)?.toDouble();
+          } else if (aiPred['risk_level'] != null) {
+            riskLevel = (aiPred['risk_level'] as String?)?.toUpperCase();
+            riskProbability = (aiPred['probability'] as num? ?? aiPred['confidence'] as num?)?.toDouble();
           }
           
           if (aiPred['grading'] != null) {
@@ -628,9 +697,53 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Student Tasks & Attendance"),
+        title: _isSearching 
+          ? TextField(
+              controller: _searchController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Search student or company...',
+                border: InputBorder.none,
+                hintStyle: TextStyle(color: Colors.white70),
+              ),
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            )
+          : const Text("Student Monitor"),
         backgroundColor: AppTheme.coordinatorPrimary,
         actions: [
+          IconButton(
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (_isSearching) {
+                  _searchController.clear();
+                  _isSearching = false;
+                } else {
+                  _isSearching = true;
+                }
+              });
+            },
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort),
+            onSelected: (value) {
+              setState(() {
+                if (_sortBy == value) {
+                  _sortAscending = !_sortAscending;
+                } else {
+                  _sortBy = value;
+                  _sortAscending = true;
+                }
+                _applyFilterAndSort();
+              });
+            },
+            itemBuilder: (context) => [
+              _buildSortItem('name', 'Sort by Name', Icons.sort_by_alpha),
+              _buildSortItem('risk', 'Sort by Risk', Icons.warning_amber_rounded),
+              _buildSortItem('progress', 'Sort by Progress', Icons.trending_up),
+              _buildSortItem('integrity', 'Sort by Integrity', Icons.verified_user_outlined),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadStudents,
@@ -641,18 +754,39 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _buildErrorState()
-              : _students.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _handleRefresh,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(AppTheme.spacing16),
-                        itemCount: _students.length,
-                        itemBuilder: (context, index) =>
-                            _buildStudentCard(_students[index]),
+                ? _buildErrorState()
+                : _filteredStudents.isEmpty
+                    ? (_searchQuery.isNotEmpty 
+                        ? Center(child: Text('No students match "$_searchQuery"'))
+                        : _buildEmptyState())
+                    : RefreshIndicator(
+                        onRefresh: _handleRefresh,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(AppTheme.spacing16),
+                          itemCount: _filteredStudents.length,
+                          itemBuilder: (context, index) =>
+                              _buildStudentCard(_filteredStudents[index]),
+                        ),
                       ),
-                    ),
+    );
+  }
+
+  PopupMenuItem<String> _buildSortItem(String value, String label, IconData icon) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: _sortBy == value ? AppTheme.coordinatorPrimary : Colors.grey),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label)),
+          if (_sortBy == value)
+            Icon(
+              _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+              size: 16,
+              color: AppTheme.coordinatorPrimary,
+            ),
+        ],
+      ),
     );
   }
 

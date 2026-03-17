@@ -7,6 +7,7 @@ import '../services/auth_service.dart';
 import '../core/app_theme.dart';
 import '../../widgets/restricted_access_screen.dart';
 import '../services/ojt_service.dart';
+import '../services/prediction_service.dart';
 
 class StudentDailyTasksScreen extends StatefulWidget {
   const StudentDailyTasksScreen({super.key});
@@ -20,6 +21,7 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
   List<Competency> _competencies = [];
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _isSuggesting = false;
   String? _error;
   bool _canPerformOjtActions = false;
 
@@ -157,6 +159,62 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
     }
   }
 
+  Future<void> _suggestCompetency() async {
+    final description = _taskDescriptionController.text.trim();
+    if (description.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a task description first')),
+      );
+      return;
+    }
+
+    setState(() => _isSuggesting = true);
+
+    try {
+      final suggestion = await PredictionService.suggestCompetency(description);
+      if (suggestion != null) {
+        final matchedCompetency = _competencies.firstWhere(
+          (c) => c.title.toLowerCase() == suggestion.toLowerCase(),
+          orElse: () => _competencies.firstWhere(
+            (c) => c.title.toLowerCase().contains(suggestion.toLowerCase()) || 
+                   suggestion.toLowerCase().contains(c.title.toLowerCase()),
+            orElse: () => _competencies.first,
+          ),
+        );
+
+        setState(() {
+          _selectedCompetency = matchedCompetency;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('AI suggests: ${matchedCompetency.title}'),
+              backgroundColor: AppTheme.studentPrimary,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('AI could not suggest a competency for this task')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSuggesting = false);
+      }
+    }
+  }
+
   Color _getStatusColor(String status) {
     switch (status) {
       case 'Approved':
@@ -271,23 +329,30 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
                                   const SizedBox(height: AppTheme.spacing12),
                                   
                                   // Task Description
-                                  TextFormField(
-                                    controller: _taskDescriptionController,
-                                    decoration: InputDecoration(
-                                      labelText: 'Task Description',
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+                                    TextFormField(
+                                      controller: _taskDescriptionController,
+                                      decoration: InputDecoration(
+                                        labelText: 'Task Description',
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+                                        ),
+                                        hintText: 'Describe the task you performed...',
+                                        suffixIcon: IconButton(
+                                          icon: _isSuggesting 
+                                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                            : const Icon(Icons.auto_awesome, color: AppTheme.studentPrimary),
+                                          onPressed: _isSuggesting ? null : _suggestCompetency,
+                                          tooltip: 'AI Suggest Competency',
+                                        ),
                                       ),
-                                      hintText: 'Describe the task you performed...',
+                                      maxLines: 3,
+                                      validator: (value) {
+                                        if (value == null || value.trim().isEmpty) {
+                                          return 'Please enter a task description';
+                                        }
+                                        return null;
+                                      },
                                     ),
-                                    maxLines: 3,
-                                    validator: (value) {
-                                      if (value == null || value.trim().isEmpty) {
-                                        return 'Please enter a task description';
-                                      }
-                                      return null;
-                                    },
-                                  ),
                                   const SizedBox(height: AppTheme.spacing12),
                                   
                                   // Hours Worked
@@ -469,8 +534,45 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
                     const SizedBox(width: AppTheme.spacing8),
                     Expanded(
                       child: Text(
-                        task.remarks!,
+                        'Supervisor: ${task.remarks!}',
                         style: AppTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (task.coordinatorComment != null && task.coordinatorComment!.isNotEmpty) ...[
+              const SizedBox(height: AppTheme.spacing8),
+              Container(
+                padding: const EdgeInsets.all(AppTheme.spacing8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusSmall),
+                  border: Border.all(color: Colors.blue.withOpacity(0.1)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.comment_outlined, size: 16, color: Colors.blue),
+                    const SizedBox(width: AppTheme.spacing8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Coordinator: ${task.coordinatorComment!}',
+                            style: AppTheme.bodySmall.copyWith(color: Colors.blue[800]),
+                          ),
+                          if (task.coordinatorCommentAt != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                DateFormat('MMM d').format(task.coordinatorCommentAt!),
+                                style: TextStyle(fontSize: 8, color: Colors.blue[400]),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],

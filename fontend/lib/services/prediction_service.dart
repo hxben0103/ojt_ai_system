@@ -140,5 +140,23 @@ class PredictionService {
       throw Exception('Failed to load daily prediction: $e');
     }
   }
+
+  // Suggest competency based on task description
+  static Future<String?> suggestCompetency(String description) async {
+    try {
+      final response = await ApiService.post(
+        '${ApiConfig.prediction}/suggest-competency',
+        {'description': description},
+      );
+
+      if (response['success'] == true) {
+        return response['suggestion'] as String?;
+      }
+      return null;
+    } catch (e) {
+      print('Competency suggestion error: $e');
+      return null;
+    }
+  }
 }
 

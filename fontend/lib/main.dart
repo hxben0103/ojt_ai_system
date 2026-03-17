@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'core/app_theme.dart';
 import 'core/config.dart';
 import 'core/ai_config.dart';
@@ -19,6 +20,7 @@ import 'providers/supervisor_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
   // Auto-discover backend via mDNS first, fall back to cached/default IP
   await NetworkDiscoveryService.discoverServer();
   runApp(const OjtAiApp());

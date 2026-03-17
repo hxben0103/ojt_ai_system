@@ -113,7 +113,7 @@ class ExplainableAiCard extends StatelessWidget {
                 Row(
                   children: [
                     Text(
-                      'AI Risk: $risk',
+                      'AI Assessment: ${_getFriendlyRisk(risk)}',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -449,6 +449,15 @@ class ExplainableAiCard extends StatelessWidget {
       case 'MEDIUM': return Icons.info_outline;
       case 'LOW': return Icons.check_circle_outline;
       default: return Icons.help_outline;
+    }
+  }
+
+  String _getFriendlyRisk(String risk) {
+    switch (risk.toUpperCase()) {
+      case 'HIGH': return 'Needs Attention';
+      case 'MEDIUM': return 'Fair Standing';
+      case 'LOW': return 'Good Standing';
+      default: return 'Pending Review';
     }
   }
 }

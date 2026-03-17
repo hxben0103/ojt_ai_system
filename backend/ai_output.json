@@ -1,0 +1,122 @@
+{
+  "confidence": 0.8069619071721505,
+  "data_completeness": {
+    "has_coordinator_eval": false,
+    "has_supervisor_eval": false,
+    "has_tasks": true
+  },
+  "gemma_explanation": "## Explanation: Hey there! I understand that you're facing a bit of a challenge with your OJT performance. You're at a high risk level due to low hours completed, incomplete evaluations, and other factors. I'm here to encourage you and offer some actionable steps you can take in the next couple of weeks to improve.",
+  "gemma_recommendations": [
+    "Focus on attendance:** Make sure you prioritize attending all training sessions and meetings. Consistency is key to learning and completing tasks successfully.",
+    "Prioritize evaluations:** Actively seek feedback and engage in discussions about your performance. Address any concerns raised by your supervisor and work towards improving your skills.",
+    "Stay on top of tasks:** Keep yourself on schedule and complete assigned tasks diligently. This will help you stay on track and avoid falling behind.",
+    "Communicate openly:** Talk to your instructor about any challenges you're facing with completing tasks or understanding concepts. They are here to support you and offer guidance.",
+    "Seek help outside the classroom:** Join study groups or online communities to connect with other OJT students. Sharing experiences and learning from others can be incredibly beneficial."
+  ],
+  "grading": {
+    "available_weight_percent": 60,
+    "components": {
+      "coordinator_eval": {
+        "available": true,
+        "score": 90,
+        "weight": "20%"
+      },
+      "narrative_report": {
+        "available": true,
+        "score": 88,
+        "weight": "20%"
+      },
+      "supervisor_eval": {
+        "available": false,
+        "score": 0,
+        "weight": "40%"
+      },
+      "weekly_progress": {
+        "available": true,
+        "score": 92,
+        "weight": "20%"
+      }
+    },
+    "forecasted_grade": 90,
+    "raw_score": 54,
+    "status": "partial"
+  },
+  "integrity": {
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "flags": [],
+    "integrity_score": 100,
+    "severity": "low"
+  },
+  "key_factors": [
+    "hours_completed_ratio is below satisfactory (0.3)",
+    "Low completed hours (80/300 hours, 26.0% complete)",
+    "Supervisor evaluation not yet available (prediction based on other indicators)"
+  ],
+  "ml_prediction": {
+    "confidence": 0.8069619071721505,
+    "data_completeness": {
+      "has_coordinator_eval": false,
+      "has_supervisor_eval": false,
+      "has_tasks": true
+    },
+    "key_factors": [
+      "hours_completed_ratio is below satisfactory (0.3)",
+      "Low completed hours (80/300 hours, 26.0% complete)",
+      "Supervisor evaluation not yet available (prediction based on other indicators)"
+    ],
+    "predicted_label": "HIGH",
+    "prediction_stage": "developing",
+    "probabilities": {
+      "HIGH": 0.8069619071721505,
+      "LOW": 0.03285014132372656,
+      "MEDIUM": 0.16017003121597792
+    },
+    "probability": 0.8069619071721505,
+    "progress_score": 9,
+    "recommendation": "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support.",
+    "recommendations": [
+      "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support."
+    ],
+    "risk_level": "HIGH",
+    "score": 9,
+    "success": true,
+    "summary": "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support.",
+    "top_reasons": [
+      "hours_completed_ratio is below satisfactory (0.3)",
+      "Low completed hours (80/300 hours, 26.0% complete)",
+      "Supervisor evaluation not yet available (prediction based on other indicators)"
+    ]
+  },
+  "predicted_label": "HIGH",
+  "prediction_stage": "developing",
+  "probabilities": {
+    "HIGH": 0.8069619071721505,
+    "LOW": 0.03285014132372656,
+    "MEDIUM": 0.16017003121597792
+  },
+  "probability": 0.8069619071721505,
+  "progress_score": 9,
+  "recommendation": "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support.",
+  "recommendations": [
+    "Focus on attendance:** Make sure you prioritize attending all training sessions and meetings. Consistency is key to learning and completing tasks successfully.",
+    "Prioritize evaluations:** Actively seek feedback and engage in discussions about your performance. Address any concerns raised by your supervisor and work towards improving your skills.",
+    "Stay on top of tasks:** Keep yourself on schedule and complete assigned tasks diligently. This will help you stay on track and avoid falling behind.",
+    "Communicate openly:** Talk to your instructor about any challenges you're facing with completing tasks or understanding concepts. They are here to support you and offer guidance.",
+    "Seek help outside the classroom:** Join study groups or online communities to connect with other OJT students. Sharing experiences and learning from others can be incredibly beneficial."
+  ],
+  "risk_level": "HIGH",
+  "score": 9,
+  "success": true,
+  "summary": "## Explanation: Hey there! I understand that you're facing a bit of a challenge with your OJT performance. You're at a high risk level due to low hours completed, incomplete evaluations, and other factors. I'm here to encourage you and offer some actionable steps you can take in the next couple of weeks to improve.",
+  "top_reasons": [
+    "hours_completed_ratio is below satisfactory (0.3)",
+    "Low completed hours (80/300 hours, 26.0% complete)",
+    "Supervisor evaluation not yet available (prediction based on other indicators)"
+  ],
+  "trend": {
+    "reason": "Performance is consistent",
+    "status": "stable"
+  }
+}

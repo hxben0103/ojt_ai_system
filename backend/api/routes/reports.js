@@ -1,11 +1,31 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../../config/db');
+const jwt = require('jsonwebtoken');
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 
 // Get all reports
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { report_type, generated_by } = req.query;
+    const { report_type } = req.query;
+    const { user_id, role } = req.user;
     
     let sql = `
       SELECT r.*, u.full_name AS generated_by_name
@@ -16,6 +36,12 @@ router.get('/', async (req, res) => {
     const params = [];
     let paramCount = 1;
 
+    // Data Isolation: Users only see reports they generated (unless Admin)
+    if (role !== 'Admin') {
+      sql += ` AND r.generated_by = $${paramCount}`;
+      params.push(user_id);
+      paramCount++;
+    }
     if (report_type) {
       sql += ` AND r.report_type = $${paramCount}`;
       params.push(report_type);
@@ -39,9 +65,10 @@ router.get('/', async (req, res) => {
 });
 
 // Create report - Using stored procedure
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { report_type, generated_by, content, report_period_start, report_period_end } = req.body;
+    const { report_type, content, report_period_start, report_period_end } = req.body;
+    const generated_by = req.user.user_id;
 
     const result = await query(
       'SELECT create_system_report($1, $2, $3, $4, $5) as result',
@@ -77,7 +104,7 @@ router.post('/', async (req, res) => {
 });
 
 // Get report by ID - Using stored procedure
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 

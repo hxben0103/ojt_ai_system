@@ -1,7 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 
 /**
  * Count weekday (Mon–Fri) days between two Date objects (inclusive).
@@ -52,21 +71,33 @@ function countWeekdays(start, end) {
  */
 
 // Get AI insights
-router.get('/insights', async (req, res) => {
+router.get('/insights', authenticateToken, async (req, res) => {
   try {
     const { student_id } = req.query;
+    const { role, user_id } = req.user;
 
     let sql = `
       SELECT a.*, u.full_name AS student_name
       FROM ai_insights a
       JOIN users u ON a.student_id = u.user_id
+      -- Join OJT records for coordinator filtering
+      LEFT JOIN ojt_records o ON a.student_id = o.student_id AND o.status IN ('Ongoing', 'Active')
       WHERE 1=1
     `;
     const params = [];
+    let paramCount = 1;
+
+    // Data Isolation: Coordinators only see their students
+    if (role === 'Coordinator') {
+      sql += ` AND o.coordinator_id = $${paramCount}`;
+      params.push(user_id);
+      paramCount++;
+    }
 
     if (student_id) {
-      sql += ' AND a.student_id = $1';
+      sql += ` AND a.student_id = $${paramCount}`;
       params.push(student_id);
+      paramCount++;
     }
 
     sql += ' ORDER BY a.created_at DESC';
@@ -102,12 +133,24 @@ router.post('/insights', async (req, res) => {
 });
 
 // Get performance predictions (using stored procedure)
-router.get('/performance', async (req, res) => {
+router.get('/performance', authenticateToken, async (req, res) => {
   try {
     const { student_id } = req.query;
+    const { role, user_id } = req.user;
 
     if (!student_id) {
       return res.status(400).json({ error: 'student_id is required' });
+    }
+
+    // Data Isolation: Check access
+    if (role === 'Coordinator') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [student_id, user_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view performance for students assigned to you.' });
+      }
     }
 
     // Use stored procedure for real-time prediction generation
@@ -170,9 +213,21 @@ router.post('/performance/generate', async (req, res) => {
 });
 
 // Get risk assessment for student
-router.get('/risk-assessment/:student_id', async (req, res) => {
+router.get('/risk-assessment/:student_id', authenticateToken, async (req, res) => {
   try {
     const { student_id } = req.params;
+    const { role, user_id } = req.user;
+
+    // Data Isolation: Check access
+    if (role === 'Coordinator') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [student_id, user_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view risk assessment for students assigned to you.' });
+      }
+    }
 
     const result = await query(
       'SELECT * FROM calculate_risk_score($1)',
@@ -194,11 +249,34 @@ router.get('/risk-assessment/:student_id', async (req, res) => {
 });
 
 // Get at-risk students
-router.get('/at-risk', async (req, res) => {
+router.get('/at-risk', authenticateToken, async (req, res) => {
   try {
     const { level } = req.query; // 'High', 'Medium', or undefined for all
+    const { role, user_id } = req.user;
 
-    const result = await query(
+    // Data Isolation: Filter by coordinator if role is Coordinator
+    let result;
+    if (role === 'Coordinator') {
+      // get_at_risk_students doesn't filter by coordinator, so we filter the results
+      const allAtRisk = await query('SELECT * FROM get_at_risk_students($1)', [level || null]);
+      
+      // Filter by coordinator_id in ojt_records
+      const coordinatorStudents = await query(
+        "SELECT student_id FROM ojt_records WHERE coordinator_id = $1 AND status IN ('Ongoing', 'Active')",
+        [user_id]
+      );
+      const allowedIds = new Set(coordinatorStudents.rows.map(r => r.student_id));
+      
+      const filteredResult = allAtRisk.rows.filter(r => allowedIds.has(r.student_id));
+      
+      return res.json({
+        at_risk_students: filteredResult,
+        count: filteredResult.length,
+        risk_level_filter: level || 'All'
+      });
+    }
+
+    result = await query(
       'SELECT * FROM get_at_risk_students($1)',
       [level || null]
     );
@@ -231,10 +309,44 @@ router.post('/batch', async (req, res) => {
 });
 
 // Daily risk prediction for a student
-router.get('/daily/:studentId', async (req, res) => {
+router.get('/daily/:studentId', authenticateToken, async (req, res) => {
   const studentId = req.params.studentId;
+  const { role, user_id } = req.user;
+
+  // Data Isolation: Check access
+  if (role === 'Coordinator') {
+    const accessCheck = await query(
+      "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+      [studentId, user_id]
+    );
+    if (accessCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Access Denied', message: 'You can only run predictions for students assigned to you.' });
+    }
+  }
 
   try {
+    // Check if we have a recent prediction (last 4 hours) to avoid overwhelming the LLM
+    const recentPrediction = await query(
+      `SELECT result, created_at 
+       FROM ai_insights 
+       WHERE student_id = $1 
+         AND insight_type = 'daily_risk_prediction'
+         AND created_at >= NOW() - INTERVAL '4 hours'
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [studentId]
+    );
+
+    if (recentPrediction.rows.length > 0) {
+      const cached = recentPrediction.rows[0];
+      return res.json({
+        student_id: parseInt(studentId),
+        cached: true,
+        ai_prediction: typeof cached.result === 'string' ? JSON.parse(cached.result) : cached.result,
+        generated_at: cached.created_at
+      });
+    }
+
     // 1) Build COMPREHENSIVE snapshot from DB with all features
     //    Includes: attendance (approved only), competencies, grading components, chatbot engagement
 
@@ -256,7 +368,7 @@ router.get('/daily/:studentId', async (req, res) => {
           COALESCE(COUNT(CASE WHEN a.morning_in > '08:00:00' THEN 1 END), 0) AS late_count,
           COALESCE(MAX(a.date), NULL) AS last_attendance_date
         FROM attendance a
-        WHERE a.student_id = $1 AND a.status = 'Approved'
+        WHERE a.student_id = $1 AND a.status IN ('Approved', 'Pending')
       ),
       -- Competency-based daily tasks (only approved tasks)
       task_stats AS (
@@ -365,7 +477,7 @@ router.get('/daily/:studentId', async (req, res) => {
           COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_last_7,
           COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '14 days' AND date < CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_prev_7
         FROM attendance
-        WHERE student_id = $1 AND status = 'Approved'
+        WHERE student_id = $1 AND status IN ('Approved', 'Pending')
       )
       SELECT 
         (SELECT COALESCE(required_hours, 300) FROM ojt_info) AS required_hours,
@@ -383,6 +495,10 @@ router.get('/daily/:studentId', async (req, res) => {
         (SELECT avg_score FROM narrative_eval) AS narrative_eval_score,
         (SELECT total_queries FROM chatbot_stats) AS total_chatbot_queries,
         (SELECT queries_last_30_days FROM chatbot_stats) AS chatbot_queries_last_30_days,
+        -- Integrity Data (FIXED: Added selection from CTEs)
+        (SELECT row_to_json(i) FROM integrity_stats i) AS integrity_data,
+        (SELECT count FROM recent_flags) AS recent_flags_count,
+        (SELECT row_to_json(t) FROM trend_stats t) AS trend_data,
         -- Competency hours (will be processed separately) — includes point_value for WPR verification
         (SELECT json_agg(json_build_object('title', title, 'hours', hours, 'point_value', point_value)) FROM competency_hours) AS competency_hours_json
     `, [studentId]);
@@ -482,7 +598,7 @@ router.get('/daily/:studentId', async (req, res) => {
       recent_flags_count: parseInt(snap.recent_flags_count) || 0,
     };
 
-    // Compute Trend Logic
+    // Compute Trend Logic (FIXED: Use the data from snap.trend_data)
     const h7 = parseFloat(snap.trend_data?.hours_last_7) || 0;
     const p7 = parseFloat(snap.trend_data?.hours_prev_7) || 0;
 
@@ -494,7 +610,7 @@ router.get('/daily/:studentId', async (req, res) => {
       payload.trend_reason = `Hours logged decreased by >15% compared to previous week (${h7} vs ${p7})`;
     } else {
       payload.trend_status = 'stable';
-      payload.trend_reason = `Consistent performance logic maintained`;
+      payload.trend_reason = `Consistent performance logic maintained (${h7} vs ${p7})`;
     }
 
 
@@ -505,7 +621,7 @@ router.get('/daily/:studentId', async (req, res) => {
     let aiRes;
     try {
       aiRes = await axios.post(`${flaskUrl}/predict`, payload, {
-        timeout: 10000, // 10 second timeout
+        timeout: 55000, // Increased to 55 seconds for Ollama/Gemma processing
         headers: {
           'Content-Type': 'application/json'
         }
@@ -538,12 +654,16 @@ router.get('/daily/:studentId', async (req, res) => {
       const statusCode = statusCodeMap[prediction.error_type] || 500;
 
       return res.status(statusCode).json({
+        student_id: parseInt(studentId),
         success: false,
-        error_type: prediction.error_type || 'PREDICTION_ERROR',
-        error: prediction.message || 'Prediction failed',
-        message: prediction.message,
-        details: prediction.details,
-        missing_fields: prediction.missing_fields,
+        ai_prediction: {
+          success: false,
+          error_type: prediction.error_type || 'PREDICTION_ERROR',
+          error: prediction.message || 'Prediction failed',
+          message: prediction.message,
+          details: prediction.details,
+          ml_prediction: null
+        },
         snapshot: payload
       });
     }
@@ -665,12 +785,13 @@ router.post('/chat', async (req, res) => {
           session_id,
           student_data,
           stream: false
-        }, { timeout: 30000 });
+        }, { timeout: 55000 });
         
         return res.status(response.status).json(response.data);
       }
     } catch (axiosError) {
       console.error('AI Service communication error:', axiosError.message);
+      require('fs').appendFileSync('axios_error.log', '\\n\\n' + new Date().toISOString() + '\\n' + (axiosError.response ? JSON.stringify(axiosError.response.data) : '') + '\\n' + axiosError.stack + '\\n');
       return res.status(503).json({
         success: false,
         error_type: 'CHATBOT_SERVICE_UNAVAILABLE',
@@ -688,9 +809,21 @@ router.post('/chat', async (req, res) => {
 });
 
 // Chatbot logs
-router.get('/chatbot/logs', async (req, res) => {
+router.get('/chatbot/logs', authenticateToken, async (req, res) => {
   try {
-    const { user_id } = req.query;
+    const { user_id: targetStudentId } = req.query;
+    const { role, user_id: loggedInUserId } = req.user;
+
+    // Data Isolation: Coordinators can only see their students' logs
+    if (role === 'Coordinator' && targetStudentId) {
+       const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [targetStudentId, loggedInUserId]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view chatbot logs for students assigned to you.' });
+      }
+    }
 
     let sql = `
       SELECT c.*, u.full_name
@@ -859,6 +992,32 @@ router.get('/evaluation-metrics', async (req, res) => {
   } catch (error) {
     console.error('Get evaluation metrics error:', error);
     res.status(500).json({ error: 'Internal server error while computing metrics.' });
+  }
+});
+
+// Suggest competency based on task description
+router.post('/suggest-competency', async (req, res) => {
+  try {
+    const { description } = req.body;
+
+    if (!description) {
+      return res.status(400).json({ error: 'Description is required' });
+    }
+
+    const flaskUrl = process.env.FLASK_AI_URL || 'http://localhost:5000';
+    
+    const response = await axios.post(`${flaskUrl}/suggest-competency`, {
+      description
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Suggest competency error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get competency suggestion',
+      message: error.message 
+    });
   }
 });
 

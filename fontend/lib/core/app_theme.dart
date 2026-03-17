@@ -93,7 +93,9 @@ class AppTheme {
         secondary: coordinatorPrimary,
       ),
       useMaterial3: true,
-      textTheme: GoogleFonts.interTextTheme(),
+      textTheme: GoogleFonts.interTextTheme().apply(
+        fontFamilyFallback: ['NotoColorEmoji', 'NotoSans'],
+      ),
     );
 
     return base.copyWith(

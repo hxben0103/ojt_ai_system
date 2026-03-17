@@ -11,6 +11,8 @@ class DailyTask {
   final String? remarks;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String? coordinatorComment;
+  final DateTime? coordinatorCommentAt;
   final List<Competency> competencies;
 
   DailyTask({
@@ -24,6 +26,8 @@ class DailyTask {
     this.remarks,
     this.createdAt,
     this.updatedAt,
+    this.coordinatorComment,
+    this.coordinatorCommentAt,
     this.competencies = const [],
   });
 
@@ -42,6 +46,10 @@ class DailyTask {
           : null,
       updatedAt: json['updatedAt'] != null
           ? DateTime.parse(json['updatedAt'] as String)
+          : null,
+      coordinatorComment: json['coordinatorComment'] as String?,
+      coordinatorCommentAt: json['coordinatorCommentAt'] != null 
+          ? DateTime.parse(json['coordinatorCommentAt'] as String)
           : null,
       competencies: (json['competencies'] as List<dynamic>?)
               ?.map((c) => Competency.fromJson(c as Map<String, dynamic>))
@@ -62,6 +70,8 @@ class DailyTask {
       if (remarks != null) 'remarks': remarks,
       if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
       if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+      if (coordinatorComment != null) 'coordinatorComment': coordinatorComment,
+      if (coordinatorCommentAt != null) 'coordinatorCommentAt': coordinatorCommentAt!.toIso8601String(),
       'competencies': competencies.map((c) => c.toJson()).toList(),
     };
   }

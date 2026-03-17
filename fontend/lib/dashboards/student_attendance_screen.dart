@@ -1224,6 +1224,50 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
               "Note: Early arrival gives no extra credit. Late arrivals are rounded to the next 30-minute block.",
               style: AppTheme.caption.copyWith(fontStyle: FontStyle.italic),
             ),
+            if (_todayAttendance!.coordinatorComment != null) ...[
+              const SizedBox(height: AppTheme.spacing16),
+              const Divider(),
+              const SizedBox(height: AppTheme.spacing8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.comment_outlined, size: 16, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Coordinator Feedback",
+                          style: AppTheme.bodySmall.copyWith(
+                            color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _todayAttendance!.coordinatorComment!,
+                      style: AppTheme.bodyMedium,
+                    ),
+                    if (_todayAttendance!.coordinatorCommentAt != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          DateFormat('MMM d, h:mm a').format(_todayAttendance!.coordinatorCommentAt!),
+                          style: AppTheme.caption.copyWith(fontSize: 10),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1370,10 +1414,18 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
             Text("${att.regularHours?.toStringAsFixed(1)} hrs", style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.bold, color: AppTheme.successColor)),
           ],
         ),
-        trailing: Icon(
-          att.insideGeofence == true ? Icons.verified : Icons.warning_amber_rounded,
-          color: att.insideGeofence == true ? AppTheme.successColor : AppTheme.warningColor,
-          size: 20,
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Icon(
+              att.insideGeofence == true ? Icons.verified : Icons.warning_amber_rounded,
+              color: att.insideGeofence == true ? AppTheme.successColor : AppTheme.warningColor,
+              size: 20,
+            ),
+            if (att.coordinatorComment != null)
+              const Icon(Icons.comment, size: 14, color: Colors.blue),
+          ],
         ),
       ),
     );

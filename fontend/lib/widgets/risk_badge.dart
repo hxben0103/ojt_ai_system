@@ -24,6 +24,19 @@ class RiskBadge extends StatelessWidget {
     }
   }
 
+  String get _friendlyText {
+    switch (riskLevel.toUpperCase()) {
+      case 'HIGH':
+        return 'Needs Attention';
+      case 'MEDIUM':
+        return 'Fair Standing';
+      case 'LOW':
+        return 'Good Standing';
+      default:
+        return 'Pending Review';
+    }
+  }
+
   Color get _textColor {
     switch (riskLevel.toUpperCase()) {
       case 'HIGH':
@@ -65,7 +78,7 @@ class RiskBadge extends StatelessWidget {
             Icon(_icon, size: 14, color: _textColor),
             const SizedBox(width: 4),
             Text(
-              riskLevel,
+              _friendlyText,
               style: TextStyle(
                 color: _textColor,
                 fontSize: 12,
@@ -93,7 +106,7 @@ class RiskBadge extends StatelessWidget {
           Icon(_icon, size: 18, color: _textColor),
           const SizedBox(width: 8),
           Text(
-            riskLevel,
+            _friendlyText,
             style: TextStyle(
               color: _textColor,
               fontSize: 14,

@@ -425,52 +425,60 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
       child: Row(
         children: [
-          ModernStatCard(
-            label: 'Assigned',
-            value: '${provider.totalAssigned ?? 0}',
-            icon: Icons.people_rounded,
-            color: AppTheme.supervisorPrimary,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const SupervisorEvaluationFormScreen(),
+          Expanded(
+            child: ModernStatCard(
+              label: 'Assigned',
+              value: '${provider.totalAssigned ?? 0}',
+              icon: Icons.people_rounded,
+              color: AppTheme.supervisorPrimary,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SupervisorEvaluationFormScreen(),
+                ),
               ),
             ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Pending Evaluations',
-            value: '${provider.pendingEvaluations ?? 0}',
-            icon: Icons.assignment_rounded,
-            color: AppTheme.warningColor,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const SupervisorEvaluationFormScreen(),
+          Expanded(
+            child: ModernStatCard(
+              label: 'Pending Evaluations',
+              value: '${provider.pendingEvaluations ?? 0}',
+              icon: Icons.assignment_rounded,
+              color: AppTheme.warningColor,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SupervisorEvaluationFormScreen(),
+                ),
               ),
             ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Students Needing Attention',
-            value: '${provider.highRiskStudents ?? 0}',
-            icon: Icons.warning_amber_rounded,
-            color: provider.highRiskStudents > 0 ? AppTheme.errorColor : AppTheme.successColor,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const SupervisorEvaluationFormScreen(),
+          Expanded(
+            child: ModernStatCard(
+              label: 'Students Needing Attention',
+              value: '${provider.highRiskStudents ?? 0}',
+              icon: Icons.warning_amber_rounded,
+              color: provider.highRiskStudents > 0 ? AppTheme.errorColor : AppTheme.successColor,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SupervisorEvaluationFormScreen(),
+                ),
               ),
             ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Average Forecast Score',
-            value: provider.averageForecastedGrade > 0
-                ? provider.averageForecastedGrade.toStringAsFixed(1)
-                : 'N/A',
-            icon: Icons.school_rounded,
-            color: Colors.blue.shade700,
+          Expanded(
+            child: ModernStatCard(
+              label: 'Average Forecast Score',
+              value: provider.averageForecastedGrade > 0
+                  ? provider.averageForecastedGrade.toStringAsFixed(1)
+                  : 'N/A',
+              icon: Icons.school_rounded,
+              color: Colors.blue.shade700,
+            ),
           ),
         ],
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../services/auth_service.dart';
 import '../../services/ojt_service.dart';
 import '../../services/attendance_service.dart';
 import '../../services/evaluation_service.dart';
@@ -18,23 +19,65 @@ class CoordinatorPerformanceAnalysisScreen extends StatefulWidget {
 class _CoordinatorPerformanceAnalysisScreenState
     extends State<CoordinatorPerformanceAnalysisScreen> {
   List<Map<String, dynamic>> _students = [];
+  List<Map<String, dynamic>> _filteredStudents = [];
   bool _isLoading = true;
-  String _sortBy = 'risk'; // 'risk', 'grade', 'hours'
+  String _sortBy = 'risk'; // 'risk', 'grade', 'hours', 'name'
   bool _sortAscending = false;
+  
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  bool _isSearching = false;
 
   @override
   void initState() {
     super.initState();
     _loadStudentPerformance();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (!mounted) return;
+    setState(() {
+      _searchQuery = _searchController.text.toLowerCase();
+      _applyFilterAndSort();
+    });
   }
 
   Future<void> _loadStudentPerformance() async {
     try {
+      if (!mounted) return;
       setState(() {
         _isLoading = true;
       });
 
-      final ojtRecords = await OjtService.getOjtRecords();
+      final currentUser = await AuthService.getCurrentUser();
+      if (!mounted) return;
+      
+      if (currentUser == null) {
+        setState(() {
+          _isLoading = false;
+        });
+        // Optionally show a message to the user that they need to be logged in
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('User not logged in. Cannot load performance data.')),
+          );
+        }
+        return;
+      }
+
+      final ojtRecords = await OjtService.getOjtRecords(
+        coordinatorId: currentUser.userId,
+      );
+      
+      debugPrint('[CoordinatorPerformanceAnalysis] Loaded ${ojtRecords.length} OJT records');
 
       // Load all students in parallel (Future.wait) instead of sequential for-loop
       final List<Map<String, dynamic>> students = (await Future.wait(
@@ -63,10 +106,14 @@ class _CoordinatorPerformanceAnalysisScreenState
               if (predictionData['ai_prediction'] != null) {
                 final ai = Map<String, dynamic>.from(predictionData['ai_prediction'] as Map);
 
+                // Try to get risk level from ml_prediction object OR top-level risk_level key
                 if (ai['ml_prediction'] != null) {
                   final ml = Map<String, dynamic>.from(ai['ml_prediction'] as Map);
-                  riskLevel = ml['risk_level'] as String? ?? 'UNKNOWN';
-                  riskProbability = (ml['probability'] as num?)?.toDouble();
+                  riskLevel = (ml['risk_level'] as String? ?? ai['risk_level'] as String? ?? 'UNKNOWN').toUpperCase();
+                  riskProbability = (ml['probability'] as num? ?? ml['confidence'] as num? ?? ai['probability'] as num?)?.toDouble();
+                } else {
+                  riskLevel = (ai['risk_level'] as String? ?? 'UNKNOWN').toUpperCase();
+                  riskProbability = (ai['probability'] as num? ?? ai['confidence'] as num?)?.toDouble();
                 }
 
                 if (ai['grading'] != null) {
@@ -74,7 +121,8 @@ class _CoordinatorPerformanceAnalysisScreenState
                   forecastedGrade = (grading['forecasted_grade'] as num?)?.toDouble();
                 }
 
-                aiSummary = ai['summary'] as String?;
+                // AI Explanation (Gemma Narrative)
+                aiSummary = ai['gemma_explanation'] as String? ?? ai['summary'] as String? ?? ai['explanation'] as String?;
               }
             } catch (e) {
               print('Error loading AI prediction for student ${record.studentId}: $e');
@@ -101,12 +149,14 @@ class _CoordinatorPerformanceAnalysisScreenState
         }),
       )).whereType<Map<String, dynamic>>().toList();
 
-      _sortStudents(students);
+      if (!mounted) return;
       setState(() {
         _students = students;
+        _applyFilterAndSort();
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -118,10 +168,19 @@ class _CoordinatorPerformanceAnalysisScreenState
     }
   }
 
-  void _sortStudents(List<Map<String, dynamic>> students) {
-    students.sort((a, b) {
+  void _applyFilterAndSort() {
+    List<Map<String, dynamic>> filtered = _students.where((student) {
+      final name = (student['name'] as String).toLowerCase();
+      final company = (student['company'] as String).toLowerCase();
+      return name.contains(_searchQuery) || company.contains(_searchQuery);
+    }).toList();
+
+    filtered.sort((a, b) {
       int comparison = 0;
       switch (_sortBy) {
+        case 'name':
+          comparison = (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase());
+          break;
         case 'hours':
           comparison = a['completedHours'].compareTo(b['completedHours']);
           break;
@@ -143,16 +202,45 @@ class _CoordinatorPerformanceAnalysisScreenState
       }
       return _sortAscending ? comparison : -comparison;
     });
+
+    if (!mounted) return;
+    setState(() {
+      _filteredStudents = filtered;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Performance Analysis'),
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search student or company...',
+                  border: InputBorder.none,
+                  hintStyle: TextStyle(color: Colors.white70),
+                ),
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              )
+            : const Text('Performance Analysis'),
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (_isSearching) {
+                  _searchController.clear();
+                  _isSearching = false;
+                } else {
+                  _isSearching = true;
+                }
+              });
+            },
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               setState(() {
@@ -160,48 +248,16 @@ class _CoordinatorPerformanceAnalysisScreenState
                   _sortAscending = !_sortAscending;
                 } else {
                   _sortBy = value;
-                  _sortAscending = false;
+                  _sortAscending = value == 'name' ? true : false;
                 }
-                _sortStudents(_students);
+                _applyFilterAndSort();
               });
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'risk',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'risk')
-                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-                          size: 16),
-                    const SizedBox(width: 8),
-                    const Text('Sort by ML Risk'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'grade',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'grade')
-                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-                          size: 16),
-                    const SizedBox(width: 8),
-                    const Text('Sort by Forecasted Grade'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'hours',
-                child: Row(
-                  children: [
-                    if (_sortBy == 'hours')
-                      Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-                          size: 16),
-                    const SizedBox(width: 8),
-                    const Text('Sort by Hours'),
-                  ],
-                ),
-              ),
+              _buildSortItem('name', 'Sort by Name', Icons.sort_by_alpha),
+              _buildSortItem('risk', 'Sort by ML Risk', Icons.warning_amber_rounded),
+              _buildSortItem('grade', 'Sort by Forecasted Grade', Icons.trending_up),
+              _buildSortItem('hours', 'Sort by Hours', Icons.access_time),
             ],
           ),
           IconButton(
@@ -212,28 +268,30 @@ class _CoordinatorPerformanceAnalysisScreenState
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _students.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.analytics_outlined,
-                          size: 64, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No student data available',
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadStudentPerformance,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _students.length,
-                    itemBuilder: (context, index) {
-                      final student = _students[index];
+            : _filteredStudents.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.analytics_outlined,
+                            size: 64, color: Colors.grey[400]),
+                        const SizedBox(height: 16),
+                        Text(
+                          _searchQuery.isNotEmpty 
+                              ? 'No students match "$_searchQuery"'
+                              : 'No student data available',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _loadStudentPerformance,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _filteredStudents.length,
+                      itemBuilder: (context, index) {
+                        final student = _filteredStudents[index];
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         elevation: 2,
@@ -307,7 +365,7 @@ class _CoordinatorPerformanceAnalysisScreenState
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
-                                        'AI Risk: ${student['riskLevel']}',
+                                        'AI Assessment: ${_getFriendlyRisk(student['riskLevel'])}',
                                         style: TextStyle(
                                           color: _getRiskColor(student['riskLevel']),
                                           fontWeight: FontWeight.bold,
@@ -424,6 +482,25 @@ class _CoordinatorPerformanceAnalysisScreenState
     );
   }
 
+  PopupMenuItem<String> _buildSortItem(String value, String label, IconData icon) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: _sortBy == value ? Colors.deepPurple : Colors.grey),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label)),
+          if (_sortBy == value)
+            Icon(
+              _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+              size: 16,
+              color: Colors.deepPurple,
+            ),
+        ],
+      ),
+    );
+  }
+
   Color _getRiskColor(String? riskLevel) {
     switch (riskLevel?.toUpperCase()) {
       case 'HIGH':
@@ -439,15 +516,19 @@ class _CoordinatorPerformanceAnalysisScreenState
 
   IconData _getRiskIcon(String? riskLevel) {
     switch (riskLevel?.toUpperCase()) {
-      case 'HIGH':
-        return Icons.warning;
-      case 'MEDIUM':
-        return Icons.info;
-      case 'LOW':
-        return Icons.check_circle;
-      default:
-        return Icons.help_outline;
+      case 'HIGH': return Icons.warning_amber_rounded;
+      case 'MEDIUM': return Icons.info_outline;
+      case 'LOW': return Icons.check_circle_outline;
+      default: return Icons.help_outline;
+    }
+  }
+
+  String _getFriendlyRisk(String? riskLevel) {
+    switch (riskLevel?.toUpperCase()) {
+      case 'HIGH': return 'Needs Attention';
+      case 'MEDIUM': return 'Fair Standing';
+      case 'LOW': return 'Good Standing';
+      default: return 'Pending Review';
     }
   }
 }
-

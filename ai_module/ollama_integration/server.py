@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from chatbot_handler import chatbot_response
+from competency_handler import suggest_competency
 from insight_engine import predict_with_explanation, predict_performance, build_features_from_snapshot
 import re
 
@@ -347,6 +348,37 @@ def predict():
             "error_type": "PREDICTION_ERROR",
             "message": "An unexpected error occurred during prediction.",
             "details": str(e)
+        }), 500
+
+@app.route('/suggest-competency', methods=['POST'])
+def suggest():
+    """
+    AI Competency Suggestion Endpoint.
+    Analyzes task description and returns the best matching official OJT competency.
+    """
+    try:
+        data = request.get_json() or {}
+        description = data.get("description", "")
+        
+        if not description:
+            return jsonify({
+                "success": False,
+                "error": "Task description is required"
+            }), 400
+            
+        suggestion = suggest_competency(description)
+        
+        return jsonify({
+            "success": True,
+            "suggestion": suggestion,
+            "description": description
+        }), 200
+        
+    except Exception as e:
+        print(f"[SUGGEST ERROR] {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
         }), 500
 
 if __name__ == '__main__':

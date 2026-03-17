@@ -27,7 +27,8 @@ router.get('/records', authenticateToken, async (req, res) => {
       query: req.query,
       user: req.user
     });
-    const { student_id, coordinator_id, supervisor_id, status } = req.query;
+    const { student_id, status, supervisor_id } = req.query;
+    const { role, user_id } = req.user;
 
     let sql = `
       SELECT o.*,
@@ -43,15 +44,21 @@ router.get('/records', authenticateToken, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    if (student_id) {
-      sql += ` AND o.student_id = $${paramCount}`;
-      params.push(student_id);
+    // Data Isolation: Coordinators can only see their own records
+    if (role === 'Coordinator') {
+      sql += ` AND o.coordinator_id = $${paramCount}`;
+      params.push(user_id);
+      paramCount++;
+    } else if (req.query.coordinator_id) {
+      // Admins/Supervisors can filter by any coordinator
+      sql += ` AND o.coordinator_id = $${paramCount}`;
+      params.push(req.query.coordinator_id);
       paramCount++;
     }
 
-    if (coordinator_id) {
-      sql += ` AND o.coordinator_id = $${paramCount}`;
-      params.push(coordinator_id);
+    if (student_id) {
+      sql += ` AND o.student_id = $${paramCount}`;
+      params.push(student_id);
       paramCount++;
     }
 
@@ -132,7 +139,8 @@ router.post('/records', authenticateToken, async (req, res) => {
       school_id,          // alphanumeric school ID (preferred)
       student_id: raw_student_id,  // integer user_id (fallback)
       company_name, coordinator_id, supervisor_id,
-      start_date, end_date, required_hours, company_address, company_contact
+      start_date, end_date, required_hours, company_address, company_contact,
+      latitude, longitude, radius_meters // geofence fields
     } = req.body;
 
     let student_id = raw_student_id;
@@ -173,6 +181,36 @@ router.post('/records', authenticateToken, async (req, res) => {
     const response = result.rows[0].result;
 
     if (response.success) {
+      // If geofence coordinates are provided, upsert into ojt_sites
+      if (latitude !== undefined && longitude !== undefined) {
+        try {
+          const siteCheck = await query(
+            'SELECT id FROM ojt_sites WHERE company_name = $1 LIMIT 1',
+            [company_name]
+          );
+
+          if (siteCheck.rows.length > 0) {
+            await query(
+              `UPDATE ojt_sites SET 
+                 latitude = $1, 
+                 longitude = $2, 
+                 radius_meters = $3, 
+                 updated_at = CURRENT_TIMESTAMP 
+               WHERE id = $4`,
+              [latitude, longitude, radius_meters || 100, siteCheck.rows[0].id]
+            );
+          } else {
+            await query(
+              `INSERT INTO ojt_sites (name, latitude, longitude, radius_meters, company_name)
+               VALUES ($1, $2, $3, $4, $5)`,
+              [company_name, latitude, longitude, radius_meters || 100, company_name]
+            );
+          }
+        } catch (siteError) {
+          console.error('Failed to upsert ojt_site:', siteError);
+        }
+      }
+
       // Get the created OJT record
       const recordResult = await query(
         'SELECT get_ojt_record($1) as record',
@@ -266,6 +304,22 @@ router.delete('/records/:recordId', authenticateToken, async (req, res) => {
 router.get('/student-status/:studentId', authenticateToken, async (req, res) => {
   try {
     const { studentId } = req.params;
+    const { role, user_id } = req.user;
+
+    // Data Isolation: Check if student belongs to this coordinator
+    if (role === 'Coordinator') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [studentId, user_id]
+      );
+      
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ 
+            error: 'Access Denied', 
+            message: 'You can only view status for students assigned to you.' 
+        });
+      }
+    }
 
     // Get OJT record with required hours
     const ojtResult = await query(
@@ -285,14 +339,14 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
     const ojtRecord = ojtResult.rows[0] || null;
     const requiredHours = ojtRecord ? (ojtRecord.required_hours || 300) : 300;
 
-    // Get attendance summary - CRITICAL: Only count approved attendance
+    // Get attendance summary - CRITICAL: Collect attendance regardless of approval
     const attendanceResult = await query(
       `SELECT 
          COALESCE(SUM(total_hours), 0) AS total_hours_completed,
          COUNT(DISTINCT date) AS days_present,
          MAX(date) AS last_attendance_date
        FROM attendance
-       WHERE student_id = $1 AND status = 'Approved'`,
+       WHERE student_id = $1 AND status IN ('Approved', 'Pending')`,
       [studentId]
     );
 

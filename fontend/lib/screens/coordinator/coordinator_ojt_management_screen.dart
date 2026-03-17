@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../services/ojt_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/ojt_record.dart';
@@ -60,6 +61,9 @@ class _CoordinatorOjtManagementScreenState
     final requiredHoursController = TextEditingController(text: '300');
     final companyAddressController = TextEditingController();
     final companyContactController = TextEditingController();
+    final latController = TextEditingController();
+    final lngController = TextEditingController();
+    final radiusController = TextEditingController(text: '100');
     DateTime? startDate;
     DateTime? endDate;
 
@@ -68,6 +72,7 @@ class _CoordinatorOjtManagementScreenState
     String? resolvedSchoolId;
     bool isLooking = false;
     String? lookupError;
+    bool isGettingLocation = false;
 
     await showDialog(
       context: context,
@@ -86,8 +91,10 @@ class _CoordinatorOjtManagementScreenState
               final results = await OjtService.lookupStudentBySchoolId(schoolId);
               if (results.isNotEmpty) {
                 setDialogState(() {
-                  resolvedStudentName = results.first['full_name'] as String? ?? 'Unknown';
-                  resolvedSchoolId = results.first['student_id'] as String? ?? schoolId;
+                  resolvedStudentName =
+                      results.first['full_name'] as String? ?? 'Unknown';
+                  resolvedSchoolId =
+                      results.first['student_id'] as String? ?? schoolId;
                   isLooking = false;
                 });
               } else {
@@ -101,6 +108,51 @@ class _CoordinatorOjtManagementScreenState
                 lookupError = 'Lookup failed: $e';
                 isLooking = false;
               });
+            }
+          }
+
+          Future<void> _getCurrentLocation() async {
+            setDialogState(() => isGettingLocation = true);
+            try {
+              bool serviceEnabled;
+              LocationPermission permission;
+
+              serviceEnabled = await Geolocator.isLocationServiceEnabled();
+              if (!serviceEnabled) {
+                throw Exception('Location services are disabled.');
+              }
+
+              permission = await Geolocator.checkPermission();
+              if (permission == LocationPermission.denied) {
+                permission = await Geolocator.requestPermission();
+                if (permission == LocationPermission.denied) {
+                  throw Exception('Location permissions are denied');
+                }
+              }
+              
+              if (permission == LocationPermission.deniedForever) {
+                throw Exception('Location permissions are permanently denied');
+              }
+
+              final position = await Geolocator.getCurrentPosition();
+              setDialogState(() {
+                latController.text = position.latitude.toString();
+                lngController.text = position.longitude.toString();
+                isGettingLocation = false;
+              });
+              
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Coordinates set to your current location!')),
+                );
+              }
+            } catch (e) {
+              setDialogState(() => isGettingLocation = false);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error getting location: $e')),
+                );
+              }
             }
           }
 
@@ -137,8 +189,10 @@ class _CoordinatorOjtManagementScreenState
                         const SizedBox(width: 8),
                         isLooking
                             ? const SizedBox(
-                                width: 40, height: 40,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                width: 40,
+                                height: 40,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : IconButton(
                                 icon: const Icon(Icons.search),
@@ -160,7 +214,8 @@ class _CoordinatorOjtManagementScreenState
                         padding: const EdgeInsets.only(top: 8),
                         child: Row(
                           children: [
-                            const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                            const Icon(Icons.check_circle,
+                                color: Colors.green, size: 18),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
@@ -180,7 +235,8 @@ class _CoordinatorOjtManagementScreenState
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           lookupError!,
-                          style: const TextStyle(color: Colors.red, fontSize: 12),
+                          style:
+                              const TextStyle(color: Colors.red, fontSize: 12),
                         ),
                       ),
                     const SizedBox(height: 12),
@@ -233,6 +289,78 @@ class _CoordinatorOjtManagementScreenState
                       decoration: const InputDecoration(
                         labelText: 'Company Address (Optional)',
                         border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // ── Geofence Section ──
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: Colors.deepPurple.withOpacity(0.1)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.location_on,
+                                  size: 18, color: Colors.deepPurple),
+                              const SizedBox(width: 8),
+                              const Text('Geofence Location',
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.bold)),
+                              const Spacer(),
+                              TextButton.icon(
+                                onPressed: isGettingLocation
+                                    ? null
+                                    : _getCurrentLocation,
+                                icon: const Icon(Icons.map, size: 16),
+                                label: const Text('Pick on Map',
+                                    style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: latController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Latitude',
+                                    hintText: 'e.g. 8.3541',
+                                    isDense: true,
+                                  ),
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: lngController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Longitude',
+                                    hintText: 'e.g. 123.8521',
+                                    isDense: true,
+                                  ),
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: radiusController,
+                            decoration: const InputDecoration(
+                              labelText: 'Radius (meters)',
+                              isDense: true,
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -314,6 +442,9 @@ class _CoordinatorOjtManagementScreenState
                         companyContact: companyContactController.text.isNotEmpty
                             ? companyContactController.text
                             : null,
+                        latitude: double.tryParse(latController.text),
+                        longitude: double.tryParse(lngController.text),
+                        radiusMeters: double.tryParse(radiusController.text),
                       );
 
                       if (mounted) {
@@ -333,7 +464,8 @@ class _CoordinatorOjtManagementScreenState
                     }
                   } else if (startDate == null) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please select a start date')),
+                      const SnackBar(
+                          content: Text('Please select a start date')),
                     );
                   }
                 },

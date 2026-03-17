@@ -34,6 +34,7 @@ import '../widgets/explainable_ai_card.dart';
 import '../widgets/weekly_ai_summary_card.dart';
 import '../widgets/trust_score_badge.dart';
 import '../widgets/performance_trend_indicator.dart';
+import '../widgets/ai_recommendation_card.dart';
 
 // Conditional import for File operations
 import 'file_helper_stub.dart'
@@ -80,6 +81,10 @@ class _StudentDashboardState extends State<StudentDashboard>
   bool _isFromCache = false;
   String? _lastSyncTime;
 
+  // AI Prediction data
+  Map<String, dynamic>? _aiPrediction;
+  bool _aiLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +113,7 @@ class _StudentDashboardState extends State<StudentDashboard>
         _loadAttendanceData(),
         _loadDTRRecords(),
         _loadStudentStatus(),
+        _loadAiPrediction(),
       ]);
       if (mounted) setState(() {
         _errorMessage = null;
@@ -192,6 +198,27 @@ class _StudentDashboardState extends State<StudentDashboard>
         setState(() {
           _statusLoading = false;
         });
+      }
+    }
+  }
+
+  Future<void> _loadAiPrediction() async {
+    if (_studentUserId == null) return;
+
+    setState(() => _aiLoading = true);
+
+    try {
+      final prediction = await PredictionService.getDailyPrediction(_studentUserId!);
+      if (mounted) {
+        setState(() {
+          _aiPrediction = prediction;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading AI prediction: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _aiLoading = false);
       }
     }
   }
@@ -542,6 +569,10 @@ class _StudentDashboardState extends State<StudentDashboard>
               
               // ── 1. Hero Performance Card (Progress Summary) ──
               _buildAnimatedCard(_buildHeroPerformanceCard(), delay: 0),
+              const SizedBox(height: AppTheme.spacing16),
+
+              // ── 1.5 Real-Time AI Feedback Widget ──
+              _buildAnimatedCard(_buildAiRecommendationWidget(), delay: 20),
               const SizedBox(height: AppTheme.spacing16),
   
               // ── 2. Why this score? (Explainable AI Panel) ──
@@ -1591,6 +1622,35 @@ class _StudentDashboardState extends State<StudentDashboard>
       }
     }
     return const SizedBox(height: 200);
+  }
+
+  Widget _buildAiRecommendationWidget() {
+    if (_aiLoading) {
+      return const AIRecommendationCard(
+        riskLevel: '...',
+        trendStatus: '...',
+        trendReason: '...',
+        recommendation: '...',
+        isLoading: true,
+      );
+    }
+
+    if (_aiPrediction == null) return const SizedBox.shrink();
+
+    final aiPred = _aiPrediction!['ai_prediction'] as Map<String, dynamic>?;
+    final trend = _aiPrediction!['ai_prediction']?['trend'] as Map<String, dynamic>?;
+    
+    final riskLevel = aiPred?['ml_prediction']?['risk_level'] ?? 'LOW';
+    final recommendation = aiPred?['ml_prediction']?['recommendation'] ?? 'Keep logging your progress!';
+    final trendStatus = trend?['status'] ?? 'stable';
+    final trendReason = trend?['reason'] ?? 'Consistent performance maintained.';
+
+    return AIRecommendationCard(
+      riskLevel: riskLevel,
+      trendStatus: trendStatus,
+      trendReason: trendReason,
+      recommendation: recommendation,
+    );
   }
 
   // ------------------- Upload Report -------------------

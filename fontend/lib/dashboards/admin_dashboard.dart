@@ -264,32 +264,40 @@ class _AdminDashboardState extends State<AdminDashboard> {
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
       child: Row(
         children: [
-          ModernStatCard(
-            label: 'Total Users',
-            value: '$_totalUsers',
-            icon: Icons.people_alt_rounded,
-            color: AppTheme.adminPrimary,
+          Expanded(
+            child: ModernStatCard(
+              label: 'Total Users',
+              value: '$_totalUsers',
+              icon: Icons.people_alt_rounded,
+              color: AppTheme.adminPrimary,
+            ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Active',
-            value: '$_activeUsers',
-            icon: Icons.verified_user_rounded,
-            color: AppTheme.successColor,
+          Expanded(
+            child: ModernStatCard(
+              label: 'Active',
+              value: '$_activeUsers',
+              icon: Icons.verified_user_rounded,
+              color: AppTheme.successColor,
+            ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Pending',
-            value: '$_pendingUsers',
-            icon: Icons.pending_actions_rounded,
-            color: AppTheme.warningColor,
+          Expanded(
+            child: ModernStatCard(
+              label: 'Pending',
+              value: '$_pendingUsers',
+              icon: Icons.pending_actions_rounded,
+              color: AppTheme.warningColor,
+            ),
           ),
           const SizedBox(width: AppTheme.spacing8),
-          ModernStatCard(
-            label: 'Coordinators',
-            value: '$_coordinatorCount',
-            icon: Icons.school_rounded,
-            color: AppTheme.coordinatorPrimary,
+          Expanded(
+            child: ModernStatCard(
+              label: 'Coordinators',
+              value: '$_coordinatorCount',
+              icon: Icons.school_rounded,
+              color: AppTheme.coordinatorPrimary,
+            ),
           ),
         ],
       ),

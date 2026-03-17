@@ -78,10 +78,11 @@ class ApiConfig {
   static const String reports = '/reports';
   static const String ojt = '/ojt';
   static const String ojtSites = '/ojt-sites';
+  static const String studentReports = '/student-reports';
   static const String health = '/health';
 
   // Timeout duration
-  static const Duration timeout = Duration(seconds: 30);
+  static const Duration timeout = Duration(seconds: 60);
 }
 
 /// Geofencing and location trust flags. All backward compatible when geofence not configured.

@@ -1,0 +1,78 @@
+{
+  "score": 50,
+  "trend": {
+    "reason": "OJT just started",
+    "status": "Stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 0,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 0,
+    "available_weight_percent": 0
+  },
+  "success": true,
+  "summary": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "integrity": {
+    "flags": [],
+    "severity": "low",
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "integrity_score": 100
+  },
+  "confidence": 0.5,
+  "risk_level": "LOW",
+  "early_stage": true,
+  "key_factors": [
+    "Early OJT stage",
+    "Hours completed: 6 / 300"
+  ],
+  "probability": 0.5,
+  "top_reasons": [
+    "Student just started OJT. Insufficient data for full prediction."
+  ],
+  "ml_prediction": {
+    "score": 50,
+    "success": true,
+    "risk_level": "LOW",
+    "key_factors": [
+      "Early OJT stage. Log tasks and attendance to unlock predictions."
+    ],
+    "probability": 0.5
+  },
+  "probabilities": {
+    "LOW": 0.5,
+    "HIGH": 0.2,
+    "MEDIUM": 0.3
+  },
+  "recommendation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "predicted_label": "LOW",
+  "gemma_explanation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "gemma_recommendations": [
+    "Log your daily tasks regularly in the app.",
+    "Ensure each attendance entry is approved by your supervisor.",
+    "Explore multiple OJT competencies early."
+  ]
+}

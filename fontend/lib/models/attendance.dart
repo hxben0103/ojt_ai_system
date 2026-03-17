@@ -24,6 +24,8 @@ class Attendance {
   final int? deductionMinutes;
   final double? regularHours;
   final double? overtimeHours;
+  final String? coordinatorComment;
+  final DateTime? coordinatorCommentAt;
 
   // Evidence fields (geofence, trust, photo path) for coordinator/admin
   final String? verificationStatus; // AUTO_VERIFIED, FLAGGED, MANUAL_REVIEW
@@ -73,6 +75,8 @@ class Attendance {
     this.checkinPhotoPath,
     this.checkoutPhotoPath,
     this.hasBase64Image,
+    this.coordinatorComment,
+    this.coordinatorCommentAt,
   });
 
   factory Attendance.fromJson(Map<dynamic, dynamic> jsonRow) {
@@ -123,6 +127,10 @@ class Attendance {
       checkinPhotoPath: json['checkin_photo_path'] as String?,
       checkoutPhotoPath: json['checkout_photo_path'] as String?,
       hasBase64Image: json['has_base64_image'] as bool?,
+      coordinatorComment: json['coordinator_comment'] as String?,
+      coordinatorCommentAt: json['coordinator_comment_at'] != null 
+          ? DateTime.parse(json['coordinator_comment_at'] as String)
+          : null,
     );
   }
 
@@ -160,6 +168,8 @@ class Attendance {
       if (verificationStatus != null) 'verification_status': verificationStatus,
       if (checkinPhotoPath != null) 'checkin_photo_path': checkinPhotoPath,
       if (checkoutPhotoPath != null) 'checkout_photo_path': checkoutPhotoPath,
+      if (coordinatorComment != null) 'coordinator_comment': coordinatorComment,
+      if (coordinatorCommentAt != null) 'coordinator_comment_at': coordinatorCommentAt!.toIso8601String(),
     };
   }
 

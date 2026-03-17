@@ -73,6 +73,9 @@ class OjtService {
     int? requiredHours,
     String? companyAddress,
     String? companyContact,
+    double? latitude,
+    double? longitude,
+    double? radiusMeters,
   }) async {
     assert(schoolId != null || studentId != null,
         'Either schoolId or studentId must be provided');
@@ -92,6 +95,9 @@ class OjtService {
           if (requiredHours != null) 'required_hours': requiredHours,
           if (companyAddress != null) 'company_address': companyAddress,
           if (companyContact != null) 'company_contact': companyContact,
+          if (latitude != null) 'latitude': latitude,
+          if (longitude != null) 'longitude': longitude,
+          if (radiusMeters != null) 'radius_meters': radiusMeters,
         },
       );
 
@@ -122,6 +128,56 @@ class OjtService {
       return Map<String, dynamic>.from(response['status'] ?? {});
     } catch (e) {
       throw Exception('Failed to fetch student status: $e');
+    }
+  }
+
+  // Upload progress report (WPR)
+  static Future<Map<String, dynamic>> uploadProgressReport({
+    required int studentId,
+    required String title,
+    required String description,
+    required dynamic file, // File on mobile, Uint8List on web
+    required String fileName,
+    int? weekNumber,
+  }) async {
+    try {
+      final response = await ApiService.uploadFile(
+        '${ApiConfig.studentReports}',
+        file,
+        fileName,
+        fieldName: 'report_file',
+        additionalData: {
+          'student_id': studentId.toString(),
+          'title': title,
+          'description': description,
+          if (weekNumber != null) 'week_number': weekNumber.toString(),
+          'report_date': DateTime.now().toIso8601String().split('T')[0],
+        },
+      );
+
+      if (response.containsKey('error')) {
+        throw Exception(response['error'].toString());
+      }
+
+      return response;
+    } catch (e) {
+      throw Exception('Failed to upload report: $e');
+    }
+  }
+
+  // Get student progress reports
+  static Future<List<Map<String, dynamic>>> getStudentReports(int studentId) async {
+    try {
+      final response = await ApiService.get(
+        '${ApiConfig.studentReports}/student/$studentId',
+      );
+      if (response.containsKey('error')) {
+        throw Exception(response['error'].toString());
+      }
+      final List<dynamic> data = response['reports'] ?? [];
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch reports: $e');
     }
   }
 }

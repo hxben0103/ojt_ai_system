@@ -11,7 +11,14 @@ const pool = new Pool({
 });
 
 async function runMigration() {
-  const sqlPath = path.join(__dirname, '..', 'database', 'recalculate_hours.sql');
+  const fileName = process.argv[2] || 'migration_student_progress_reports.sql';
+  const sqlPath = path.join(__dirname, '..', 'database', fileName);
+  
+  if (!fs.existsSync(sqlPath)) {
+    console.error(`File not found: ${sqlPath}`);
+    process.exit(1);
+  }
+
   const sql = fs.readFileSync(sqlPath, 'utf8');
 
   console.log('Running migration...');

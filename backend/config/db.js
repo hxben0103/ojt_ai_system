@@ -15,9 +15,12 @@ const pool = new Pool({
   }
 });
 
-// Test connection
-pool.on('connect', () => {
+// Test connection and set default settings
+pool.on('connect', (client) => {
   console.log('✅ Connected to PostgreSQL database');
+  // Set session timezone to Philippines Time (Asia/Manila)
+  client.query("SET timezone = 'Asia/Manila'")
+    .catch(err => console.error('Error setting session timezone:', err));
 });
 
 pool.on('error', (err) => {

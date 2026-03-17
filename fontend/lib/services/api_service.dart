@@ -1,5 +1,8 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../core/dio_client.dart';
 
 class ApiService {
@@ -55,6 +58,41 @@ class ApiService {
       return _handleDioError(e);
     } catch (e) {
       throw Exception('Unexpected error: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> uploadFile(
+      String endpoint, dynamic fileData, String fileName,
+      {String fieldName = 'file', Map<String, dynamic>? additionalData}) async {
+    try {
+      MultipartFile multipartFile;
+      
+      if (fileData is Uint8List) {
+        multipartFile = MultipartFile.fromBytes(fileData, filename: fileName);
+      } else if (!kIsWeb && fileData is File) {
+        multipartFile = await MultipartFile.fromFile(fileData.path, filename: fileName);
+      } else {
+        // Fallback for when we might receive something else or if on web with unexpected types
+        throw Exception('Unsupported or invalid file data for current platform');
+      }
+
+      final formData = FormData.fromMap({
+        fieldName: multipartFile,
+        if (additionalData != null) ...additionalData,
+      });
+
+      final response = await _dio.post(
+        endpoint,
+        data: formData,
+        options: Options(
+          headers: {'Content-Type': 'multipart/form-data'},
+        ),
+      );
+      return _handleResponse(response);
+    } on DioException catch (e) {
+      return _handleDioError(e);
+    } catch (e) {
+      throw Exception('Upload error: $e');
     }
   }
 

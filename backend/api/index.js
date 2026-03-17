@@ -1,3 +1,4 @@
+process.env.TZ = 'Asia/Manila';
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -77,6 +78,7 @@ const evaluationRoutes = require('./routes/evaluation');
 const predictionRoutes = require('./routes/prediction');
 const coordinatorAnalyticsRoutes = require('./routes/coordinatorAnalytics');
 const reportsRoutes = require('./routes/reports');
+const progressReportsRoutes = require('./routes/progressReports');
 
 // Import OJT routes with error handling
 let ojtRoutes;
@@ -128,6 +130,7 @@ app.use('/api/ojt', ojtRoutes);
 app.use('/api/ojt-sites', ojtSitesRoutes);
 app.use('/api', dailyTasksRoutes); // Daily tasks routes use /api prefix directly
 app.use('/api', coordinatorAnalyticsRoutes); // Coordinator analytics endpoints
+app.use('/api/student-reports', progressReportsRoutes);
 
 console.log('✅ All API routes registered');
 

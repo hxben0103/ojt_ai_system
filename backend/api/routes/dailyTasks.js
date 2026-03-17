@@ -86,6 +86,8 @@ router.get('/students/:studentId/daily-tasks', authenticateToken, async (req, re
          t.remarks,
          t.created_at,
          t.updated_at,
+         t.coordinator_comment,
+         t.coordinator_comment_at,
          c.competency_id,
          c.title AS competency_title,
          c.point_value AS competency_point_value
@@ -113,6 +115,8 @@ router.get('/students/:studentId/daily-tasks', authenticateToken, async (req, re
           remarks: row.remarks,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
+          coordinatorComment: row.coordinator_comment,
+          coordinatorCommentAt: row.coordinator_comment_at,
           competencies: []
         });
       }
@@ -229,6 +233,8 @@ router.post('/students/:studentId/daily-tasks', authenticateToken, async (req, r
       supervisorId: fullTaskResult.rows[0].supervisor_id,
       status: fullTaskResult.rows[0].status,
       remarks: fullTaskResult.rows[0].remarks,
+      coordinatorComment: fullTaskResult.rows[0].coordinator_comment,
+      coordinatorCommentAt: fullTaskResult.rows[0].coordinator_comment_at,
       competency: {
         competencyId: fullTaskResult.rows[0].competency_id,
         title: fullTaskResult.rows[0].competency_title,

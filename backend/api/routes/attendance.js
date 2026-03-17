@@ -58,7 +58,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 // Get all attendance records (optional filter: verification_status=FLAGGED)
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { student_id, date, verification_status } = req.query;
 
@@ -66,18 +66,29 @@ router.get('/', async (req, res) => {
       SELECT 
         a.attendance_id, a.student_id, a.date, 
         a.morning_in, a.morning_out, a.afternoon_in, a.afternoon_out,
-        a.overtime_in, a.overtime_out, a.regular_hours, 
+        a.overtime_hours, a.regular_hours, 
         a.total_hours, a.deduction_minutes,
         a.status, a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng, 
         a.verification_status, a.distance_m, a.trust_score, a.trust_flags,
         a.checkin_photo_path, (a.attendance_image IS NOT NULL) AS has_base64_image,
+        a.coordinator_comment, a.coordinator_comment_at,
         u.full_name
       FROM attendance a
       JOIN users u ON a.student_id = u.user_id
+      -- Join OJT records to check coordinator
+      LEFT JOIN ojt_records o ON a.student_id = o.student_id AND o.status IN ('Ongoing', 'Active')
       WHERE 1=1
     `;
     const params = [];
+    const { role, user_id } = req.user;
     let paramCount = 1;
+
+    // Data Isolation: Coordinators can only see their own students' attendance
+    if (role === 'Coordinator') {
+      sql += ` AND o.coordinator_id = $${paramCount}`;
+      params.push(user_id);
+      paramCount++;
+    }
 
     if (student_id) {
       sql += ` AND a.student_id = $${paramCount} `;
@@ -113,7 +124,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get today's attendance for a student (allows optional date override)
-router.get('/today/:studentId', async (req, res) => {
+router.get('/today/:studentId', authenticateToken, async (req, res) => {
   try {
     const { studentId } = req.params;
     const { date } = req.query;
@@ -122,7 +133,20 @@ router.get('/today/:studentId', async (req, res) => {
     
     console.log(`[Attendance GET /today] Fetching session for student: ${studentId}, date: ${calculatedDate} (input date: ${date || 'none'})`);
 
-    const sql = `SELECT a.*, u.full_name 
+    const { role, user_id: loggedInUserId } = req.user;
+    
+    // Data Isolation: Coordinators can only see their own students
+    if (role === 'Coordinator') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [studentId, loggedInUserId]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view attendance for students assigned to you.' });
+      }
+    }
+
+    const sql = `SELECT a.*, u.full_name
                  FROM attendance a
                  JOIN users u ON a.student_id = u.user_id
                  WHERE a.student_id = $1 AND a.date = $2`;
@@ -199,7 +223,7 @@ router.post('/upload-photo', uploadPhoto, async (req, res) => {
 
 // Create attendance record (Time In) - Using stored procedure
 // Supports both legacy time_in and segment-based logging
-router.post('/time-in', async (req, res) => {
+router.post('/time-in', authenticateToken, async (req, res) => {
   try {
     console.log("📝 [Attendance POST /time-in] Request body:", {
       student_id: req.body.student_id,
@@ -470,7 +494,7 @@ router.post('/time-in', async (req, res) => {
 
 // Update attendance record (Time Out) - Using stored procedure
 // Supports both legacy time_out and segment-based logging
-router.put('/time-out', async (req, res) => {
+router.put('/time-out', authenticateToken, async (req, res) => {
   try {
     console.log("📝 [Attendance PUT /time-out] Request body:", {
       attendance_id: req.body.attendance_id,
@@ -661,7 +685,7 @@ router.put('/time-out', async (req, res) => {
 
 
 // Get attendance summary - Using stored procedure
-router.get('/summary', async (req, res) => {
+router.get('/summary', authenticateToken, async (req, res) => {
   try {
     const { student_id } = req.query;
 
@@ -711,13 +735,26 @@ router.get('/summary', async (req, res) => {
 });
 
 // Get attendance summary by student ID (alternative endpoint)
-router.get('/summary/:studentId', async (req, res) => {
+router.get('/summary/:studentId', authenticateToken, async (req, res) => {
   try {
     const { studentId } = req.params;
 
     let statsRow = {};
     let studentName = 'N/A';
     let lastDutyDate = null;
+
+    const { role, user_id: loggedInUserId } = req.user;
+
+    // Data Isolation: Check if student belongs to this coordinator
+    if (role === 'Coordinator') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [studentId, loggedInUserId]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view summary for students assigned to you.' });
+      }
+    }
 
     try {
       // Compute summary directly from attendance table, using only APPROVED records.
@@ -732,16 +769,15 @@ router.get('/summary/:studentId', async (req, res) => {
              ELSE 0
            END                                    AS avg_hours_per_day
          FROM attendance
-         WHERE student_id = $1
-           AND status = 'Approved'`,
+         WHERE student_id = $1 AND status IN ('Approved', 'Pending')`,
         [studentId]
       );
 
       statsRow = summaryResult.rows[0] || {};
 
-      // CRITICAL: Only get last duty date from approved attendance
+      // CRITICAL: Get last duty date from any attendance
       const lastDutyResult = await query(
-        'SELECT MAX(date) as last_duty_date FROM attendance WHERE student_id = $1 AND status = \'Approved\'',
+        'SELECT MAX(date) as last_duty_date FROM attendance WHERE student_id = $1 AND status IN (\'Approved\', \'Pending\')',
         [studentId]
       );
       lastDutyDate = lastDutyResult.rows[0]?.last_duty_date || null;

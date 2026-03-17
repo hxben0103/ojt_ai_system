@@ -102,15 +102,24 @@ class _StudentProgressReportScreenState
         _isUploading = true;
       });
 
-      // TODO: Implement actual file upload to backend
-      // For now, simulate upload
-      await Future.delayed(const Duration(seconds: 2));
+      final user = await AuthService.getCurrentUser();
+      if (user?.userId == null) {
+        throw Exception('User session expired. Please login again.');
+      }
+
+      final result = await OjtService.uploadProgressReport(
+        studentId: user!.userId!,
+        title: _titleController.text,
+        description: _descriptionController.text,
+        file: kIsWeb ? _selectedFileBytes : _selectedFile,
+        fileName: _fileName!,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Progress report uploaded successfully')),
         );
-        Navigator.pop(context);
+        Navigator.pop(context, true); // Return true to indicate success
       }
     } catch (e) {
       if (mounted) {

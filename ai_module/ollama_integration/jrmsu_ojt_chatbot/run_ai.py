@@ -64,9 +64,6 @@ def clean_llm_output(text: str) -> str:
             sentences = [s for s in sentences if word not in s.lower()]
             text = ". ".join(sentences).strip()
 
-    # Strip out the injected [Topic: X] headers if the LLM parroted them back
-    text = re.sub(r'\[Topic:\s*[^\]]+\]\s*', '', text, flags=re.IGNORECASE)
-
     return text.strip()
 
 
@@ -79,6 +76,9 @@ def format_response(text: str, width: int = 95) -> str:
     if not text:
         return ""
         
+    # Strip out the injected [Topic: X] headers in case they leaked into final text (LLM parroting or direct chunk fallback)
+    text = re.sub(r'\[Topic:\s*[^\]]+\]\s*', '', text, flags=re.IGNORECASE)
+    
     # Collapse multiple spaces but preserve single newlines
     text = re.sub(r'[ \t]+', ' ', text)
     # Collapse 3+ newlines to 2

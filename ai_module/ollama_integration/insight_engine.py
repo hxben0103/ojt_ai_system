@@ -9,6 +9,7 @@ from integrity_engine import assess_integrity_score
 # =========================================================
 # Setup Logging
 # =========================================================
+log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_engine.log')
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -805,7 +806,7 @@ def ml_predict(features_dict: Dict[str, float]) -> Dict[str, Any]:
 # =========================================================
 # Gemma (Ollama) Integration
 # =========================================================
-def call_gemma(prompt: str, model: str = None, timeout: int = 60) -> str:
+def call_gemma(prompt: str, model: str = None, timeout: int = 180) -> str:
     """
     Call local Ollama instance running Gemma model.
     
@@ -820,11 +821,11 @@ def call_gemma(prompt: str, model: str = None, timeout: int = 60) -> str:
     Raises:
         requests.RequestException: If the request fails
     """
-    ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
     
-    # Use environment variable or default to gemma:2b (can be overridden)
+    # Use environment variable or default to gemma2:2b (can be overridden)
     if model is None:
-        model = os.getenv("OLLAMA_MODEL", "gemma:2b")
+        model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
     
     try:
         response = requests.post(

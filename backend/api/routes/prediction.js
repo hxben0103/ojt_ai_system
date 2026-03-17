@@ -621,7 +621,7 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
     let aiRes;
     try {
       aiRes = await axios.post(`${flaskUrl}/predict`, payload, {
-        timeout: 55000, // Increased to 55 seconds for Ollama/Gemma processing
+        timeout: 180000, // Increased to 180 seconds for Ollama/Gemma processing
         headers: {
           'Content-Type': 'application/json'
         }

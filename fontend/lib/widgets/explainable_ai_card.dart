@@ -16,13 +16,14 @@ class ExplainableAiCard extends StatelessWidget {
     if (prediction['ai_prediction'] == null) return const SizedBox.shrink();
     
     final ai = Map<String, dynamic>.from(prediction['ai_prediction'] as Map);
-    // Early-stage detection: show informational card instead of incomplete ML data
+    // Early-stage detection: show informational card ONLY when the backend explicitly
+    // flags early_stage:true (total_hours < 10 AND tasks < 5).
+    // NOTE: prediction_stage=='early' just means <25% hours completed — that is NOT
+    // a data-insufficient state and should still show the full AI narrative.
     final isEarlyStage = prediction['early_stage'] == true || 
                          prediction['is_context_gathering'] == true ||
                          ai['early_stage'] == true || 
-                         ai['is_context_gathering'] == true ||
-                         ai['prediction_stage'] == 'early' ||
-                         (ai['ml_prediction'] != null && ai['ml_prediction']['prediction_stage'] == 'early');
+                         ai['is_context_gathering'] == true;
                          
     if (isEarlyStage) {
       final summary = prediction['summary'] as String?

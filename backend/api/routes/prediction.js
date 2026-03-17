@@ -772,7 +772,7 @@ router.post('/chat', async (req, res) => {
           url: `${aiServiceUrl}/chat`,
           data: { message, session_id, student_data, stream: true },
           responseType: 'stream',
-          timeout: 60000
+          timeout: 120000
         });
 
         res.setHeader('Content-Type', 'application/x-ndjson');
@@ -785,13 +785,12 @@ router.post('/chat', async (req, res) => {
           session_id,
           student_data,
           stream: false
-        }, { timeout: 55000 });
+        }, { timeout: 120000 });
         
         return res.status(response.status).json(response.data);
       }
     } catch (axiosError) {
       console.error('AI Service communication error:', axiosError.message);
-      require('fs').appendFileSync('axios_error.log', '\\n\\n' + new Date().toISOString() + '\\n' + (axiosError.response ? JSON.stringify(axiosError.response.data) : '') + '\\n' + axiosError.stack + '\\n');
       return res.status(503).json({
         success: false,
         error_type: 'CHATBOT_SERVICE_UNAVAILABLE',

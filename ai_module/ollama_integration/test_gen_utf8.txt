@@ -1,0 +1,9 @@
+
+--- QUERY: what are the ojt requirements? ---
+ANSWER: Required OJT documents include the Parent’s Waiver and Consent Form, Recommendation Letter for OJT Deployment, Memorandum of Agreement, Letter of Acceptance from the Host Establishment, Medical Certificate and laboratory results, Student Copy from Registrar, Resume and Application Letter, Evaluation Sheet, Certificate of Completion, and Excuse Slip when applicable.
+
+--- QUERY: what are the ojt procedures? ---
+ANSWER: OJT procedures involve identifying a Host Training Establishment, coordinating with the OJT Coordinator, applying to an establishment and securing an approved MOA, preparing notarized copies of the MOA, submitting requirements such as parent consent and medical certificate, beginning OJT with orientation and training, maintaining a Daily Time Record, and submitting a narrative report and attending the practicum culmination.
+
+--- QUERY: what are the ojt learning competencies? ---
+ANSWER: ablishment, a Medical Certificate and required laboratory results, a Student Copy from the Registrar, and the student’s Resume and Application Letter. During the OJT, students must maintain a Daily Time Record (DTR), participate in orientation and training, perform assigned tasks, and later submit a Narrative Report and other required documents for evaluation and completion of the program.

@@ -813,7 +813,7 @@ def call_gemma(prompt: str, model: str = None, timeout: int = 180) -> str:
     Args:
         prompt: The prompt to send to Gemma
         model: Ollama model name (default: "gemma2:2b")
-        timeout: Request timeout in seconds (default: 60)
+        timeout: Request timeout in seconds (default: 180)
     
     Returns:
         Generated text response from Gemma
@@ -854,6 +854,7 @@ def call_gemma(prompt: str, model: str = None, timeout: int = 180) -> str:
             "Please ensure Ollama is running and the model is available."
         )
     except requests.exceptions.Timeout:
+        logger.error(f"Ollama request timed out after {timeout} seconds. This usually means the model took too long to generate the response.")
         raise TimeoutError(f"Ollama request timed out after {timeout} seconds.")
     except requests.exceptions.RequestException as e:
         raise Exception(f"Ollama API error: {str(e)}")

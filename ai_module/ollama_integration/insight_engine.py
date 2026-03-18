@@ -972,7 +972,8 @@ def predict_with_explanation(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     required_hours = float(snapshot.get('required_hours', 300))
     hours_ratio = total_hours / required_hours if required_hours > 0 else 0.0
     
-    IS_EARLY_STAGE = total_hours < 10 and total_tasks < 5
+    # Made flexible: Only show early stage fallback if the student has absolutely zero data
+    IS_EARLY_STAGE = total_hours <= 0 and total_tasks <= 0
     
     if IS_EARLY_STAGE:
         logger.info(f"Early OJT stage detected (hours={total_hours}, tasks={total_tasks}). Returning warm-start prediction.")

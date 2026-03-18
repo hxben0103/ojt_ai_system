@@ -178,13 +178,17 @@ class WeeklyAiSummaryCard extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SizedBox(
-          width: 80,
-          child: Text(
-            "$label:",
-            style: AppTheme.bodySmall.copyWith(
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w500,
+        Flexible(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 4.0),
+            child: Text(
+              "$label:",
+              style: AppTheme.bodySmall.copyWith(
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ),

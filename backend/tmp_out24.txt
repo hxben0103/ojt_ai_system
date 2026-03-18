@@ -1,0 +1,18 @@
+﻿Γ£à Connected to PostgreSQL database
+Executed query {
+  text: '\n' +
+    '      SELECT pg_get_function_arguments(oid) as args\n' +
+    '      FROM pg_proc \n' +
+    "      WHERE proname = 'create_attendance'\n" +
+    '    ',
+  duration: 776,
+  rows: 2
+}
+[
+  {
+    args: 'p_student_id integer, p_date date, p_morning_in time without time zone DEFAULT NULL::time without time zone, p_morning_out time without time zone DEFAULT NULL::time without time zone, p_afternoon_in time without time zone DEFAULT NULL::time without time zone, p_afternoon_out time without time zone DEFAULT NULL::time without time zone'
+  },
+  {
+    args: 'p_student_id integer, p_date date, p_time_in time without time zone, p_time_out time without time zone DEFAULT NULL::time without time zone, p_morning_in time without time zone DEFAULT NULL::time without time zone, p_morning_out time without time zone DEFAULT NULL::time without time zone, p_afternoon_in time without time zone DEFAULT NULL::time without time zone, p_afternoon_out time without time zone DEFAULT NULL::time without time zone'
+  }
+]

@@ -1060,9 +1060,11 @@ def predict_with_explanation(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             for name, value in features_dict.items()
         ])
         
+        student_name = snapshot.get("student_name", "Student")
+        
         prompt = f"""You are an academic advisor for OJT (on-the-job training) students.
 
-Student performance summary:
+Student performance summary for {student_name}:
 - Risk level: {ml_result['risk_level']}
 - Predicted class: {ml_result['predicted_label']}
 - Confidence: {ml_result['probability']:.1%}
@@ -1072,9 +1074,9 @@ Performance metrics (higher is better):
 {features_summary}
 
 Please provide:
-1) A brief explanation (2-3 sentences) in simple, encouraging language explaining why the student is at this risk level. Be supportive and constructive.
+1) A brief explanation (2-3 sentences) in simple, encouraging language explaining why {student_name} is at this risk level. Be supportive and constructive. Start with a greeting using the student's name: "Hi {student_name}, ...".
 
-2) Give 3-5 specific, practical recommendations they can follow in the next 1-2 weeks to improve their OJT performance. Focus on actionable steps related to attendance, evaluations, tasks, communication, etc.
+2) Give 3-5 specific, practical recommendations {student_name} can follow in the next 1-2 weeks to improve their OJT performance. Focus on actionable steps related to attendance, evaluations, tasks, communication, etc.
 
 Keep your total response under 250 words. Format recommendations as numbered or bulleted items. Speak as if you are their mentor."""
 

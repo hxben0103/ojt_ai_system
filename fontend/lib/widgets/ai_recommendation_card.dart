@@ -7,6 +7,7 @@ class AIRecommendationCard extends StatelessWidget {
   final String trendStatus;
   final String trendReason;
   final String recommendation;
+  final String? gemmaExplanation;
   final bool isLoading;
 
   const AIRecommendationCard({
@@ -15,6 +16,7 @@ class AIRecommendationCard extends StatelessWidget {
     required this.trendStatus,
     required this.trendReason,
     required this.recommendation,
+    this.gemmaExplanation,
     this.isLoading = false,
   }) : super(key: key);
 
@@ -118,6 +120,48 @@ class AIRecommendationCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  
+                  if (gemmaExplanation != null && gemmaExplanation!.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.shade50.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.purple.shade100.withOpacity(0.5)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.psychology_outlined, size: 14, color: Colors.purple.shade700),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Detailed Analysis',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.purple.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            gemmaExplanation!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.purple.shade900,
+                              height: 1.4,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),

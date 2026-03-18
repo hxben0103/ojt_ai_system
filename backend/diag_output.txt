@@ -1,0 +1,11 @@
+--- AI INSIGHT KEYS DIAGNOSTIC ---
+Student ID: 21
+Insight Type: daily_risk_prediction
+Created At: Wed Mar 18 2026 01:06:05 GMT+0800 (Philippine Standard Time)
+
+Result Keys: ["score","trend","grading","success","summary","integrity","confidence","risk_level","early_stage","key_factors","probability","top_reasons","ml_prediction","probabilities","recommendation","predicted_label","gemma_explanation","gemma_recommendations"]
+Has gemma_explanation: true
+Has gemma_recommendations: true
+Has summary: true
+
+ml_prediction Keys: ["score","success","risk_level","key_factors","probability"]

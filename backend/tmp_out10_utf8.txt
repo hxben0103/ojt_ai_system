@@ -1,0 +1,52 @@
+﻿Γ£à Connected to PostgreSQL database
+Executed query {
+  text: '\n' +
+    '      SELECT a.result\n' +
+    '      FROM ai_insights a\n' +
+    '      JOIN users u ON a.student_id = u.user_id\n' +
+    "      WHERE u.full_name = $1 AND a.insight_type = 'daily_risk_prediction'\n" +
+    '      ORDER BY a.created_at DESC\n' +
+    '      LIMIT 1\n' +
+    '    ',
+  duration: 676,
+  rows: 1
+}
+--- daryl pogi ---
+success: true
+early_stage: undefined
+ml_prediction risk: HIGH
+gemma_explanation length: 212
+Executed query {
+  text: '\n' +
+    '      SELECT a.result\n' +
+    '      FROM ai_insights a\n' +
+    '      JOIN users u ON a.student_id = u.user_id\n' +
+    "      WHERE u.full_name = $1 AND a.insight_type = 'daily_risk_prediction'\n" +
+    '      ORDER BY a.created_at DESC\n' +
+    '      LIMIT 1\n' +
+    '    ',
+  duration: 87,
+  rows: 1
+}
+--- Demo Student: Star ---
+success: true
+early_stage: undefined
+ml_prediction risk: HIGH
+gemma_explanation length: 381
+Executed query {
+  text: '\n' +
+    '      SELECT a.result\n' +
+    '      FROM ai_insights a\n' +
+    '      JOIN users u ON a.student_id = u.user_id\n' +
+    "      WHERE u.full_name = $1 AND a.insight_type = 'daily_risk_prediction'\n" +
+    '      ORDER BY a.created_at DESC\n' +
+    '      LIMIT 1\n' +
+    '    ',
+  duration: 82,
+  rows: 1
+}
+--- Demo Student: Late ---
+success: true
+early_stage: undefined
+ml_prediction risk: HIGH
+gemma_explanation length: 432

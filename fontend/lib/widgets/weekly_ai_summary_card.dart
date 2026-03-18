@@ -122,6 +122,37 @@ class WeeklyAiSummaryCard extends StatelessWidget {
             child: Divider(height: 1),
           ),
           
+          if (aiInsight?['gemma_explanation'] != null) ...[
+            Row(
+              children: [
+                Icon(Icons.auto_awesome, color: Colors.purple.shade400, size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  "AI Narrative",
+                  style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.bold, color: Colors.purple.shade700),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.purple.shade50.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.purple.shade100.withOpacity(0.5)),
+              ),
+              child: Text(
+                aiInsight!['gemma_explanation'] as String,
+                style: AppTheme.bodySmall.copyWith(
+                  color: Colors.purple.shade900,
+                  height: 1.5,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

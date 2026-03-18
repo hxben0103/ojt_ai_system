@@ -1,0 +1,20 @@
+﻿Γ£à Connected to PostgreSQL database
+Executed query {
+  text: '\n' +
+    '    SELECT u.full_name AS student_name, c.full_name AS coordinator_name\n' +
+    '    FROM ojt_records o\n' +
+    '    JOIN users u ON o.student_id = u.user_id\n' +
+    '    LEFT JOIN users c ON o.coordinator_id = c.user_id\n' +
+    "    WHERE u.full_name IN ('daryl pogi', 'Demo Student: Star', 'Demo Student: Late')\n" +
+    "      AND o.status IN ('Ongoing', 'Active')\n" +
+    '  ',
+  duration: 779,
+  rows: 3
+}
+ΓöîΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÉ
+Γöé (index) Γöé student_name         Γöé coordinator_name  Γöé
+Γö£ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöñ
+Γöé 0       Γöé 'daryl pogi'         Γöé 'markkk  jaran'   Γöé
+Γöé 1       Γöé 'Demo Student: Star' Γöé 'mark jarantilla' Γöé
+Γöé 2       Γöé 'Demo Student: Late' Γöé 'mark jarantilla' Γöé
+ΓööΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÿ

@@ -1,0 +1,133 @@
+﻿--- Testing Ollama directly ---
+Sending request to Ollama (http://127.0.0.1:11434/api/generate)...
+Status Code: 200
+Ollama is responding.
+
+--- Testing API /predict ---
+Sending request to http://127.0.0.1:5000/predict...
+Status Code: 200
+Response Body:
+{
+  "confidence": 0.8098076313183924,
+  "data_completeness": {
+    "has_coordinator_eval": false,
+    "has_supervisor_eval": false,
+    "has_tasks": true
+  },
+  "gemma_explanation": "Hey there! It looks like you're starting off strong with your OJT experience, but the high risk level comes from a few key things.  You have solid attendance and are making great strides in terms of commitment to the program. Let's make sure we maximize those efforts to reach your full potential! Here\u2019s what I suggest:",
+  "gemma_recommendations": [
+    "Reach out to your supervisor:**  Let's schedule a quick chat to discuss your progress and expectations for your OJT period. Getting their feedback will provide valuable direction and help you address any concerns they might have.",
+    "Build up those task hours:** Start working on more tasks! Even if some are small, focus on building that \"hours_completed_ratio\" \u2013 it can make a big difference in your evaluation. You've already logged 20 tasks, so keep going!  Don\u2019t forget to break down larger tasks into smaller steps for easier progress.",
+    "Document all your activities:** Keep track of the skills you're developing and the hours you've spent on various projects. This makes it easy for your supervisor to see your contributions and understand how much time is going towards different areas of learning.",
+    "Remember, OJT is a journey of continuous learning!  You are making great strides in your OJT experience and I believe in you. Let me know if you need any help with anything during this next step."
+  ],
+  "grading": {
+    "available_weight_percent": 100,
+    "components": {
+      "coordinator_eval": {
+        "available": true,
+        "score": 88.0,
+        "weight": "20%"
+      },
+      "narrative_report": {
+        "available": true,
+        "score": 80.0,
+        "weight": "20%"
+      },
+      "supervisor_eval": {
+        "available": true,
+        "score": 90.0,
+        "weight": "40%"
+      },
+      "weekly_progress": {
+        "available": true,
+        "score": 85.0,
+        "weight": "20%"
+      }
+    },
+    "forecasted_grade": 86.6,
+    "raw_score": 86.6,
+    "status": "complete"
+  },
+  "integrity": {
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "flags": [],
+    "integrity_score": 100,
+    "severity": "low"
+  },
+  "key_factors": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "hours_completed_ratio is below satisfactory (0.0)",
+    "Attendance rate below target (75.0%) - impacts 20% Weekly Progress score"
+  ],
+  "ml_prediction": {
+    "confidence": 0.8098076313183924,
+    "data_completeness": {
+      "has_coordinator_eval": false,
+      "has_supervisor_eval": false,
+      "has_tasks": true
+    },
+    "key_factors": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "hours_completed_ratio is below satisfactory (0.0)",
+      "Attendance rate below target (75.0%) - impacts 20% Weekly Progress score"
+    ],
+    "predicted_label": "HIGH",
+    "prediction_stage": "early",
+    "probabilities": {
+      "HIGH": 0.8098076313183924,
+      "LOW": 0.03260760311173683,
+      "MEDIUM": 0.1575841000710261
+    },
+    "probability": 0.8098076313183924,
+    "progress_score": 9,
+    "recommendation": "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support.",
+    "recommendations": [
+      "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support."
+    ],
+    "risk_level": "HIGH",
+    "score": 9,
+    "success": true,
+    "summary": "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support.",
+    "top_reasons": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "hours_completed_ratio is below satisfactory (0.0)",
+      "Attendance rate below target (75.0%) - impacts 20% Weekly Progress score"
+    ]
+  },
+  "predicted_label": "HIGH",
+  "prediction_stage": "early",
+  "probabilities": {
+    "HIGH": 0.8098076313183924,
+    "LOW": 0.03260760311173683,
+    "MEDIUM": 0.1575841000710261
+  },
+  "probability": 0.8098076313183924,
+  "progress_score": 9,
+  "recommendation": "High priority: Increase OJT hours completion. Log more competency-based daily tasks and ensure supervisor approval. Coordinate with supervisor for support.",
+  "recommendations": [
+    "Reach out to your supervisor:**  Let's schedule a quick chat to discuss your progress and expectations for your OJT period. Getting their feedback will provide valuable direction and help you address any concerns they might have.",
+    "Build up those task hours:** Start working on more tasks! Even if some are small, focus on building that \"hours_completed_ratio\" \u2013 it can make a big difference in your evaluation. You've already logged 20 tasks, so keep going!  Don\u2019t forget to break down larger tasks into smaller steps for easier progress.",
+    "Document all your activities:** Keep track of the skills you're developing and the hours you've spent on various projects. This makes it easy for your supervisor to see your contributions and understand how much time is going towards different areas of learning.",
+    "Remember, OJT is a journey of continuous learning!  You are making great strides in your OJT experience and I believe in you. Let me know if you need any help with anything during this next step."
+  ],
+  "risk_level": "HIGH",
+  "score": 9,
+  "success": true,
+  "summary": "Hey there! It looks like you're starting off strong with your OJT experience, but the high risk level comes from a few key things.  You have solid attendance and are making great strides in terms of commitment to the program. Let's make sure we maximize those efforts to reach your full potential! Here\u2019s what I suggest:",
+  "top_reasons": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "hours_completed_ratio is below satisfactory (0.0)",
+    "Attendance rate below target (75.0%) - impacts 20% Weekly Progress score"
+  ],
+  "trend": {
+    "reason": "Performance is consistent",
+    "status": "stable"
+  }
+}

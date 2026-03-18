@@ -16,19 +16,22 @@ class ExplainableAiCard extends StatelessWidget {
     if (prediction['ai_prediction'] == null) return const SizedBox.shrink();
     
     final ai = Map<String, dynamic>.from(prediction['ai_prediction'] as Map);
+    // AI Narrative (Gemma) - Prefer more detailed fields first
+    final summary = ai['gemma_explanation'] as String? 
+        ?? ai['summary'] as String? 
+        ?? prediction['summary'] as String?
+        ?? 'No summary available.';
+
     // Early-stage detection: show informational card ONLY when the backend explicitly
-    // flags early_stage:true (total_hours < 10 AND tasks < 5).
-    // NOTE: prediction_stage=='early' just means <25% hours completed — that is NOT
-    // a data-insufficient state and should still show the full AI narrative.
-    final isEarlyStage = prediction['early_stage'] == true || 
-                         prediction['is_context_gathering'] == true ||
-                         ai['early_stage'] == true || 
-                         ai['is_context_gathering'] == true;
-                         
+    // flags early_stage:true AND we don't have a specific AI narrative yet.
+    final hasNarrative = (ai['gemma_explanation'] as String? ?? '').length > 10;
+    
+    final isEarlyStage = (prediction['early_stage'] == true || 
+                          prediction['is_context_gathering'] == true ||
+                          ai['early_stage'] == true || 
+                          ai['is_context_gathering'] == true) && !hasNarrative;
+                          
     if (isEarlyStage) {
-      final summary = prediction['summary'] as String?
-          ?? ai['summary'] as String?
-          ?? 'Student just started OJT. Log tasks and attendance to unlock predictions.';
       return _buildEarlyStageCard(context, summary);
     }
     
@@ -41,7 +44,6 @@ class ExplainableAiCard extends StatelessWidget {
     final integrity = ai['integrity'] != null 
         ? Map<String, dynamic>.from(ai['integrity'] as Map)
         : <String, dynamic>{};
-    final summary = ai['summary'] as String? ?? 'No summary available.';
     
     final riskLevel = ml['risk_level'] as String? ?? 'UNKNOWN';
     final probability = (ml['probability'] as num?)?.toDouble() ?? 0.0;

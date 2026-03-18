@@ -375,7 +375,7 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
 
     const evaluations = evalResult.rows;
 
-    // Get latest AI insight
+    // Get latest AI insights (Fetch both to ensure we get the narrative if available)
     const insightResult = await query(
       `SELECT 
          insight_id,
@@ -385,15 +385,18 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
          confidence,
          created_at
        FROM ai_insights
-       WHERE student_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1`,
+       WHERE student_id = $1 AND insight_type IN ('daily_risk_prediction', 'performance_prediction')
+       ORDER BY (CASE WHEN insight_type = 'daily_risk_prediction' THEN 1 ELSE 2 END), created_at DESC
+       LIMIT 2`,
       [studentId]
     );
 
     let aiInsight = null;
     if (insightResult.rows.length > 0) {
-      const insight = insightResult.rows[0];
+      // Find the best insight (prefer daily_risk_prediction for its narrative)
+      const bestInsight = insightResult.rows.find(r => r.insight_type === 'daily_risk_prediction') || insightResult.rows[0];
+      const insight = bestInsight;
+      
       try {
         const resultData = typeof insight.result === 'string'
           ? JSON.parse(insight.result)
@@ -406,9 +409,16 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
           risk_level: resultData.risk_level || resultData.class_label || (resultData.ai_prediction && resultData.ai_prediction.ml_prediction ? resultData.ai_prediction.ml_prediction.risk_level : null),
           probability: insight.confidence || resultData.probability || (resultData.ai_prediction && resultData.ai_prediction.ml_prediction ? resultData.ai_prediction.ml_prediction.probability : null),
           top_reasons: resultData.top_reasons || (resultData.ai_prediction && resultData.ai_prediction.ml_prediction ? resultData.ai_prediction.ml_prediction.top_reasons : []),
-          recommendation: resultData.recommendation || (resultData.ai_prediction ? resultData.ai_prediction.recommendation : null),
-          // Include the full raw prediction for the new XAI widgets
-          ai_prediction: resultData.ai_prediction || resultData,
+          recommendation: Array.isArray(resultData.gemma_recommendations) 
+            ? resultData.gemma_recommendations.join(' ') 
+            : (resultData.recommendation || resultData.summary || (resultData.ai_prediction ? resultData.ai_prediction.recommendation : null)),
+          gemma_explanation: resultData.gemma_explanation || resultData.summary || (resultData.ai_prediction ? resultData.ai_prediction.gemma_explanation : null),
+          // Include the full raw prediction for the new XAI widgets, making sure narrative is accessible
+          ai_prediction: {
+            ...(resultData.ai_prediction || resultData),
+            gemma_explanation: resultData.gemma_explanation || resultData.summary,
+            gemma_recommendations: resultData.gemma_recommendations
+          },
           created_at: insight.created_at
         };
       } catch (e) {

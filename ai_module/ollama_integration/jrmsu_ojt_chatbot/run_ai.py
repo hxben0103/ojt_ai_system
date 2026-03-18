@@ -76,6 +76,9 @@ def format_response(text: str, width: int = 95) -> str:
     if not text:
         return ""
         
+    # Strip out the injected [Topic: X] headers in case they leaked into final text (LLM parroting or direct chunk fallback)
+    text = re.sub(r'\[Topic:\s*[^\]]+\]\s*', '', text, flags=re.IGNORECASE)
+    
     # Collapse multiple spaces but preserve single newlines
     text = re.sub(r'[ \t]+', ' ', text)
     # Collapse 3+ newlines to 2
@@ -133,7 +136,7 @@ def try_exact_university_answer(user_query: str) -> str | None:
             return text
 
     # Vision
-    if "vision" in q and ("jrmsu" in q or "university" in q):
+    if "vision" in q or "vission" in q and ("jrmsu" in q or "university" in q):
         text = load_text_file("jrmsu_vision.txt")
         if text:
             logger.info(f"[EXACT_ANSWER] Found vision file: {len(text)} chars")
@@ -147,7 +150,7 @@ def try_exact_university_answer(user_query: str) -> str | None:
             return text
 
     # Core values / values
-    if "core values" in q or ("values" in q and "jrmsu" in q):
+    if "core values" in q or "core" in q or ("values" in q and "jrmsu" in q):
         text = load_text_file("jrmsu_core_values.txt")
         if text:
             logger.info(f"[EXACT_ANSWER] Found core values file: {len(text)} chars")
@@ -165,6 +168,34 @@ def try_exact_university_answer(user_query: str) -> str | None:
         text = load_text_file("university_profile.txt")
         if text:
             logger.info(f"[EXACT_ANSWER] Found profile file: {len(text)} chars")
+            return text
+
+    # Learning Competencies
+    if "competenc" in q or "activities" in q:
+        text = load_text_file("competencies.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found competencies file: {len(text)} chars")
+            return text
+
+    # OJT Requirements
+    if "requirement" in q:
+        text = load_text_file("ojt_requirements.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found requirements file: {len(text)} chars")
+            return text
+
+    # OJT Grading System
+    if "grading" in q or "grade" in q:
+        text = load_text_file("ojt_grading_system.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found grading file: {len(text)} chars")
+            return text
+
+    # DTR Guidelines
+    if "dtr" in q or "daily time record" in q:
+        text = load_text_file("dtr_guidelines.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found DTR file: {len(text)} chars")
             return text
 
     return None
@@ -471,7 +502,8 @@ def generate_response(
         query_lower = user_query.lower()
         system_content = (
             "You are a formal academic assistant for JRMSU. "
-            "You must answer ONLY with clean, direct information. "
+            "You must answer ONLY with clean, direct information from the specific [Topic: X] provided. "
+            "Do NOT mix information from different topics. "
             "Never reference documents, files, chapters, or sources. "
             "Use conversation history to provide context-aware answers when available."
         )

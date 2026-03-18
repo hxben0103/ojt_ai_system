@@ -30,7 +30,10 @@ def load_all_text():
                 raw = f.read().strip()
                 cleaned = clean_text(raw)
                 if cleaned:
-                    chunks.append(cleaned)
+                    # Provide metadata context based on filename
+                    topic = filename.replace(".txt", "").replace("_", " ").title()
+                    context_chunk = f"[Topic: {topic}]\n{cleaned}"
+                    chunks.append(context_chunk)
     return chunks
 
 

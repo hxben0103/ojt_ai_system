@@ -29,9 +29,9 @@ function safeFloat(v) {
 function formatDate(date) {
   if (!date) return null;
   if (date instanceof Date) {
-    // For DATE columns, node-postgres usually returns a Date object at midnight UTC or Local.
-    // Using UTC methods is safer as it avoids local timezone shifts that could change the day.
-    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    // For DATE columns, node-postgres usually returns a Date object at midnight local time.
+    // We should extract local parts (not UTC parts) because PHT (UTC+8) shifts midnight to 4PM the previous day in UTC.
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
   if (typeof date === 'string' && date.includes('T')) {
     return date.split('T')[0];
@@ -386,7 +386,7 @@ router.post('/time-in', authenticateToken, async (req, res) => {
     } else {
       // Create new record
       const result = await query(
-        'SELECT create_attendance($1, $2, $3, NULL, $4, NULL) as result',
+        'SELECT create_attendance($1::integer, $2::date, $3::time, NULL::time, $4::time, NULL::time) as result',
         [student_id, currentDate, morningIn, afternoonIn]
       );
 

@@ -1644,12 +1644,16 @@ class _StudentDashboardState extends State<StudentDashboard>
     final recommendation = aiPred?['ml_prediction']?['recommendation'] ?? 'Keep logging your progress!';
     final trendStatus = trend?['status'] ?? 'stable';
     final trendReason = trend?['reason'] ?? 'Consistent performance maintained.';
+    final gemmaExplanation = aiPred?['gemma_explanation'] as String? 
+        ?? aiPred?['explanation'] as String? 
+        ?? aiPred?['summary'] as String?;
 
     return AIRecommendationCard(
       riskLevel: riskLevel,
       trendStatus: trendStatus,
       trendReason: trendReason,
       recommendation: recommendation,
+      gemmaExplanation: gemmaExplanation,
     );
   }
 

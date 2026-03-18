@@ -1,0 +1,58 @@
+﻿Γ£à Connected to PostgreSQL database
+Executed query {
+  text: '\n' +
+    '      SELECT u.full_name, a.insight_type, COUNT(*) as cnt\n' +
+    '      FROM ai_insights a\n' +
+    '      JOIN users u ON a.student_id = u.user_id\n' +
+    '      GROUP BY u.full_name, a.insight_type\n' +
+    '      ORDER BY u.full_name, a.insight_type;\n' +
+    '    ',
+  duration: 1169,
+  rows: 16
+}
+Insights count per student:
+ΓöîΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÉ
+Γöé (index) Γöé full_name             Γöé insight_type             Γöé cnt   Γöé
+Γö£ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöñ
+Γöé 0       Γöé 'daryl pogi'          Γöé 'daily_risk_prediction'  Γöé '111' Γöé
+Γöé 1       Γöé 'daryl pogi'          Γöé 'performance_prediction' Γöé '1'   Γöé
+Γöé 2       Γöé 'Demo Student: Ghost' Γöé 'daily_risk_prediction'  Γöé '4'   Γöé
+Γöé 3       Γöé 'Demo Student: Ghost' Γöé 'performance_prediction' Γöé '1'   Γöé
+Γöé 4       Γöé 'Demo Student: Late'  Γöé 'daily_risk_prediction'  Γöé '5'   Γöé
+Γöé 5       Γöé 'Demo Student: Late'  Γöé 'performance_prediction' Γöé '1'   Γöé
+Γöé 6       Γöé 'Demo Student: Star'  Γöé 'daily_risk_prediction'  Γöé '4'   Γöé
+Γöé 7       Γöé 'Demo Student: Star'  Γöé 'performance_prediction' Γöé '1'   Γöé
+Γöé 8       Γöé 'lloydi acaylar'      Γöé 'daily_risk_prediction'  Γöé '32'  Γöé
+Γöé 9       Γöé 'lloydi acaylar'      Γöé 'performance_prediction' Γöé '1'   Γöé
+Γöé 10      Γöé 'loyd acaylar'        Γöé 'daily_risk_prediction'  Γöé '86'  Γöé
+Γöé 11      Γöé 'loyd acaylar'        Γöé 'performance_prediction' Γöé '1'   Γöé
+Γöé 12      Γöé 'mark bryan'          Γöé 'daily_risk_prediction'  Γöé '32'  Γöé
+Γöé 13      Γöé 'mark bryan'          Γöé 'performance_prediction' Γöé '1'   Γöé
+Γöé 14      Γöé 'momor aadssd'        Γöé 'daily_risk_prediction'  Γöé '35'  Γöé
+Γöé 15      Γöé 'momor aadssd'        Γöé 'performance_prediction' Γöé '1'   Γöé
+ΓööΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÿ
+Executed query {
+  text: '\n' +
+    '        SELECT u.user_id, u.full_name, o.status, \n' +
+    "               (SELECT COUNT(*) FROM attendance WHERE student_id = u.user_id AND status='Approved') as approved_attendance,\n" +
+    "               (SELECT COUNT(*) FROM ojt_daily_tasks WHERE student_id = u.user_id AND status='Approved') as approved_tasks\n" +
+    '        FROM users u\n' +
+    '        JOIN ojt_records o ON u.user_id = o.student_id\n' +
+    "        WHERE u.role = 'Student' AND o.status IN ('Ongoing', 'Active')\n" +
+    '    ',
+  duration: 104,
+  rows: 8
+}
+All Active/Ongoing Students data:
+ΓöîΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö¼ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÉ
+Γöé (index) Γöé user_id Γöé full_name             Γöé status    Γöé approved_attendance Γöé approved_tasks Γöé
+Γö£ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö╝ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöñ
+Γöé 0       Γöé 3       Γöé 'daryl pogi'          Γöé 'Ongoing' Γöé '2'                 Γöé '1'            Γöé
+Γöé 1       Γöé 21      Γöé 'loyd acaylar'        Γöé 'Ongoing' Γöé '0'                 Γöé '0'            Γöé
+Γöé 2       Γöé 23      Γöé 'momor aadssd'        Γöé 'Ongoing' Γöé '3'                 Γöé '2'            Γöé
+Γöé 3       Γöé 24      Γöé 'lloydi acaylar'      Γöé 'Ongoing' Γöé '1'                 Γöé '0'            Γöé
+Γöé 4       Γöé 25      Γöé 'mark bryan'          Γöé 'Ongoing' Γöé '2'                 Γöé '0'            Γöé
+Γöé 5       Γöé 29      Γöé 'Demo Student: Star'  Γöé 'Ongoing' Γöé '14'                Γöé '15'           Γöé
+Γöé 6       Γöé 30      Γöé 'Demo Student: Ghost' Γöé 'Ongoing' Γöé '2'                 Γöé '0'            Γöé
+Γöé 7       Γöé 31      Γöé 'Demo Student: Late'  Γöé 'Ongoing' Γöé '14'                Γöé '5'            Γöé
+ΓööΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö┤ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÿ

@@ -196,7 +196,7 @@ router.post('/students/:studentId/daily-tasks', authenticateToken, async (req, r
     const taskResult = await query(
       `INSERT INTO ojt_daily_tasks 
          (student_id, date, task_description, hours_worked, supervisor_id, status)
-       VALUES ($1, $2, $3, $4, $5, 'Approved')
+       VALUES ($1, $2, $3, $4, $5, 'Pending')
        RETURNING *`,
       [studentId, date, taskDescription, hoursWorked || null, supervisorId]
     );

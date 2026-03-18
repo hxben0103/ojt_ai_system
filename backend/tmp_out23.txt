@@ -1,0 +1,1059 @@
+﻿Γ£à Connected to PostgreSQL database
+Executed query {
+  text: '\n' +
+    '      SELECT \n' +
+    '        u.user_id,\n' +
+    '        u.full_name,\n' +
+    '        ai.result,\n' +
+    '        ai.created_at\n' +
+    '      FROM users u\n' +
+    '      JOIN ai_insights ai ON u.user_id = ai.student_id\n' +
+    '      ORDER BY ai.created_at DESC\n' +
+    '      LIMIT 10;\n' +
+    '    ',
+  duration: 1736,
+  rows: 10
+}
+Latest AI Predictions for students:
+-----------------------------------------
+Student: daryl pogi (ID: 3)
+Date: Wed Mar 18 2026 06:50:24 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 8,
+  "trend": {
+    "reason": "Consistent performance logic maintained (0 vs 0)",
+    "status": "stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 19.6,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 98,
+        "weight": "20%",
+        "available": true
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 98,
+    "available_weight_percent": 20
+  },
+  "success": true,
+  "summary": "It's great to see you're dedicated to mastering the skills needed for success!  Your early progress shows potential, but a few areas need attention to reach your full potential. HereΓÇÖs how we can bridge that gap:",
+  "integrity": {
+    "flags": [],
+    "severity": "low",
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "integrity_score": 100
+  },
+  "confidence": 0.8181403585765653,
+  "risk_level": "HIGH",
+  "key_factors": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "total_hours_completed is below satisfactory (38.0)",
+    "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+  ],
+  "probability": 0.8181403585765653,
+  "top_reasons": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "total_hours_completed is below satisfactory (38.0)",
+    "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+  ],
+  "ml_prediction": {
+    "score": 8,
+    "success": true,
+    "summary": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "confidence": 0.8181403585765653,
+    "risk_level": "HIGH",
+    "key_factors": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "total_hours_completed is below satisfactory (38.0)",
+      "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+    ],
+    "probability": 0.8181403585765653,
+    "top_reasons": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "total_hours_completed is below satisfactory (38.0)",
+      "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+    ],
+    "probabilities": {
+      "LOW": 0.031906583833871134,
+      "HIGH": 0.8181403585765653,
+      "MEDIUM": 0.1499499027179831
+    },
+    "progress_score": 8,
+    "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "predicted_label": "HIGH",
+    "recommendations": [
+      "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies."
+    ],
+    "prediction_stage": "early",
+    "data_completeness": {
+      "has_tasks": true,
+      "has_supervisor_eval": false,
+      "has_coordinator_eval": false
+    }
+  },
+  "probabilities": {
+    "LOW": 0.031906583833871134,
+    "HIGH": 0.8181403585765653,
+    "MEDIUM": 0.1499499027179831
+  },
+  "progress_score": 8,
+  "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+  "predicted_label": "HIGH",
+  "recommendations": [
+    "Attendance:**  Let's make sure you're attending all scheduled training sessions and keeping track of those hours, aiming for 100% attendance. This is a solid foundation for learning!",
+    "Build a Task Foundation:**  While the early data suggests some challenges with task management, letΓÇÖs tackle that by working together to prioritize your tasks. Ensure you're staying on top of your workload and hitting those weekly targets.",
+    "Communicate and Collaborate:** Your supervisor plays a crucial role in guiding your growth. Regular check-ins with them will build trust, clarify expectations, and enhance the learning process.",
+    "Remember, your OJT journey is a marathon, not a sprint. Embrace challenges, celebrate successes, and keep pushing forward! You've got this!"
+  ],
+  "prediction_stage": "early",
+  "data_completeness": {
+    "has_tasks": true,
+    "has_supervisor_eval": false,
+    "has_coordinator_eval": false
+  },
+  "gemma_explanation": "It's great to see you're dedicated to mastering the skills needed for success!  Your early progress shows potential, but a few areas need attention to reach your full potential. HereΓÇÖs how we can bridge that gap:",
+  "gemma_recommendations": [
+    "Attendance:**  Let's make sure you're attending all scheduled training sessions and keeping track of those hours, aiming for 100% attendance. This is a solid foundation for learning!",
+    "Build a Task Foundation:**  While the early data suggests some challenges with task management, letΓÇÖs tackle that by working together to prioritize your tasks. Ensure you're staying on top of your workload and hitting those weekly targets.",
+    "Communicate and Collaborate:** Your supervisor plays a crucial role in guiding your growth. Regular check-ins with them will build trust, clarify expectations, and enhance the learning process.",
+    "Remember, your OJT journey is a marathon, not a sprint. Embrace challenges, celebrate successes, and keep pushing forward! You've got this!"
+  ]
+}
+-----------------------------------------
+Student: loyd acaylar (ID: 21)
+Date: Wed Mar 18 2026 06:49:22 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 50,
+  "trend": {
+    "reason": "OJT just started",
+    "status": "Stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 0,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 0,
+    "available_weight_percent": 0
+  },
+  "success": true,
+  "summary": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "integrity": {
+    "flags": [],
+    "severity": "low",
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "integrity_score": 100
+  },
+  "confidence": 0.5,
+  "risk_level": "LOW",
+  "early_stage": true,
+  "key_factors": [
+    "Early OJT stage",
+    "Hours completed: 0 / 300"
+  ],
+  "probability": 0.5,
+  "top_reasons": [
+    "Student just started OJT. Insufficient data for full prediction."
+  ],
+  "ml_prediction": {
+    "score": 50,
+    "success": true,
+    "risk_level": "LOW",
+    "key_factors": [
+      "Early OJT stage. Log tasks and attendance to unlock predictions."
+    ],
+    "probability": 0.5
+  },
+  "probabilities": {
+    "LOW": 0.5,
+    "HIGH": 0.2,
+    "MEDIUM": 0.3
+  },
+  "recommendation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "predicted_label": "LOW",
+  "gemma_explanation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "gemma_recommendations": [
+    "Log your daily tasks regularly in the app.",
+    "Ensure each attendance entry is approved by your supervisor.",
+    "Explore multiple OJT competencies early."
+  ]
+}
+-----------------------------------------
+Student: lloydi acaylar (ID: 24)
+Date: Wed Mar 18 2026 06:49:22 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 50,
+  "trend": {
+    "reason": "OJT just started",
+    "status": "Stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 0,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 0,
+    "available_weight_percent": 0
+  },
+  "success": true,
+  "summary": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "integrity": {
+    "flags": [],
+    "severity": "low",
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "integrity_score": 100
+  },
+  "confidence": 0.5,
+  "risk_level": "LOW",
+  "early_stage": true,
+  "key_factors": [
+    "Early OJT stage",
+    "Hours completed: 0 / 300"
+  ],
+  "probability": 0.5,
+  "top_reasons": [
+    "Student just started OJT. Insufficient data for full prediction."
+  ],
+  "ml_prediction": {
+    "score": 50,
+    "success": true,
+    "risk_level": "LOW",
+    "key_factors": [
+      "Early OJT stage. Log tasks and attendance to unlock predictions."
+    ],
+    "probability": 0.5
+  },
+  "probabilities": {
+    "LOW": 0.5,
+    "HIGH": 0.2,
+    "MEDIUM": 0.3
+  },
+  "recommendation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "predicted_label": "LOW",
+  "gemma_explanation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "gemma_recommendations": [
+    "Log your daily tasks regularly in the app.",
+    "Ensure each attendance entry is approved by your supervisor.",
+    "Explore multiple OJT competencies early."
+  ]
+}
+-----------------------------------------
+Student: mark bryan (ID: 25)
+Date: Wed Mar 18 2026 06:49:22 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 50,
+  "trend": {
+    "reason": "OJT just started",
+    "status": "Stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 0,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 0,
+    "available_weight_percent": 0
+  },
+  "success": true,
+  "summary": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "integrity": {
+    "flags": [],
+    "severity": "low",
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "integrity_score": 100
+  },
+  "confidence": 0.5,
+  "risk_level": "LOW",
+  "early_stage": true,
+  "key_factors": [
+    "Early OJT stage",
+    "Hours completed: 0 / 300"
+  ],
+  "probability": 0.5,
+  "top_reasons": [
+    "Student just started OJT. Insufficient data for full prediction."
+  ],
+  "ml_prediction": {
+    "score": 50,
+    "success": true,
+    "risk_level": "LOW",
+    "key_factors": [
+      "Early OJT stage. Log tasks and attendance to unlock predictions."
+    ],
+    "probability": 0.5
+  },
+  "probabilities": {
+    "LOW": 0.5,
+    "HIGH": 0.2,
+    "MEDIUM": 0.3
+  },
+  "recommendation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "predicted_label": "LOW",
+  "gemma_explanation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "gemma_recommendations": [
+    "Log your daily tasks regularly in the app.",
+    "Ensure each attendance entry is approved by your supervisor.",
+    "Explore multiple OJT competencies early."
+  ]
+}
+-----------------------------------------
+Student: momor aadssd (ID: 23)
+Date: Wed Mar 18 2026 06:49:21 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 50,
+  "trend": {
+    "reason": "OJT just started",
+    "status": "Stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 18.7,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 93.5,
+        "weight": "20%",
+        "available": true
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 93.5,
+    "available_weight_percent": 20
+  },
+  "success": true,
+  "summary": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "integrity": {
+    "flags": [
+      "Anomalous behavior pattern detected by AI"
+    ],
+    "severity": "low",
+    "explanation": [
+      "Anomalous behavior pattern detected by AI"
+    ],
+    "integrity_score": 85
+  },
+  "confidence": 0.5,
+  "risk_level": "LOW",
+  "early_stage": true,
+  "key_factors": [
+    "Early OJT stage",
+    "Hours completed: 0 / 200"
+  ],
+  "probability": 0.5,
+  "top_reasons": [
+    "Student just started OJT. Insufficient data for full prediction."
+  ],
+  "ml_prediction": {
+    "score": 50,
+    "success": true,
+    "risk_level": "LOW",
+    "key_factors": [
+      "Early OJT stage. Log tasks and attendance to unlock predictions."
+    ],
+    "probability": 0.5
+  },
+  "probabilities": {
+    "LOW": 0.5,
+    "HIGH": 0.2,
+    "MEDIUM": 0.3
+  },
+  "recommendation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "predicted_label": "LOW",
+  "gemma_explanation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "gemma_recommendations": [
+    "Log your daily tasks regularly in the app.",
+    "Ensure each attendance entry is approved by your supervisor.",
+    "Explore multiple OJT competencies early."
+  ]
+}
+-----------------------------------------
+Student: Demo Student: Late (ID: 31)
+Date: Wed Mar 18 2026 06:44:43 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 9,
+  "trend": {
+    "reason": "Consistent performance logic maintained (31.25 vs 31.25)",
+    "status": "stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 17.2,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 86,
+        "weight": "20%",
+        "available": true
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 86,
+    "available_weight_percent": 20
+  },
+  "success": true,
+  "summary": "Hi [Student Name], it looks like you're really eager to dive into this OJT experience!  However, we need to ensure you maximize your learning and performance. The high risk level means your overall progress is still under development, especially regarding supervisor evaluation and meeting the total hours requirement. Let's work together to bring that confidence up by focusing on some key areas! Here are a few things to consider:",
+  "integrity": {
+    "flags": [
+      "Photo evidence missing"
+    ],
+    "severity": "medium",
+    "explanation": [
+      "Photo evidence missing"
+    ],
+    "integrity_score": 75
+  },
+  "confidence": 0.8155678183511357,
+  "risk_level": "HIGH",
+  "key_factors": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "total_hours_completed is below satisfactory (62.5)",
+    "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+  ],
+  "probability": 0.8155678183511357,
+  "top_reasons": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "total_hours_completed is below satisfactory (62.5)",
+    "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+  ],
+  "ml_prediction": {
+    "score": 9,
+    "success": true,
+    "summary": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "confidence": 0.8155678183511357,
+    "risk_level": "HIGH",
+    "key_factors": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "total_hours_completed is below satisfactory (62.5)",
+      "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+    ],
+    "probability": 0.8155678183511357,
+    "top_reasons": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "total_hours_completed is below satisfactory (62.5)",
+      "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+    ],
+    "probabilities": {
+      "LOW": 0.03211526145963286,
+      "HIGH": 0.8155678183511357,
+      "MEDIUM": 0.15234762893467818
+    },
+    "progress_score": 9,
+    "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "predicted_label": "HIGH",
+    "recommendations": [
+      "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies."
+    ],
+    "prediction_stage": "early",
+    "data_completeness": {
+      "has_tasks": true,
+      "has_supervisor_eval": false,
+      "has_coordinator_eval": false
+    }
+  },
+  "probabilities": {
+    "LOW": 0.03211526145963286,
+    "HIGH": 0.8155678183511357,
+    "MEDIUM": 0.15234762893467818
+  },
+  "progress_score": 9,
+  "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+  "predicted_label": "HIGH",
+  "recommendations": [
+    "Attendance & Hours:**  Consistent attendance and completing the required number of hours are crucial. Aim for an attendance rate above 50% and actively participate in all assigned tasks. Use the time wisely, even if you're just reviewing projects.",
+    "Task Management:** We want to see more engagement in work completion. Log your progress on tasks regularly and make sure youΓÇÖre consistently working towards those 300 hours!  DonΓÇÖt just focus on quantity; aim for quality, ensuring you're completing tasks correctly and with understanding.",
+    "Communication is Key:** This includes updating your supervisor on your progress, even if it's just a quick check-in. Ask questions when needed to deepen your understanding of your responsibilities.",
+    "Remember, this OJT journey is all about growth! By taking these steps you can boost your confidence and set yourself up for success. Let me know how I can help!"
+  ],
+  "prediction_stage": "early",
+  "data_completeness": {
+    "has_tasks": true,
+    "has_supervisor_eval": false,
+    "has_coordinator_eval": false
+  },
+  "gemma_explanation": "Hi [Student Name], it looks like you're really eager to dive into this OJT experience!  However, we need to ensure you maximize your learning and performance. The high risk level means your overall progress is still under development, especially regarding supervisor evaluation and meeting the total hours requirement. Let's work together to bring that confidence up by focusing on some key areas! Here are a few things to consider:",
+  "gemma_recommendations": [
+    "Attendance & Hours:**  Consistent attendance and completing the required number of hours are crucial. Aim for an attendance rate above 50% and actively participate in all assigned tasks. Use the time wisely, even if you're just reviewing projects.",
+    "Task Management:** We want to see more engagement in work completion. Log your progress on tasks regularly and make sure youΓÇÖre consistently working towards those 300 hours!  DonΓÇÖt just focus on quantity; aim for quality, ensuring you're completing tasks correctly and with understanding.",
+    "Communication is Key:** This includes updating your supervisor on your progress, even if it's just a quick check-in. Ask questions when needed to deepen your understanding of your responsibilities.",
+    "Remember, this OJT journey is all about growth! By taking these steps you can boost your confidence and set yourself up for success. Let me know how I can help!"
+  ]
+}
+-----------------------------------------
+Student: Demo Student: Late (ID: 31)
+Date: Wed Mar 18 2026 06:44:09 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 9,
+  "trend": {
+    "reason": "Consistent performance logic maintained (31.25 vs 31.25)",
+    "status": "stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 17.2,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 86,
+        "weight": "20%",
+        "available": true
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 86,
+    "available_weight_percent": 20
+  },
+  "success": true,
+  "summary": "Hey [Student Name], I see you're at a high risk level for OJT right now, and that doesn't mean you're doomed! It just means there's some work to do to really shine in this program.  But with focused effort, you can absolutely turn things around. Here are a few key areas to focus on: getting your supervisors' feedback, actively engaging with tasks, being reliable with attendance, and communicating effectively. This will boost your confidence and set you up for success. HereΓÇÖs what I recommend:",
+  "integrity": {
+    "flags": [
+      "Photo evidence missing"
+    ],
+    "severity": "medium",
+    "explanation": [
+      "Photo evidence missing"
+    ],
+    "integrity_score": 75
+  },
+  "confidence": 0.8155678183511357,
+  "risk_level": "HIGH",
+  "key_factors": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "total_hours_completed is below satisfactory (62.5)",
+    "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+  ],
+  "probability": 0.8155678183511357,
+  "top_reasons": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "total_hours_completed is below satisfactory (62.5)",
+    "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+  ],
+  "ml_prediction": {
+    "score": 9,
+    "success": true,
+    "summary": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "confidence": 0.8155678183511357,
+    "risk_level": "HIGH",
+    "key_factors": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "total_hours_completed is below satisfactory (62.5)",
+      "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+    ],
+    "probability": 0.8155678183511357,
+    "top_reasons": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "total_hours_completed is below satisfactory (62.5)",
+      "Low attendance rate (31.8%) - impacts 20% Weekly Progress score"
+    ],
+    "probabilities": {
+      "LOW": 0.03211526145963286,
+      "HIGH": 0.8155678183511357,
+      "MEDIUM": 0.15234762893467818
+    },
+    "progress_score": 9,
+    "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "predicted_label": "HIGH",
+    "recommendations": [
+      "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies."
+    ],
+    "prediction_stage": "early",
+    "data_completeness": {
+      "has_tasks": true,
+      "has_supervisor_eval": false,
+      "has_coordinator_eval": false
+    }
+  },
+  "probabilities": {
+    "LOW": 0.03211526145963286,
+    "HIGH": 0.8155678183511357,
+    "MEDIUM": 0.15234762893467818
+  },
+  "progress_score": 9,
+  "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+  "predicted_label": "HIGH",
+  "recommendations": [
+    "Engage actively with your supervisor:** Schedule regular check-ins to discuss progress, address any concerns they might have about your performance, and learn from their expertise.",
+    "Prioritize tasks and aim for consistency:**  Don't just focus on quantity - ensure you're completing tasks thoroughly and efficiently, especially those critical for development.",
+    "Improve attendance & punctuality:** Consistency in your schedule will build trust with your supervisor and demonstrate your commitment to your role.",
+    "Utilize the opportunity for feedback:** Take initiative to seek feedback from your supervisors and colleagues. Ask them questions and be open to constructive criticism as it can help you grow.",
+    "Remember, I'm here to support you throughout this journey. Keep pushing forward, and we'll get you on track!"
+  ],
+  "prediction_stage": "early",
+  "data_completeness": {
+    "has_tasks": true,
+    "has_supervisor_eval": false,
+    "has_coordinator_eval": false
+  },
+  "gemma_explanation": "Hey [Student Name], I see you're at a high risk level for OJT right now, and that doesn't mean you're doomed! It just means there's some work to do to really shine in this program.  But with focused effort, you can absolutely turn things around. Here are a few key areas to focus on: getting your supervisors' feedback, actively engaging with tasks, being reliable with attendance, and communicating effectively. This will boost your confidence and set you up for success. HereΓÇÖs what I recommend:",
+  "gemma_recommendations": [
+    "Engage actively with your supervisor:** Schedule regular check-ins to discuss progress, address any concerns they might have about your performance, and learn from their expertise.",
+    "Prioritize tasks and aim for consistency:**  Don't just focus on quantity - ensure you're completing tasks thoroughly and efficiently, especially those critical for development.",
+    "Improve attendance & punctuality:** Consistency in your schedule will build trust with your supervisor and demonstrate your commitment to your role.",
+    "Utilize the opportunity for feedback:** Take initiative to seek feedback from your supervisors and colleagues. Ask them questions and be open to constructive criticism as it can help you grow.",
+    "Remember, I'm here to support you throughout this journey. Keep pushing forward, and we'll get you on track!"
+  ]
+}
+-----------------------------------------
+Student: Demo Student: Star (ID: 29)
+Date: Wed Mar 18 2026 06:43:10 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 9,
+  "trend": {
+    "reason": "Consistent performance logic maintained (40 vs 40)",
+    "status": "stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 19.36,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 96.8,
+        "weight": "20%",
+        "available": true
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 96.8,
+    "available_weight_percent": 20
+  },
+  "success": true,
+  "summary": "Hey there! It's great that you're motivated and eager to learn, but it looks like we need a little boost in some areas to reach our full potential.  Your high risk level shows that you've got the talent and drive, but consistent effort in all aspects of OJT will unlock your potential even more. Let's work together to get you back on track! Here are a few things you can focus on:",
+  "integrity": {
+    "flags": [
+      "Photo evidence missing"
+    ],
+    "severity": "medium",
+    "explanation": [
+      "Photo evidence missing"
+    ],
+    "integrity_score": 75
+  },
+  "confidence": 0.8136671516332803,
+  "risk_level": "HIGH",
+  "key_factors": [
+    "Low attendance rate (31.8%) - impacts 20% Weekly Progress score",
+    "Low completed hours (80/300 hours, 26.7% complete)",
+    "Supervisor evaluation not yet available (prediction based on other indicators)"
+  ],
+  "probability": 0.8136671516332803,
+  "top_reasons": [
+    "Low attendance rate (31.8%) - impacts 20% Weekly Progress score",
+    "Low completed hours (80/300 hours, 26.7% complete)",
+    "Supervisor evaluation not yet available (prediction based on other indicators)"
+  ],
+  "ml_prediction": {
+    "score": 9,
+    "success": true,
+    "summary": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "confidence": 0.8136671516332803,
+    "risk_level": "HIGH",
+    "key_factors": [
+      "Low attendance rate (31.8%) - impacts 20% Weekly Progress score",
+      "Low completed hours (80/300 hours, 26.7% complete)",
+      "Supervisor evaluation not yet available (prediction based on other indicators)"
+    ],
+    "probability": 0.8136671516332803,
+    "top_reasons": [
+      "Low attendance rate (31.8%) - impacts 20% Weekly Progress score",
+      "Low completed hours (80/300 hours, 26.7% complete)",
+      "Supervisor evaluation not yet available (prediction based on other indicators)"
+    ],
+    "probabilities": {
+      "LOW": 0.03226009865721897,
+      "HIGH": 0.8136671516332803,
+      "MEDIUM": 0.15395976550260865
+    },
+    "progress_score": 9,
+    "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "predicted_label": "HIGH",
+    "recommendations": [
+      "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies."
+    ],
+    "prediction_stage": "developing",
+    "data_completeness": {
+      "has_tasks": true,
+      "has_supervisor_eval": false,
+      "has_coordinator_eval": false
+    }
+  },
+  "probabilities": {
+    "LOW": 0.03226009865721897,
+    "HIGH": 0.8136671516332803,
+    "MEDIUM": 0.15395976550260865
+  },
+  "progress_score": 9,
+  "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+  "predicted_label": "HIGH",
+  "recommendations": [
+    "Attendance is key:**  Regular attendance at work is essential for getting a grasp of the full scope and making the most of your time.  Make sure to be present for every session, even if it's just for an hour or two.",
+    "Stay engaged with tasks:** Make sure you understand the bigger picture of your role. Be proactive about tackling assigned tasks and try to get involved in more projects to build your skills further.",
+    "Communicate proactively:**  Don't be afraid to ask questions or seek clarification if you need it. Your supervisor is there to support you, and staying open about any challenges you may face will help you stay on track!",
+    "Keep up the great work and remember, you've got this! Let me know if you have any questions about how we can work together to achieve your goals."
+  ],
+  "prediction_stage": "developing",
+  "data_completeness": {
+    "has_tasks": true,
+    "has_supervisor_eval": false,
+    "has_coordinator_eval": false
+  },
+  "gemma_explanation": "Hey there! It's great that you're motivated and eager to learn, but it looks like we need a little boost in some areas to reach our full potential.  Your high risk level shows that you've got the talent and drive, but consistent effort in all aspects of OJT will unlock your potential even more. Let's work together to get you back on track! Here are a few things you can focus on:",
+  "gemma_recommendations": [
+    "Attendance is key:**  Regular attendance at work is essential for getting a grasp of the full scope and making the most of your time.  Make sure to be present for every session, even if it's just for an hour or two.",
+    "Stay engaged with tasks:** Make sure you understand the bigger picture of your role. Be proactive about tackling assigned tasks and try to get involved in more projects to build your skills further.",
+    "Communicate proactively:**  Don't be afraid to ask questions or seek clarification if you need it. Your supervisor is there to support you, and staying open about any challenges you may face will help you stay on track!",
+    "Keep up the great work and remember, you've got this! Let me know if you have any questions about how we can work together to achieve your goals."
+  ]
+}
+-----------------------------------------
+Student: Demo Student: Ghost (ID: 30)
+Date: Wed Mar 18 2026 06:42:06 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 50,
+  "trend": {
+    "reason": "OJT just started",
+    "status": "Stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 0,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 0,
+    "available_weight_percent": 0
+  },
+  "success": true,
+  "summary": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "integrity": {
+    "flags": [
+      "Photo evidence missing"
+    ],
+    "severity": "medium",
+    "explanation": [
+      "Photo evidence missing"
+    ],
+    "integrity_score": 75
+  },
+  "confidence": 0.5,
+  "risk_level": "LOW",
+  "early_stage": true,
+  "key_factors": [
+    "Early OJT stage",
+    "Hours completed: 6 / 300"
+  ],
+  "probability": 0.5,
+  "top_reasons": [
+    "Student just started OJT. Insufficient data for full prediction."
+  ],
+  "ml_prediction": {
+    "score": 50,
+    "success": true,
+    "risk_level": "LOW",
+    "key_factors": [
+      "Early OJT stage. Log tasks and attendance to unlock predictions."
+    ],
+    "probability": 0.5
+  },
+  "probabilities": {
+    "LOW": 0.5,
+    "HIGH": 0.2,
+    "MEDIUM": 0.3
+  },
+  "recommendation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "predicted_label": "LOW",
+  "gemma_explanation": "The student is in the early stage of OJT. Not enough data yet for a full ML prediction. Keep logging daily tasks and attendance consistently.",
+  "gemma_recommendations": [
+    "Log your daily tasks regularly in the app.",
+    "Ensure each attendance entry is approved by your supervisor.",
+    "Explore multiple OJT competencies early."
+  ]
+}
+-----------------------------------------
+Student: daryl pogi (ID: 3)
+Date: Wed Mar 18 2026 01:06:10 GMT+0800 (Philippine Standard Time)
+Insights:  {
+  "score": 8,
+  "trend": {
+    "reason": "Consistent performance logic maintained (0 vs 0)",
+    "status": "stable"
+  },
+  "grading": {
+    "status": "partial",
+    "raw_score": 19.6,
+    "components": {
+      "supervisor_eval": {
+        "score": 0,
+        "weight": "40%",
+        "available": false
+      },
+      "weekly_progress": {
+        "score": 98,
+        "weight": "20%",
+        "available": true
+      },
+      "coordinator_eval": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      },
+      "narrative_report": {
+        "score": 0,
+        "weight": "20%",
+        "available": false
+      }
+    },
+    "forecasted_grade": 98,
+    "available_weight_percent": 20
+  },
+  "success": true,
+  "summary": "AI explanation service is currently unavailable. Please refer to the ML prediction recommendations above.",
+  "integrity": {
+    "flags": [],
+    "severity": "low",
+    "explanation": [
+      "Standard behavior pattern verified"
+    ],
+    "integrity_score": 100
+  },
+  "confidence": 0.8181403585765653,
+  "risk_level": "HIGH",
+  "key_factors": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "hours_completed_ratio is below satisfactory (0.1)",
+    "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+  ],
+  "probability": 0.8181403585765653,
+  "top_reasons": [
+    "Supervisor evaluation not yet available",
+    "Score is primarily based on attendance records and early data",
+    "hours_completed_ratio is below satisfactory (0.1)",
+    "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+  ],
+  "ml_prediction": {
+    "score": 8,
+    "success": true,
+    "summary": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "confidence": 0.8181403585765653,
+    "risk_level": "HIGH",
+    "key_factors": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "hours_completed_ratio is below satisfactory (0.1)",
+      "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+    ],
+    "probability": 0.8181403585765653,
+    "top_reasons": [
+      "Supervisor evaluation not yet available",
+      "Score is primarily based on attendance records and early data",
+      "hours_completed_ratio is below satisfactory (0.1)",
+      "Low attendance rate (29.2%) - impacts 20% Weekly Progress score"
+    ],
+    "probabilities": {
+      "LOW": 0.03190658383382581,
+      "HIGH": 0.8181403585765653,
+      "MEDIUM": 0.14995076887537515
+    },
+    "progress_score": 8,
+    "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+    "predicted_label": "HIGH",
+    "recommendations": [
+      "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies."
+    ],
+    "prediction_stage": "early",
+    "data_completeness": {
+      "has_tasks": true,
+      "has_supervisor_eval": false,
+      "has_coordinator_eval": false
+    }
+  },
+  "probabilities": {
+    "LOW": 0.03190658383382581,
+    "HIGH": 0.8181403585765653,
+    "MEDIUM": 0.14995076887537515
+  },
+  "progress_score": 8,
+  "recommendation": "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies.",
+  "predicted_label": "HIGH",
+  "recommendations": [
+    "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies."
+  ],
+  "prediction_stage": "early",
+  "data_completeness": {
+    "has_tasks": true,
+    "has_supervisor_eval": false,
+    "has_coordinator_eval": false
+  },
+  "gemma_explanation": "AI explanation service is currently unavailable. Please refer to the ML prediction recommendations above.",
+  "gemma_recommendations": [
+    "Immediate action required: Improve attendance consistency and coordinate with supervisor to address performance gaps. Focus on logging daily tasks across multiple competencies."
+  ]
+}

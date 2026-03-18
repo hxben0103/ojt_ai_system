@@ -10,6 +10,14 @@ async function checkSchema() {
     `);
     console.log(ojtCols.rows);
 
+    console.log('--- ai_insights columns ---');
+    const cols = await query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'ai_insights'
+    `);
+    console.log(cols.rows);
+
     console.log('\n--- users columns ---');
     const usersCols = await query(`
       SELECT column_name, data_type 

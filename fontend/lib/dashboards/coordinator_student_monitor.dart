@@ -702,7 +702,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
               controller: _searchController,
               autofocus: true,
               decoration: const InputDecoration(
-                hintText: 'Search student or company...',
+                hintText: 'Search student, HTE, or company...',
                 border: InputBorder.none,
                 hintStyle: TextStyle(color: Colors.white70),
               ),

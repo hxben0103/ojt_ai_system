@@ -354,10 +354,11 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
       WITH 
       -- Get OJT record for required hours and duration
       ojt_info AS (
-        SELECT required_hours, status, start_date, end_date
-        FROM ojt_records
+        SELECT o.required_hours, o.status, o.start_date, o.end_date, u.full_name AS student_name
+        FROM ojt_records o
+        JOIN users u ON o.student_id = u.user_id
         -- Treat both Ongoing and Active as current OJT records
-        WHERE student_id = $1 AND status IN ('Ongoing', 'Active')
+        WHERE o.student_id = $1 AND o.status IN ('Ongoing', 'Active')
         LIMIT 1
       ),
       -- Attendance stats (CRITICAL: Only approved attendance counts)
@@ -480,6 +481,7 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
         WHERE student_id = $1 AND status IN ('Approved', 'Pending')
       )
       SELECT 
+        (SELECT student_name FROM ojt_info) AS student_name,
         (SELECT COALESCE(required_hours, 300) FROM ojt_info) AS required_hours,
         (SELECT start_date FROM ojt_info) AS ojt_start_date,
         (SELECT end_date   FROM ojt_info) AS ojt_end_date,
@@ -544,6 +546,7 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
 
     // Build comprehensive snapshot payload
     const payload = {
+      student_name: snap.student_name || 'Student',
       // Attendance features (approved only)
       total_hours_completed: totalHoursCompleted,
       required_hours: requiredHours,

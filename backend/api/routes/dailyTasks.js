@@ -446,7 +446,7 @@ router.get('/supervisors/:supervisorId/pending-tasks', authenticateToken, async 
        JOIN ojt_records o ON t.student_id = o.student_id
        LEFT JOIN task_competencies tc ON t.task_id = tc.task_id
        LEFT JOIN competencies c ON tc.competency_id = c.competency_id
-       WHERE o.supervisor_id = $1 
+       WHERE o.supervisor_id = $1 AND t.status = 'Pending'
        ORDER BY t.date DESC, t.created_at DESC
        LIMIT 50`,
       [supervisorId]
@@ -483,6 +483,60 @@ router.get('/supervisors/:supervisorId/pending-tasks', authenticateToken, async 
     res.json({ tasks: Array.from(taskMap.values()) });
   } catch (error) {
     console.error('Get pending tasks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// =====================================================
+// PUT /api/daily-tasks/batch-approve
+// Batch approve/reject multiple tasks at once - Supervisor only
+// =====================================================
+router.put('/daily-tasks/batch-approve', authenticateToken, async (req, res) => {
+  try {
+    const { task_ids, status, remarks } = req.body;
+    const currentUser = req.user;
+
+    if (!task_ids || !Array.isArray(task_ids) || task_ids.length === 0) {
+      return res.status(400).json({ error: 'task_ids array is required and must not be empty' });
+    }
+
+    if (!status || !['Approved', 'Rejected'].includes(status)) {
+      return res.status(400).json({ error: 'status must be Approved or Rejected' });
+    }
+
+    if (currentUser.role !== 'Supervisor' && currentUser.role !== 'Admin') {
+      return res.status(403).json({ error: 'Only supervisors can approve/reject tasks' });
+    }
+
+    // Verify all tasks belong to this supervisor's students
+    const verifyResult = await query(
+      `SELECT t.task_id FROM ojt_daily_tasks t
+       JOIN ojt_records o ON t.student_id = o.student_id
+       WHERE t.task_id = ANY($1::int[])
+         AND o.supervisor_id = $2
+         AND o.status IN ('Ongoing', 'Active')`,
+      [task_ids, currentUser.user_id]
+    );
+
+    const authorizedIds = verifyResult.rows.map(r => r.task_id);
+    if (authorizedIds.length === 0) {
+      return res.status(403).json({ error: 'No authorized tasks found for batch update' });
+    }
+
+    await query(
+      `UPDATE ojt_daily_tasks
+       SET status = $1, remarks = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE task_id = ANY($3::int[])`,
+      [status, remarks || null, authorizedIds]
+    );
+
+    res.json({
+      message: `${authorizedIds.length} task(s) ${status.toLowerCase()} successfully`,
+      updated_count: authorizedIds.length,
+      updated_ids: authorizedIds
+    });
+  } catch (error) {
+    console.error('Batch approve error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

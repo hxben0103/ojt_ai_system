@@ -147,45 +147,78 @@ def chat():
         should_stream = data.get("stream", False)
         
         if should_stream:
-            print(f"[CHAT] Starting multi-chunk stream for: {user_message[:50]}...")
+            print(f"[CHAT] Starting TRUE Ollama token stream for: {user_message[:50]}...")
             def generate():
                 import json
-                import time
-                
-                # Get structured response from chatbot handler
-                result = chatbot_response(user_message, session_id=session_id, student_data=student_data)
-                
-                if not result.get("success"):
-                    yield json.dumps(result) + "\n"
-                    return
+                import requests as req_lib
+                import os
 
-                # Format the answer
-                full_answer = result.get("answer", "")
-                if full_answer:
-                    full_answer = format_response(full_answer)
+                ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+                ollama_model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
+
+                # Build a context-aware prompt using chatbot_handler's RAG retrieval
+                from chatbot_handler import get_rag_context
+                context = get_rag_context(user_message)
                 
-                # Simulate streaming by yielding words to provide immediate UI feedback feel
-                # even if the LLM generated it all at once.
-                # In a future update, we can move this inside run_ai.py for true token streaming.
-                words = full_answer.split(' ')
-                current_text = ""
+                # If no specific context found, add a general university context
+                if "No specific context found" in context:
+                    context = (
+                        "JRMSU (Jose Rizal Memorial State University) OJT Program overview:\n"
+                        "- Primary focus: Providing hands-on industry experience for students.\n"
+                        "- Requirements: DTR, Narrative Report, Evaluation forms.\n"
+                        "- Goal: Develop learning competencies in various IT and engineering fields."
+                    )
                 
-                for i, word in enumerate(words):
-                    current_text += (word + " ")
-                    # Create a partial result to send
-                    partial_result = result.copy()
-                    partial_result["answer"] = current_text.strip()
-                    partial_result["is_streaming"] = True
-                    
-                    yield json.dumps(partial_result) + "\n"
-                    # Small delay to make the typing effect visible but fast
-                    time.sleep(0.01)
-                
-                # Send final complete message
-                result["answer"] = full_answer
-                result["is_streaming"] = False
-                yield json.dumps(result) + "\n"
-                
+                prompt = (
+                    f"System: You are the JRMSU OJT AI Assistant. You answer ONLY based on the provided JRMSU Context. "
+                    f"You must refuse to answer any questions that are not related to JRMSU OJT or the provided context.\n"
+                    f"Context:\n{context}\n\n"
+                    f"Instruction: Answer the student's question ONLY using information from the context above. "
+                    f"If the information is not present, say: 'I'm sorry, my current JRMSU knowledge doesn't cover that topic. Please consult your OJT coordinator.'\n\n"
+                    f"Student: {user_message}\nAssistant:"
+                )
+
+                accumulated = ""
+                try:
+                    with req_lib.post(
+                        ollama_url,
+                        json={"model": ollama_model, "prompt": prompt, "stream": True},
+                        stream=True,
+                        timeout=120
+                    ) as r:
+                        for raw_line in r.iter_lines():
+                            if not raw_line:
+                                continue
+                            try:
+                                chunk = json.loads(raw_line.decode("utf-8"))
+                                token = chunk.get("response", "")
+                                accumulated += token
+                                done = chunk.get("done", False)
+                                yield json.dumps({
+                                    "success": True,
+                                    "answer": accumulated,
+                                    "is_streaming": not done,
+                                    "session_id": session_id or "default",
+                                    "is_fallback": False,
+                                    "confidence_score": 0.85,
+                                    "used_context": []
+                                }) + "\n"
+                                if done:
+                                    break
+                            except Exception:
+                                continue
+                except Exception as e:
+                    yield json.dumps({
+                        "success": False,
+                        "error_type": "LLM_ERROR",
+                        "message": f"Streaming error: {str(e)}",
+                        "answer": None,
+                        "session_id": session_id or "default",
+                        "is_fallback": False,
+                        "used_context": [],
+                        "confidence_score": 0.0
+                    }) + "\n"
+
             return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
 
         # Get structured response from chatbot handler
@@ -380,6 +413,54 @@ def suggest():
             "success": False,
             "error": str(e)
         }), 500
+
+@app.route('/ai/suggest-remark', methods=['POST'])
+def suggest_remark():
+    """
+    AI Remark Suggestion Endpoint for Supervisors.
+    Given a task description and competency, returns a 1-sentence professional remark.
+    """
+    try:
+        import requests as req_lib, os, json
+        data = request.get_json() or {}
+        task_desc = data.get("task_description", "").strip()
+        competency = data.get("competency", "").strip()
+
+        if not task_desc:
+            return jsonify({"success": False, "error": "task_description is required"}), 400
+
+        ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+        ollama_model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
+
+        comp_str = f" under the '{competency}' competency" if competency else ""
+        prompt = (
+            f"Write exactly ONE professional, concise supervisor remark (1 sentence, max 20 words) "
+            f"for the following OJT daily task{comp_str}. "
+            f"Be specific, encouraging, and professional. Do not repeat the task. "
+            f"Task: {task_desc}\nRemark:"
+        )
+
+        resp = req_lib.post(
+            ollama_url,
+            json={"model": ollama_model, "prompt": prompt, "stream": False},
+            timeout=60
+        )
+        resp.raise_for_status()
+        suggestion = resp.json().get("response", "").strip().split("\n")[0]
+        # Trim to the first sentence
+        for punct in [".", "!", "?"]:
+            idx = suggestion.find(punct)
+            if idx != -1:
+                suggestion = suggestion[:idx+1]
+                break
+
+        print(f"[SUGGEST-REMARK] Generated: {suggestion}")
+        return jsonify({"success": True, "suggestion": suggestion}), 200
+
+    except Exception as e:
+        print(f"[SUGGEST-REMARK ERROR] {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

@@ -1023,5 +1023,49 @@ router.post('/suggest-competency', async (req, res) => {
   }
 });
 
-module.exports = router;
+// =====================================================
+// GET /api/prediction/history/:studentId
+// Returns historical AI predictions for trend graph
+// =====================================================
+router.get('/prediction/history/:studentId', authenticateToken, async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const currentUser = req.user;
 
+    // Access check
+    if (currentUser.role === 'Student' && currentUser.user_id != studentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const result = await query(
+      `SELECT
+         id,
+         student_id,
+         insight_date,
+         forecasted_grade,
+         risk_level,
+         created_at
+       FROM ai_insights
+       WHERE student_id = $1
+         AND forecasted_grade IS NOT NULL
+       ORDER BY insight_date DESC, created_at DESC
+       LIMIT 10`,
+      [studentId]
+    );
+
+    const history = result.rows.map(row => ({
+      id: row.id,
+      studentId: row.student_id,
+      date: row.insight_date || row.created_at,
+      forecastedGrade: parseFloat(row.forecasted_grade) || 0,
+      riskLevel: row.risk_level || 'UNKNOWN'
+    })).reverse(); // Oldest first so chart renders left-to-right
+
+    res.json({ history });
+  } catch (error) {
+    console.error('Get prediction history error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+module.exports = router;

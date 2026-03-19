@@ -98,8 +98,9 @@ class _CoordinatorAttendanceMapScreenState
 
   @override
   Widget build(BuildContext context) {
-    final lat = widget.attendance.checkinLat;
-    final lng = widget.attendance.checkinLng;
+    // Show checkout location if available, otherwise checkin location
+    final lat = widget.attendance.checkoutLat ?? widget.attendance.checkinLat;
+    final lng = widget.attendance.checkoutLng ?? widget.attendance.checkinLng;
 
     return Scaffold(
       appBar: AppBar(

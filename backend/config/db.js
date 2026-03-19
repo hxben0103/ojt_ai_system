@@ -10,8 +10,11 @@ dns.setDefaultResultOrder('ipv4first');
 // PostgreSQL Database Connection (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: 15, // Limit connections to avoid crashing Supabase 'Max client connections reached'
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
   ssl: {
-    rejectUnauthorized: false // Required for some Supabase pooler configurations
+    rejectUnauthorized: false
   }
 });
 

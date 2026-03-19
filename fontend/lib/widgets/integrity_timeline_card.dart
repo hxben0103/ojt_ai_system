@@ -125,8 +125,9 @@ class IntegrityTimelineCard extends StatelessWidget {
         (attendance.hasBase64Image ?? false);
 
     // Location availability
-    final bool hasLocation =
-        attendance.checkinLat != null && attendance.checkinLng != null;
+    // Location availability (either checkin or checkout)
+    final bool hasLocation = (attendance.checkinLat != null && attendance.checkinLng != null) ||
+        (attendance.checkoutLat != null && attendance.checkoutLng != null);
 
     final DateFormat formatter = DateFormat('MMM dd, yyyy');
 
@@ -214,8 +215,8 @@ class IntegrityTimelineCard extends StatelessWidget {
             child: hasLocation
                 ? GestureDetector(
                     onTap: () => _openInMaps(
-                      attendance.checkinLat!,
-                      attendance.checkinLng!,
+                      attendance.checkoutLat ?? attendance.checkinLat!,
+                      attendance.checkoutLng ?? attendance.checkinLng!,
                     ),
                     child: Tooltip(
                       message: 'View location on map',

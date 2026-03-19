@@ -35,6 +35,7 @@ import '../screens/coordinator/coordinator_user_approvals_screen.dart';
 import '../screens/coordinator/coordinator_reports_screen.dart';
 import '../screens/coordinator/coordinator_ojt_management_screen.dart';
 import '../screens/coordinator/coordinator_attendance_map_screen.dart';
+import '../screens/coordinator/coordinator_live_map_screen.dart';
 
 class CoordinatorDashboard extends StatefulWidget {
   const CoordinatorDashboard({super.key});
@@ -811,6 +812,23 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             "OJT Management",
             "Assign Records & Company Details",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorOjtManagementScreen())),
+          ),
+          const Divider(height: 1, indent: 56),
+          _actionTile(
+            Icon(Icons.map_rounded, color: Colors.deepPurple[400]),
+            "Live Attendance Map",
+            "God View – GPS pins & integrity flags",
+            () {
+              // coordinatorId stored in the user profile - use the loaded ID
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CoordinatorLiveMapScreen(
+                    coordinatorId: int.tryParse(idNumber) ?? 0,
+                  ),
+                ),
+              );
+            },
           ),
           const Divider(height: 1, indent: 56),
           _actionTile(

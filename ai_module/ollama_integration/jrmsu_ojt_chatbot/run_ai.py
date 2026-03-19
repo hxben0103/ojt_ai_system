@@ -18,8 +18,8 @@ BASE_KNOWLEDGE_DIR = os.path.join("data", "jrmsu_knowledge")
 
 # Your Ollama model name
 MODEL_NAME = "gemma2:2b"      # or "jrmsu-ojt-assistant" if you prefer
-SIMILARITY_THRESHOLD = 0.25   # tuned so short queries like "dtr guidelines" still match
-LOW_CONFIDENCE_THRESHOLD = 0.35  # Below this, we consider confidence low
+SIMILARITY_THRESHOLD = 0.15   # Lowered to 0.15 for more permissive matching on short queries
+LOW_CONFIDENCE_THRESHOLD = 0.30  # Adjusted accordingly
 DEBUG = True                  # set True to see retrieved chunks in console
 
 APOLOGY = "I'm sorry, I don't have information about that based on JRMSU's knowledge base."
@@ -198,6 +198,41 @@ def try_exact_university_answer(user_query: str) -> str | None:
             logger.info(f"[EXACT_ANSWER] Found DTR file: {len(text)} chars")
             return text
 
+    # Late Attendance Policy
+    if "late" in q or "tardy" in q or "tardiness" in q:
+        text = load_text_file("late_attendance_policy.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found late policy file: {len(text)} chars")
+            return text
+
+    # Absence Policy
+    if "absent" in q or "absence" in q or "miss" in q:
+        text = load_text_file("absence_policy.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found absence policy file: {len(text)} chars")
+            return text
+
+    # Required Hours Details
+    if "hours" in q and ("require" in q or "total" in q or "how many" in q):
+        text = load_text_file("required_hours_details.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found hours details file: {len(text)} chars")
+            return text
+
+    # Dress Code
+    if "dress" in q or "attire" in q or "uniform" in q or "grooming" in q:
+        text = load_text_file("dress_code.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found dress code file: {len(text)} chars")
+            return text
+
+    # Clearance Procedures
+    if "clearance" in q or "completion" in q or "finish" in q:
+        text = load_text_file("clearance_procedures.txt")
+        if text:
+            logger.info(f"[EXACT_ANSWER] Found clearance file: {len(text)} chars")
+            return text
+
     return None
 
 
@@ -287,7 +322,9 @@ def build_prompt_with_context(
 Current question: {actual_query}
 
 Analysis Instructions:
-- If dashboard data is provided, use the numbers (hours, tasks, scores) to explain their current status.
+- Answer ONLY using the JRMSU Knowledge or [DASHBOARD DATA] provided above.
+- If the answer is not in the context, say: "I'm sorry, I don't have information about that in the JRMSU OJT guidelines."
+- Use numeric status from [DASHBOARD DATA] if available.
 - Start with a direct and helpful answer.
 - Maintain a professional yet supportive mentor-like tone.
 - Use bullet points if helpful.
@@ -323,6 +360,28 @@ def assess_confidence(scored_chunks: List[Tuple[float, str]]) -> Tuple[bool, flo
     is_confident = best_score >= LOW_CONFIDENCE_THRESHOLD
     
     return is_confident, best_score
+
+
+def retrieve_context(query_text: str, top_k: int = 3) -> List[str]:
+    """
+    Retrieve top_k snippets for a query string. 
+    Used by streaming endpoints (server.py) to get RAG context.
+    """
+    try:
+        # 1. Check for exact matches first (best for official info)
+        exact = try_exact_university_answer(query_text)
+        if exact:
+            return [exact]
+
+        # 2. General RAG retrieval
+        query_embedding = embed_text(query_text)[0]
+        scored = retrieve_relevant_chunks(query_embedding, top_k=top_k)
+        
+        # Filter by threshold to avoid irrelevant noise
+        return [chunk for score, chunk in scored if score >= SIMILARITY_THRESHOLD]
+    except Exception as e:
+        logger.error(f"[RETRIEVE_CONTEXT] Error: {e}")
+        return []
 
 
 # ------------------------------------------------------------

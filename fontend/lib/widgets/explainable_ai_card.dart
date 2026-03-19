@@ -115,17 +115,20 @@ class ExplainableAiCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(
-                      'AI Assessment: ${_getFriendlyRisk(risk)}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: riskColor,
+                    Flexible(
+                      child: Text(
+                        'AI Assessment: ${_getFriendlyRisk(risk)}',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: riskColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Text(
-                      '(${(prob * 100).toStringAsFixed(0)}% confidence)',
+                      '(${(prob * 100).toStringAsFixed(0)}%)',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade500,

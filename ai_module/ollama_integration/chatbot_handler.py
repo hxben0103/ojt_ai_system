@@ -366,3 +366,20 @@ def chatbot_response_string(user_message: str, session_id: Optional[str] = None)
     else:
         # Return error message as string for backward compatibility
         return result.get("message", "An error occurred while processing your message.")
+
+
+def get_rag_context(user_message: str) -> str:
+    """
+    Retrieve relevant RAG context snippets for a user message.
+    Used by the true Ollama streaming endpoint in server.py.
+    Returns a string with the top relevant knowledge snippets.
+    """
+    try:
+        from run_ai import retrieve_context
+        snippets = retrieve_context(user_message, top_k=3)
+        if snippets:
+            return "\n---\n".join(snippets)
+        return "No specific context found. Answer based on general OJT knowledge."
+    except Exception:
+        # Fallback: no RAG context, Gemma will answer from general knowledge
+        return "Answer based on general JRMSU OJT guidelines and standard procedures."

@@ -2,15 +2,13 @@ const { Pool } = require('pg');
 const dns = require('dns');
 require('dotenv').config({ path: './config/env/.env' });
 
-// Force Node.js to prefer IPv4 and use Google DNS
-// This helps in environments where local DNS is unreliable or blocking Supabase
-dns.setServers(['8.8.8.8', '8.8.4.4']);
+// Use IPv4 first (helps with Supabase ipv6 issues in some environments)
 dns.setDefaultResultOrder('ipv4first');
 
 // PostgreSQL Database Connection (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 15, // Limit connections to avoid crashing Supabase 'Max client connections reached'
+  max: 10, // Reduced to 10 - Transaction Pooler (6543) will handle the scale
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
   ssl: {

@@ -82,7 +82,7 @@ class ApiConfig {
   static const String health = '/health';
 
   // Timeout duration
-  static const Duration timeout = Duration(seconds: 60);
+  static const Duration timeout = Duration(seconds: 180);
 }
 
 /// Geofencing and location trust flags. All backward compatible when geofence not configured.

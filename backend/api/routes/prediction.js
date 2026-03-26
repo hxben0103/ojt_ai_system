@@ -43,6 +43,438 @@ function countWeekdays(start, end) {
 }
 
 /**
+ * Map a 0-100 numeric score to the 1.0–5.0 Philippine grading equivalent.
+ * Used to express task-based performance as an academic grade equivalent.
+ */
+function scoreToEquivalentGrade(score) {
+  const s = parseFloat(score) || 0;
+  if (s >= 97) return 1.00;
+  if (s >= 94) return 1.25;
+  if (s >= 91) return 1.50;
+  if (s >= 88) return 1.75;
+  if (s >= 85) return 2.00;
+  if (s >= 82) return 2.25;
+  if (s >= 79) return 2.50;
+  if (s >= 76) return 2.75;
+  if (s >= 75) return 3.00;
+  if (s >= 70) return 3.50;
+  if (s >= 65) return 4.00;
+  return 5.00; // Below 65 = failed
+}
+
+/**
+ * Shared logic to build the comprehensive student snapshot for AI prediction.
+ */
+async function getStudentAIPayload(studentId) {
+  const snapshotResult = await query(`
+    WITH 
+    -- Get OJT record for required hours and duration
+    ojt_info AS (
+      SELECT o.required_hours, o.status, o.start_date, o.end_date, u.full_name AS student_name
+      FROM ojt_records o
+      JOIN users u ON o.student_id = u.user_id
+      -- Treat both Ongoing and Active as current OJT records
+      WHERE o.student_id = $1 AND o.status IN ('Ongoing', 'Active')
+      LIMIT 1
+    ),
+    -- Attendance stats (CRITICAL: Only approved attendance counts)
+    -- Apply the "1-30 minutes late = 2-hour penalty" rule per record:
+    --   late_minutes = EXTRACT(minutes past 08:00) clamped to >= 0
+    --   penalty_hours per record = 2 * CEIL(late_minutes / 30.0)
+    --   credited_hours per record = MAX(0, actual_hours - penalty_hours)
+    attendance_stats AS (
+      SELECT 
+        COALESCE(SUM(a.total_hours), 0) AS total_hours_completed,
+        COALESCE(SUM(
+          GREATEST(0,
+            a.total_hours -
+            2.0 * CEIL(
+              GREATEST(0,
+                EXTRACT(EPOCH FROM (
+                  a.morning_in::time - '08:00:00'::time
+                )) / 60.0
+              ) / 30.0
+            )
+          )
+        ), 0) AS credited_hours_completed,
+        COALESCE(SUM(
+          CASE
+            WHEN a.morning_in::time > '08:00:00'::time THEN
+              2.0 * CEIL(
+                GREATEST(0,
+                  EXTRACT(EPOCH FROM (
+                    a.morning_in::time - '08:00:00'::time
+                  )) / 60.0
+                ) / 30.0
+              )
+            ELSE 0
+          END
+        ), 0) AS late_penalty_hours,
+        COALESCE(COUNT(DISTINCT a.date), 0) AS days_present,
+        COALESCE(COUNT(CASE WHEN a.morning_in::time > '08:00:00'::time THEN 1 END), 0) AS late_count,
+        COALESCE(MAX(a.date), NULL) AS last_attendance_date
+      FROM attendance a
+      WHERE a.student_id = $1 AND a.status IN ('Approved', 'Pending')
+    ),
+    -- Competency-based daily tasks (only approved tasks)
+    task_stats AS (
+      SELECT 
+        COUNT(DISTINCT t.task_id) AS total_tasks_logged,
+        COALESCE(SUM(t.hours_worked), 0) AS total_task_hours,
+        COUNT(DISTINCT tc.competency_id) AS number_of_distinct_competencies
+      FROM ojt_daily_tasks t
+      LEFT JOIN task_competencies tc ON t.task_id = tc.task_id
+      WHERE t.student_id = $1 AND t.status = 'Approved'
+    ),
+    -- Competency hours breakdown (only approved tasks) — includes point_value for WPR computation
+    competency_hours AS (
+      SELECT 
+        c.competency_id,
+        c.title,
+        c.point_value,
+        COALESCE(SUM(t.hours_worked), 0) AS hours
+      FROM competencies c
+      LEFT JOIN task_competencies tc ON c.competency_id = tc.competency_id
+      LEFT JOIN ojt_daily_tasks t ON tc.task_id = t.task_id 
+        AND t.student_id = $1 
+        AND t.status = 'Approved'
+      GROUP BY c.competency_id, c.title, c.point_value
+    ),
+    -- WPR: Weekly Progress Report (20%) — auto-computed from competency work (hours-weighted)
+    wpr_computed AS (
+      SELECT
+        CASE
+          WHEN SUM(hours) > 0
+            THEN ROUND(SUM(hours * point_value)::NUMERIC / NULLIF(SUM(hours), 0), 2)
+          ELSE 0
+        END AS wpr_score
+      FROM competency_hours
+    ),
+    -- Task Score: Daily average → then average of daily averages
+    -- Step 1: For each day, average the point_value of all tasks logged that day
+    -- Step 2: Average those daily averages to get the final score (= WPR input)
+    task_score_computed AS (
+      SELECT
+        CASE
+          WHEN COUNT(*) > 0
+            THEN ROUND(AVG(daily_avg_score), 2)
+          ELSE 0
+        END AS avg_task_score
+      FROM (
+        SELECT
+          DATE(t.created_at) AS task_date,
+          AVG(c.point_value) AS daily_avg_score
+        FROM ojt_daily_tasks t
+        INNER JOIN task_competencies tc ON t.task_id = tc.task_id
+        INNER JOIN competencies c ON tc.competency_id = c.competency_id
+        WHERE t.student_id = $1 AND t.status = 'Approved'
+        GROUP BY DATE(t.created_at)
+      ) daily_scores
+    ),
+    -- NR: Narrative Report (20%)
+    narrative_eval AS (
+      SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+      FROM evaluations e
+      WHERE e.student_id = $1
+        AND (
+          e.evaluation_type = 'NR'
+          OR (e.evaluation_type IS NULL AND e.supervisor_id NOT IN (
+            SELECT user_id FROM users WHERE role IN ('Coordinator', 'Supervisor')
+          ))
+        )
+    ),
+    -- CE: Coordinator Evaluation (20%)
+    coordinator_eval AS (
+      SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+      FROM evaluations e
+      LEFT JOIN users u ON e.supervisor_id = u.user_id
+      WHERE e.student_id = $1
+        AND (
+          e.evaluation_type = 'CE'
+          OR (e.evaluation_type IS NULL AND u.role = 'Coordinator')
+        )
+    ),
+    -- SE: Supervisor Evaluation (40%) — given on the last day
+    supervisor_eval AS (
+      SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
+      FROM evaluations e
+      LEFT JOIN users u ON e.supervisor_id = u.user_id
+      WHERE e.student_id = $1
+        AND (
+          e.evaluation_type = 'SE'
+          OR (e.evaluation_type IS NULL AND u.role = 'Supervisor')
+        )
+    ),
+    -- Chatbot engagement
+    chatbot_stats AS (
+      SELECT 
+        COUNT(*) AS total_queries,
+        COUNT(CASE WHEN timestamp >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) AS queries_last_30_days
+      FROM chatbot_logs
+      WHERE user_id = $1
+    ),
+    -- Integrity stats (from latest checkin in last 14 days)
+    integrity_stats AS (
+      SELECT
+        inside_geofence,
+        distance_m,
+        accuracy_m,
+        trust_flags,
+        CASE WHEN attendance_image IS NOT NULL THEN true ELSE false END AS has_photo
+      FROM attendance
+      WHERE student_id = $1 AND date >= CURRENT_DATE - INTERVAL '14 days'
+      ORDER BY date DESC, morning_in DESC
+      LIMIT 1
+    ),
+    recent_flags AS (
+      SELECT COUNT(*) AS count
+      FROM attendance
+      WHERE student_id = $1 AND date >= CURRENT_DATE - INTERVAL '7 days'
+        AND (inside_geofence = false OR trust_flags IS NOT NULL)
+    ),
+    -- Consecutive absence detection using islands-and-gaps algorithm
+    -- Compares all weekdays in OJT period vs days the student was actually present
+    consecutive_absence_stats AS (
+      WITH
+        ojt_range AS (
+          SELECT
+            start_date,
+            LEAST(CURRENT_DATE, COALESCE(end_date, CURRENT_DATE)) AS effective_end
+          FROM ojt_records
+          WHERE student_id = $1 AND status IN ('Ongoing', 'Active')
+          LIMIT 1
+        ),
+        all_weekdays AS (
+          SELECT d::date AS day
+          FROM generate_series(
+            (SELECT start_date FROM ojt_range),
+            (SELECT effective_end FROM ojt_range),
+            '1 day'
+          ) d
+          WHERE EXTRACT(DOW FROM d) NOT IN (0, 6)  -- exclude Sat/Sun
+        ),
+        present_dates AS (
+          SELECT DISTINCT date
+          FROM attendance
+          WHERE student_id = $1 AND status IN ('Approved', 'Pending')
+        ),
+        -- Mark each weekday: 1 = absent, 0 = present
+        day_flags AS (
+          SELECT
+            w.day,
+            CASE WHEN p.date IS NULL THEN 1 ELSE 0 END AS is_absent,
+            ROW_NUMBER() OVER (ORDER BY w.day) AS rn
+          FROM all_weekdays w
+          LEFT JOIN present_dates p ON p.date = w.day
+        ),
+        -- Islands: assign the same group number to each consecutive absent streak
+        absent_islands AS (
+          SELECT
+            day, rn,
+            rn - ROW_NUMBER() OVER (ORDER BY day) AS grp
+          FROM day_flags
+          WHERE is_absent = 1
+        ),
+        -- Streak lengths + start/end dates
+        streaks AS (
+          SELECT
+            grp,
+            COUNT(*) AS streak_len,
+            MIN(day) AS streak_start,
+            MAX(day) AS streak_end
+          FROM absent_islands
+          GROUP BY grp
+        )
+      SELECT
+        COALESCE(MAX(streak_len), 0) AS max_consecutive_absences,
+        -- Current streak = the streak whose last absent day is within the last 3 weekdays
+        COALESCE((
+          SELECT streak_len FROM streaks
+          WHERE streak_end >= CURRENT_DATE - INTERVAL '4 days'
+          ORDER BY streak_end DESC
+          LIMIT 1
+        ), 0) AS current_absence_streak
+      FROM streaks
+    ),
+    -- Trend stats (hours in last 7 days vs prev 7 days)
+    trend_stats AS (
+      SELECT
+        COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_last_7,
+        COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '14 days' AND date < CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_prev_7
+      FROM attendance
+      WHERE student_id = $1 AND status IN ('Approved', 'Pending')
+    )
+    SELECT 
+      (SELECT student_name FROM ojt_info) AS student_name,
+      (SELECT COALESCE(required_hours, 300) FROM ojt_info) AS required_hours,
+      (SELECT start_date FROM ojt_info) AS ojt_start_date,
+      (SELECT end_date   FROM ojt_info) AS ojt_end_date,
+      (SELECT total_hours_completed FROM attendance_stats) AS total_hours_completed,
+      (SELECT credited_hours_completed FROM attendance_stats) AS credited_hours_completed,
+      (SELECT late_penalty_hours FROM attendance_stats) AS late_penalty_hours,
+      (SELECT days_present FROM attendance_stats) AS days_present,
+      (SELECT late_count FROM attendance_stats) AS late_count,
+      (SELECT total_tasks_logged FROM task_stats) AS total_tasks_logged,
+      (SELECT total_task_hours FROM task_stats) AS total_task_hours,
+      (SELECT number_of_distinct_competencies FROM task_stats) AS number_of_distinct_competencies,
+      (SELECT wpr_score FROM wpr_computed) AS wpr_eval_score,
+      (SELECT avg_task_score FROM task_score_computed) AS avg_task_score,
+      (SELECT avg_score FROM coordinator_eval) AS coordinator_eval_score,
+      (SELECT avg_score FROM supervisor_eval) AS supervisor_eval_score,
+      (SELECT avg_score FROM narrative_eval) AS narrative_eval_score,
+      (SELECT total_queries FROM chatbot_stats) AS total_chatbot_queries,
+      (SELECT queries_last_30_days FROM chatbot_stats) AS chatbot_queries_last_30_days,
+      (SELECT row_to_json(i) FROM integrity_stats i) AS integrity_data,
+      (SELECT count FROM recent_flags) AS recent_flags_count,
+      (SELECT max_consecutive_absences FROM consecutive_absence_stats) AS max_consecutive_absences,
+      (SELECT current_absence_streak FROM consecutive_absence_stats) AS current_absence_streak,
+      (SELECT row_to_json(t) FROM trend_stats t) AS trend_data,
+      (SELECT json_agg(json_build_object('title', title, 'hours', hours, 'point_value', point_value)) FROM competency_hours) AS competency_hours_json
+  `, [studentId]);
+
+  if (!snapshotResult.rows || snapshotResult.rows.length === 0 || !snapshotResult.rows[0].student_name) {
+    return null;
+  }
+
+  const snap = snapshotResult.rows[0];
+  const requiredHours = parseFloat(snap.required_hours) || 300;
+  const totalHoursCompleted = parseFloat(snap.total_hours_completed) || 0;
+  const creditedHoursCompleted = parseFloat(snap.credited_hours_completed) || 0;
+  const latePenaltyHours = parseFloat(snap.late_penalty_hours) || 0;
+  const daysPresent = parseFloat(snap.days_present) || 0;
+  const lateCount = parseInt(snap.late_count) || 0;
+
+  // OJT Timeframe
+  const ojtStartDate = snap.ojt_start_date ? new Date(snap.ojt_start_date).toISOString().split('T')[0] : null;
+  const ojtEndDate = snap.ojt_end_date ? new Date(snap.ojt_end_date).toISOString().split('T')[0] : null;
+  const totalOjtDays = countWeekdays(snap.ojt_start_date, snap.ojt_end_date);
+  const today = new Date();
+  const endDateObj = snap.ojt_end_date ? new Date(snap.ojt_end_date) : null;
+  const daysRemaining = endDateObj ? Math.max(0, countWeekdays(today, endDateObj)) : null;
+
+  const requiredDays = totalOjtDays;
+  const attendanceRate = requiredDays > 0 ? Math.min((daysPresent / requiredDays) * 100, 100) : 0;
+  const absentCount = Math.max(0, requiredDays - daysPresent);
+  // Use credited hours (after late penalty) for the progress ratio sent to the AI
+  const hoursCompletedRatio = requiredHours > 0 ? creditedHoursCompleted / requiredHours : 0;
+
+  const competencyHoursJson = snap.competency_hours_json || [];
+  const competencyHoursMap = {};
+  competencyHoursJson.forEach(item => {
+    const title = item.title || '';
+    const hours = parseFloat(item.hours) || 0;
+    const featureName = title.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    competencyHoursMap[featureName] = hours;
+  });
+
+  // Task-based score: running average of each day's avg task scores (from task_score_computed CTE)
+  // Each day → avg(competency point_values of tasks logged) → accumulate → divide by number of days
+  const totalTaskPoints = parseFloat(snap.avg_task_score) || 0;
+
+  // WPR = (running avg daily task score + attendance rate) / 2
+  // Combines task skill performance + attendance into a single 0-100 WPR score
+  const weeklyProgressGrade = Math.min(100, Math.round(((totalTaskPoints + attendanceRate) / 2) * 100) / 100);
+
+  const narrativeReportGrade = parseFloat(snap.narrative_eval_score) || 0;
+  const coordinatorEvalGrade = parseFloat(snap.coordinator_eval_score) || 0;
+  const supervisorEvalGrade = parseFloat(snap.supervisor_eval_score) || 0;
+
+  // Equivalent grade (1.0–5.0 PH scale) derived from the task score component
+  const equivalentGrade = scoreToEquivalentGrade(totalTaskPoints);
+
+  const payload = {
+    student_name: snap.student_name,
+    // --- OJT Timeframe ---
+    ojt_start_date: ojtStartDate,
+    ojt_end_date: ojtEndDate,
+    total_ojt_days: totalOjtDays,
+    days_remaining: daysRemaining,
+    // --- Hours ---
+    total_hours_completed: totalHoursCompleted,
+    credited_hours_completed: creditedHoursCompleted,  // after 1-30min=2hr penalty
+    late_penalty_hours: latePenaltyHours,
+    required_hours: requiredHours,
+    // --- Attendance ---
+    attendance_rate: attendanceRate,
+    late_count: lateCount,
+    absent_count: absentCount,
+    hours_completed_ratio: hoursCompletedRatio,  // uses credited hours
+    ojt_status: 'Active',
+    // --- Tasks ---
+    total_tasks_logged: parseInt(snap.total_tasks_logged) || 0,
+    total_task_hours: parseFloat(snap.total_task_hours) || 0,
+    number_of_distinct_competencies: parseInt(snap.number_of_distinct_competencies) || 0,
+    // --- Task Score & Equivalent Grade ---
+    total_task_points: totalTaskPoints,
+    equivalent_grade: equivalentGrade,
+    // --- Competency Hours ---
+    hours_software_development: competencyHoursMap['software_development'] || 0,
+    hours_machine_learning_engineering: competencyHoursMap['machine_learning_engineering'] || 0,
+    hours_it_related_research: competencyHoursMap['it_related_research'] || 0,
+    hours_ux_ui_design: competencyHoursMap['user_experience_ui_design'] || 0,
+    hours_information_security_analysis: competencyHoursMap['information_security_analysis'] || 0,
+    hours_networking: competencyHoursMap['networking'] || 0,
+    hours_technical_support: competencyHoursMap['technical_support'] || 0,
+    hours_data_analysis: competencyHoursMap['data_analysis'] || 0,
+    hours_customer_service: competencyHoursMap['customer_service'] || 0,
+    hours_data_entry_management: competencyHoursMap['data_entry_and_management'] || 0,
+    hours_office_work: competencyHoursMap['office_work'] || 0,
+    // --- Evaluation Grades ---
+    weekly_progress_grade: weeklyProgressGrade,
+    narrative_report_grade: narrativeReportGrade,
+    coordinator_eval_grade: coordinatorEvalGrade,
+    supervisor_eval_grade: supervisorEvalGrade,
+    has_weekly_progress_grade: weeklyProgressGrade > 0 ? 1 : 0,
+    has_narrative_report_grade: narrativeReportGrade > 0 ? 1 : 0,
+    has_coordinator_eval_grade: coordinatorEvalGrade > 0 ? 1 : 0,
+    has_supervisor_eval_grade: supervisorEvalGrade > 0 ? 1 : 0,
+    // --- Engagement ---
+    total_chatbot_queries: parseInt(snap.total_chatbot_queries) || 0,
+    chatbot_queries_last_30_days: parseInt(snap.chatbot_queries_last_30_days) || 0,
+    // --- Integrity ---
+    inside_geofence: snap.integrity_data?.inside_geofence !== false,
+    distance_m: parseFloat(snap.integrity_data?.distance_m) || 0.0,
+    accuracy_m: parseFloat(snap.integrity_data?.accuracy_m) || 10.0,
+    trust_flags: snap.integrity_data?.trust_flags || "",
+    has_photo: snap.integrity_data?.has_photo !== false,
+    recent_flags_count: parseInt(snap.recent_flags_count) || 0,
+    // --- Consecutive Absence Alert (separate from integrity flags) ---
+    max_consecutive_absences: parseInt(snap.max_consecutive_absences) || 0,
+    current_absence_streak: parseInt(snap.current_absence_streak) || 0,
+    // Alert fires when student has been absent 3+ consecutive weekdays (academic risk, not integrity)
+    consecutive_absence_alert: (parseInt(snap.max_consecutive_absences) || 0) >= 3,
+  };
+
+  const h7 = parseFloat(snap.trend_data?.hours_last_7) || 0;
+  const p7 = parseFloat(snap.trend_data?.hours_prev_7) || 0;
+
+  if (h7 > p7 * 1.15) {
+    payload.trend_status = 'improving';
+    payload.trend_reason = `Hours logged increased by >15% compared to previous week (${h7} vs ${p7})`;
+  } else if (h7 < p7 * 0.85) {
+    payload.trend_status = 'declining';
+    payload.trend_reason = `Hours logged decreased by >15% compared to previous week (${h7} vs ${p7})`;
+  } else {
+    payload.trend_status = 'stable';
+    payload.trend_reason = `Consistent performance logic maintained (${h7} vs ${p7})`;
+  }
+
+  return payload;
+}
+
+/**
+ * Shared logic to call the Flask AI Service.
+ */
+async function callFlaskAI(payload) {
+  const flaskUrl = process.env.FLASK_AI_URL || 'http://127.0.0.1:5000';
+  const response = await axios.post(`${flaskUrl}/predict`, payload, {
+    timeout: 300000, // Increased to 5 minutes for batch reliability
+    headers: { 'Content-Type': 'application/json' }
+  });
+  return response.data;
+}
+
+/**
  * AI PREDICTION SYSTEM - COMPREHENSIVE MULTI-FEATURE MODEL
  * 
  * This module implements a rich AI prediction system that uses:
@@ -132,7 +564,7 @@ router.post('/insights', async (req, res) => {
   }
 });
 
-// Get performance predictions (using stored procedure)
+// Get performance predictions
 router.get('/performance', authenticateToken, async (req, res) => {
   try {
     const { student_id } = req.query;
@@ -142,25 +574,24 @@ router.get('/performance', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'student_id is required' });
     }
 
-    // Data Isolation: Check access
+    // Data Isolation Check
     if (role === 'Coordinator') {
       const accessCheck = await query(
         "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
         [student_id, user_id]
       );
       if (accessCheck.rows.length === 0) {
-        return res.status(403).json({ error: 'Access Denied', message: 'You can only view performance for students assigned to you.' });
+        return res.status(403).json({ error: 'Access Denied' });
       }
     }
 
-    // Use stored procedure for real-time prediction generation
-    const result = await query(
-      'SELECT generate_performance_prediction($1) as prediction',
-      [student_id]
-    );
+    const payload = await getStudentAIPayload(student_id);
+    if (!payload) return res.status(404).json({ error: 'Student data not found' });
+
+    const prediction = await callFlaskAI(payload);
 
     res.json({
-      performance: result.rows[0].prediction,
+      performance: prediction,
       generated_at: new Date().toISOString()
     });
   } catch (error) {
@@ -173,20 +604,13 @@ router.get('/performance', authenticateToken, async (req, res) => {
 router.post('/performance/generate', async (req, res) => {
   try {
     const { student_id } = req.body;
+    if (!student_id) return res.status(400).json({ error: 'student_id is required' });
 
-    if (!student_id) {
-      return res.status(400).json({ error: 'student_id is required' });
-    }
+    const payload = await getStudentAIPayload(student_id);
+    if (!payload) return res.status(404).json({ error: 'Student data not found' });
 
-    // Generate prediction using stored procedure
-    const predictionResult = await query(
-      'SELECT generate_performance_prediction($1) as prediction',
-      [student_id]
-    );
+    const prediction = await callFlaskAI(payload);
 
-    const prediction = predictionResult.rows[0].prediction;
-
-    // Save to ai_insights table
     const insertResult = await query(
       `INSERT INTO ai_insights (student_id, model_name, insight_type, result, confidence, input_data)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -195,14 +619,14 @@ router.post('/performance/generate', async (req, res) => {
         student_id,
         'Performance Prediction Model',
         'performance_prediction',
-        prediction,
-        prediction.confidence,
-        JSON.stringify({ generated_via: 'api', generated_at: new Date().toISOString() })
+        JSON.stringify(prediction),
+        prediction.confidence || prediction.ml_prediction?.probability || 0,
+        JSON.stringify({ ...payload, generated_via: 'api_generate' })
       ]
     );
 
     res.status(201).json({
-      message: 'Performance prediction generated and saved successfully',
+      message: 'Performance prediction generated and saved',
       prediction: prediction,
       insight: insertResult.rows[0]
     });
@@ -295,11 +719,50 @@ router.get('/at-risk', authenticateToken, async (req, res) => {
 // Generate batch predictions for all active students
 router.post('/batch', async (req, res) => {
   try {
-    const result = await query('SELECT * FROM generate_batch_predictions()');
+    // 1) Get all active students
+    const activeStudents = await query(`
+      SELECT DISTINCT u.user_id
+      FROM users u
+      JOIN ojt_records o ON u.user_id = o.student_id
+      WHERE u.role = 'Student' AND o.status IN ('Ongoing', 'Active')
+    `);
+
+    const results = [];
+    const errors = [];
+
+    // 2) Process each student (Smart AI Prediction)
+    for (const row of activeStudents.rows) {
+      const studentId = row.user_id;
+      try {
+        const payload = await getStudentAIPayload(studentId);
+        if (!payload) continue;
+
+        const prediction = await callFlaskAI(payload);
+
+        await query(
+          `INSERT INTO ai_insights (student_id, model_name, insight_type, result, confidence, input_data)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            studentId,
+            'Performance Prediction Model (Batch)',
+            'performance_prediction',
+            JSON.stringify(prediction),
+            prediction.confidence || prediction.ml_prediction?.probability || 0,
+            JSON.stringify({ ...payload, batch_job: true })
+          ]
+        );
+
+        results.push({ studentId, status: 'Success' });
+      } catch (err) {
+        console.error(`Batch error for student ${studentId}:`, err.message);
+        errors.push({ studentId, error: err.message });
+      }
+    }
 
     res.json({
-      message: `Generated ${result.rows.length} predictions successfully`,
-      predictions: result.rows,
+      message: `Batch job complete: ${results.length} succeeded, ${errors.length} failed`,
+      results,
+      errors,
       generated_at: new Date().toISOString()
     });
   } catch (error) {
@@ -347,336 +810,46 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
       });
     }
 
-    // 1) Build COMPREHENSIVE snapshot from DB with all features
-    //    Includes: attendance (approved only), competencies, grading components, chatbot engagement
-
-    const snapshotResult = await query(`
-      WITH 
-      -- Get OJT record for required hours and duration
-      ojt_info AS (
-        SELECT o.required_hours, o.status, o.start_date, o.end_date, u.full_name AS student_name
-        FROM ojt_records o
-        JOIN users u ON o.student_id = u.user_id
-        -- Treat both Ongoing and Active as current OJT records
-        WHERE o.student_id = $1 AND o.status IN ('Ongoing', 'Active')
-        LIMIT 1
-      ),
-      -- Attendance stats (CRITICAL: Only approved attendance counts)
-      attendance_stats AS (
-        SELECT 
-          COALESCE(SUM(a.total_hours), 0) AS total_hours_completed,
-          COALESCE(COUNT(DISTINCT a.date), 0) AS days_present,
-          COALESCE(COUNT(CASE WHEN a.morning_in > '08:00:00' THEN 1 END), 0) AS late_count,
-          COALESCE(MAX(a.date), NULL) AS last_attendance_date
-        FROM attendance a
-        WHERE a.student_id = $1 AND a.status IN ('Approved', 'Pending')
-      ),
-      -- Competency-based daily tasks (only approved tasks)
-      task_stats AS (
-        SELECT 
-          COUNT(DISTINCT t.task_id) AS total_tasks_logged,
-          COALESCE(SUM(t.hours_worked), 0) AS total_task_hours,
-          COUNT(DISTINCT tc.competency_id) AS number_of_distinct_competencies
-        FROM ojt_daily_tasks t
-        LEFT JOIN task_competencies tc ON t.task_id = tc.task_id
-        WHERE t.student_id = $1 AND t.status = 'Approved'
-      ),
-      -- Competency hours breakdown (only approved tasks) — includes point_value for WPR computation
-      competency_hours AS (
-        SELECT 
-          c.competency_id,
-          c.title,
-          c.point_value,
-          COALESCE(SUM(t.hours_worked), 0) AS hours
-        FROM competencies c
-        LEFT JOIN task_competencies tc ON c.competency_id = tc.competency_id
-        LEFT JOIN ojt_daily_tasks t ON tc.task_id = t.task_id 
-          AND t.student_id = $1 
-          AND t.status = 'Approved'
-        GROUP BY c.competency_id, c.title, c.point_value
-      ),
-      -- WPR: Weekly Progress Report (20%) — auto-computed from competency work
-      -- Formula: Σ(hours × point_value) / Σ(hours)
-      -- Point tiers: 98 (Research/ML/SoftDev/UXUI), 92 (DS/InfoSec/Network/Support), 86 (CustSvc/DataEntry/OfficeWork)
-      -- Returns 0 if no tasks have been logged yet (student hasn't started).
-      wpr_computed AS (
-        SELECT
-          CASE
-            WHEN SUM(hours) > 0
-              THEN ROUND(SUM(hours * point_value)::NUMERIC / NULLIF(SUM(hours), 0), 2)
-            ELSE 0
-          END AS wpr_score
-        FROM competency_hours
-      ),
-      -- NR: Narrative Report (20%)
-      narrative_eval AS (
-        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
-        FROM evaluations e
-        WHERE e.student_id = $1
-          AND (
-            e.evaluation_type = 'NR'
-            -- Fallback for old records: use non-coordinator, non-supervisor evaluations
-            OR (e.evaluation_type IS NULL AND e.supervisor_id NOT IN (
-              SELECT user_id FROM users WHERE role IN ('Coordinator', 'Supervisor')
-            ))
-          )
-      ),
-      -- CE: Coordinator Evaluation (20%)
-      coordinator_eval AS (
-        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
-        FROM evaluations e
-        LEFT JOIN users u ON e.supervisor_id = u.user_id
-        WHERE e.student_id = $1
-          AND (
-            e.evaluation_type = 'CE'
-            -- Fallback for old records not yet migrated
-            OR (e.evaluation_type IS NULL AND u.role = 'Coordinator')
-          )
-      ),
-      -- SE: Supervisor Evaluation (40%) — given on the last day
-      supervisor_eval AS (
-        SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
-        FROM evaluations e
-        LEFT JOIN users u ON e.supervisor_id = u.user_id
-        WHERE e.student_id = $1
-          AND (
-            e.evaluation_type = 'SE'
-            -- Fallback for old records not yet migrated
-            OR (e.evaluation_type IS NULL AND u.role = 'Supervisor')
-          )
-      ),
-      -- Chatbot engagement
-      chatbot_stats AS (
-        SELECT 
-          COUNT(*) AS total_queries,
-          COUNT(CASE WHEN timestamp >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) AS queries_last_30_days
-        FROM chatbot_logs
-        WHERE user_id = $1
-      ),
-      -- Integrity stats (from latest checkin in last 14 days)
-      integrity_stats AS (
-        SELECT
-          inside_geofence,
-          distance_m,
-          accuracy_m,
-          trust_flags,
-          CASE WHEN attendance_image IS NOT NULL THEN true ELSE false END AS has_photo
-        FROM attendance
-        WHERE student_id = $1 AND date >= CURRENT_DATE - INTERVAL '14 days'
-        ORDER BY date DESC, morning_in DESC
-        LIMIT 1
-      ),
-      recent_flags AS (
-        SELECT COUNT(*) AS count
-        FROM attendance
-        WHERE student_id = $1 AND date >= CURRENT_DATE - INTERVAL '7 days'
-          AND (inside_geofence = false OR trust_flags IS NOT NULL)
-      ),
-      -- Trend stats (hours in last 7 days vs prev 7 days)
-      trend_stats AS (
-        SELECT
-          COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_last_7,
-          COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '14 days' AND date < CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_prev_7
-        FROM attendance
-        WHERE student_id = $1 AND status IN ('Approved', 'Pending')
-      )
-      SELECT 
-        (SELECT student_name FROM ojt_info) AS student_name,
-        (SELECT COALESCE(required_hours, 300) FROM ojt_info) AS required_hours,
-        (SELECT start_date FROM ojt_info) AS ojt_start_date,
-        (SELECT end_date   FROM ojt_info) AS ojt_end_date,
-        (SELECT total_hours_completed FROM attendance_stats) AS total_hours_completed,
-        (SELECT days_present FROM attendance_stats) AS days_present,
-        (SELECT late_count FROM attendance_stats) AS late_count,
-        (SELECT total_tasks_logged FROM task_stats) AS total_tasks_logged,
-        (SELECT total_task_hours FROM task_stats) AS total_task_hours,
-        (SELECT number_of_distinct_competencies FROM task_stats) AS number_of_distinct_competencies,
-        (SELECT wpr_score FROM wpr_computed) AS wpr_eval_score,
-        (SELECT avg_score FROM coordinator_eval) AS coordinator_eval_score,
-        (SELECT avg_score FROM supervisor_eval) AS supervisor_eval_score,
-        (SELECT avg_score FROM narrative_eval) AS narrative_eval_score,
-        (SELECT total_queries FROM chatbot_stats) AS total_chatbot_queries,
-        (SELECT queries_last_30_days FROM chatbot_stats) AS chatbot_queries_last_30_days,
-        -- Integrity Data (FIXED: Added selection from CTEs)
-        (SELECT row_to_json(i) FROM integrity_stats i) AS integrity_data,
-        (SELECT count FROM recent_flags) AS recent_flags_count,
-        (SELECT row_to_json(t) FROM trend_stats t) AS trend_data,
-        -- Competency hours (will be processed separately) — includes point_value for WPR verification
-        (SELECT json_agg(json_build_object('title', title, 'hours', hours, 'point_value', point_value)) FROM competency_hours) AS competency_hours_json
-    `, [studentId]);
-
-    if (!snapshotResult.rows || snapshotResult.rows.length === 0) {
+    // 1) Build snapshot
+    const payload = await getStudentAIPayload(studentId);
+    if (!payload) {
       return res.status(404).json({ error: 'No data for this student' });
     }
 
-    const snap = snapshotResult.rows[0];
-    const requiredHours = parseFloat(snap.required_hours) || 300;
-    const totalHoursCompleted = parseFloat(snap.total_hours_completed) || 0;
-    const daysPresent = parseFloat(snap.days_present) || 0;
-    const lateCount = parseInt(snap.late_count) || 0;
-
-    // Calculate attendance rate and absent count
-    // Derive required working days from the OJT record's actual start/end dates
-    // (Mon–Fri count). Falls back to 25 if dates are not set.
-    const requiredDays = countWeekdays(snap.ojt_start_date, snap.ojt_end_date);
-    const attendanceRate = requiredDays > 0 ? Math.min((daysPresent / requiredDays) * 100, 100) : 0;
-    const absentCount = Math.max(0, requiredDays - daysPresent);
-    const hoursCompletedRatio = requiredHours > 0 ? totalHoursCompleted / requiredHours : 0;
-
-    // Process competency hours
-    const competencyHoursJson = snap.competency_hours_json || [];
-    const competencyHoursMap = {};
-    competencyHoursJson.forEach(item => {
-      const title = item.title || '';
-      const hours = parseFloat(item.hours) || 0;
-      // Map competency titles to feature names
-      const featureName = title.toLowerCase()
-        .replace(/\s+/g, '_')
-        .replace(/[^a-z0-9_]/g, '');
-      competencyHoursMap[featureName] = hours;
-    });
-
-    // Get grading components — now properly separated by evaluation_type (WPR/NR/CE/SE)
-    // WPR: auto-computed from competency hours × point values (86/92/98)
-    //   Formula: Σ(hours × point_value) / Σ(hours)  → score between 86–98 (or 0 if no tasks yet)
-    const weeklyProgressGrade = parseFloat(snap.wpr_eval_score) || 0; // WPR (auto from competencies)
-    const narrativeReportGrade = parseFloat(snap.narrative_eval_score) || 0; // NR
-    const coordinatorEvalGrade = parseFloat(snap.coordinator_eval_score) || 0; // CE
-    const supervisorEvalGrade = parseFloat(snap.supervisor_eval_score) || 0; // SE (0 during active OJT)
-
-    // Build comprehensive snapshot payload
-    const payload = {
-      student_name: snap.student_name || 'Student',
-      // Attendance features (approved only)
-      total_hours_completed: totalHoursCompleted,
-      required_hours: requiredHours,
-      attendance_rate: attendanceRate,
-      late_count: lateCount,
-      absent_count: absentCount,
-      hours_completed_ratio: hoursCompletedRatio,
-
-      // Progress features
-      ojt_status: 'Active', // Default status
-
-      // Competency-based daily task features
-      total_tasks_logged: parseInt(snap.total_tasks_logged) || 0,
-      total_task_hours: parseFloat(snap.total_task_hours) || 0,
-      number_of_distinct_competencies: parseInt(snap.number_of_distinct_competencies) || 0,
-
-      // Individual competency hours (11 competencies)
-      hours_software_development: competencyHoursMap['software_development'] || 0,
-      hours_machine_learning_engineering: competencyHoursMap['machine_learning_engineering'] || 0,
-      hours_it_related_research: competencyHoursMap['it_related_research'] || 0,
-      hours_ux_ui_design: competencyHoursMap['user_experience_ui_design'] || 0,
-      hours_information_security_analysis: competencyHoursMap['information_security_analysis'] || 0,
-      hours_networking: competencyHoursMap['networking'] || 0,
-      hours_technical_support: competencyHoursMap['technical_support'] || 0,
-      hours_data_analysis: competencyHoursMap['data_analysis'] || 0,
-      hours_customer_service: competencyHoursMap['customer_service'] || 0,
-      hours_data_entry_management: competencyHoursMap['data_entry_and_management'] || 0,
-      hours_office_work: competencyHoursMap['office_work'] || 0,
-
-      // OJT Grading-related features
-      weekly_progress_grade: weeklyProgressGrade,
-      narrative_report_grade: narrativeReportGrade,
-      coordinator_eval_grade: coordinatorEvalGrade,
-      supervisor_eval_grade: supervisorEvalGrade,
-
-      // Grade presence flags
-      has_weekly_progress_grade: weeklyProgressGrade > 0 ? 1 : 0,
-      has_narrative_report_grade: narrativeReportGrade > 0 ? 1 : 0,
-      has_coordinator_eval_grade: coordinatorEvalGrade > 0 ? 1 : 0,
-      has_supervisor_eval_grade: supervisorEvalGrade > 0 ? 1 : 0,
-
-      // Chatbot engagement
-      total_chatbot_queries: parseInt(snap.total_chatbot_queries) || 0,
-      chatbot_queries_last_30_days: parseInt(snap.chatbot_queries_last_30_days) || 0,
-
-      // Integrity Data
-      inside_geofence: snap.integrity_data?.inside_geofence !== false, // Defaults true if missing
-      distance_m: parseFloat(snap.integrity_data?.distance_m) || 0.0,
-      accuracy_m: parseFloat(snap.integrity_data?.accuracy_m) || 10.0,
-      trust_flags: snap.integrity_data?.trust_flags || "",
-      has_photo: snap.integrity_data?.has_photo !== false, // Defaults true if missing
-      recent_flags_count: parseInt(snap.recent_flags_count) || 0,
-    };
-
-    // Compute Trend Logic (FIXED: Use the data from snap.trend_data)
-    const h7 = parseFloat(snap.trend_data?.hours_last_7) || 0;
-    const p7 = parseFloat(snap.trend_data?.hours_prev_7) || 0;
-
-    if (h7 > p7 * 1.15) {
-      payload.trend_status = 'improving';
-      payload.trend_reason = `Hours logged increased by >15% compared to previous week (${h7} vs ${p7})`;
-    } else if (h7 < p7 * 0.85) {
-      payload.trend_status = 'declining';
-      payload.trend_reason = `Hours logged decreased by >15% compared to previous week (${h7} vs ${p7})`;
-    } else {
-      payload.trend_status = 'stable';
-      payload.trend_reason = `Consistent performance logic maintained (${h7} vs ${p7})`;
-    }
-
-
-    // 2) Call Python Flask AI
-    // Replace with your Flask server URL (use environment variable in production)
-    const flaskUrl = process.env.FLASK_AI_URL || 'http://localhost:5000';
-
-    let aiRes;
+    // 2) Call AI
+    let prediction;
     try {
-      aiRes = await axios.post(`${flaskUrl}/predict`, payload, {
-        timeout: 180000, // Increased to 180 seconds for Ollama/Gemma processing
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-    } catch (axiosError) {
-      console.error('Flask AI service error:', axiosError.message);
-      if (axiosError.code === 'ECONNREFUSED' || axiosError.code === 'ETIMEDOUT') {
+      prediction = await callFlaskAI(payload);
+    } catch (error) {
+      console.error('Flask AI service error:', error.message);
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({
           success: false,
           error_type: 'SERVICE_UNAVAILABLE',
           error: 'AI prediction service unavailable',
-          message: 'Cannot connect to Flask AI service. Please ensure it is running.',
+          message: 'Cannot connect to Flask AI service.',
           snapshot: payload
         });
       }
-      throw axiosError;
+      throw error;
     }
 
-    const prediction = aiRes.data;
-
-    // Check if prediction returned an error response
+    // 3) Handle AI Error Response
     if (prediction && prediction.success === false) {
-      // Map error types to appropriate HTTP status codes
-      const statusCodeMap = {
-        'MODEL_NOT_AVAILABLE': 503,
-        'INVALID_INPUT': 400,
-        'PREDICTION_ERROR': 500
-      };
-
-      const statusCode = statusCodeMap[prediction.error_type] || 500;
-
-      return res.status(statusCode).json({
+      const statusCodeMap = { 'MODEL_NOT_AVAILABLE': 503, 'INVALID_INPUT': 400 };
+      return res.status(statusCodeMap[prediction.error_type] || 500).json({
         student_id: parseInt(studentId),
         success: false,
-        ai_prediction: {
-          success: false,
-          error_type: prediction.error_type || 'PREDICTION_ERROR',
-          error: prediction.message || 'Prediction failed',
-          message: prediction.message,
-          details: prediction.details,
-          ml_prediction: null
-        },
+        ai_prediction: prediction,
         snapshot: payload
       });
     }
 
-    // 3) Optional: insert into ai_insights table
+    // 4) Save to ai_insights
     try {
       await query(
         `INSERT INTO ai_insights (student_id, model_name, insight_type, result, confidence, input_data)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING insight_id`,
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           studentId,
           'Daily Risk Prediction Ensemble',
@@ -687,17 +860,16 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
         ]
       );
     } catch (insertError) {
-      // Log but don't fail the request if insert fails
-      console.warn('Failed to save prediction to ai_insights:', insertError.message);
+      console.warn('Failed to save insight:', insertError.message);
     }
 
-    // Attach backend trend payload to final ai_prediction object cleanly
+    // Attach trend manually as backend carries specific trend logic
     const finalPrediction = {
-        ...prediction,
-        trend: {
-            status: payload.trend_status,
-            reason: payload.trend_reason
-        }
+      ...prediction,
+      trend: {
+        status: payload.trend_status,
+        reason: payload.trend_reason
+      }
     };
 
     return res.json({

@@ -442,6 +442,22 @@ def generate_top_reasons(
     required_hours = features_dict.get('required_hours', 300)
     hours_ratio = features_dict.get('hours_completed_ratio', 0)
     
+    # --- Consecutive Absence Alert (academic risk, separate from integrity flags) ---
+    max_consec = int(features_dict.get('max_consecutive_absences', 0))
+    current_streak = int(features_dict.get('current_absence_streak', 0))
+    consec_alert = features_dict.get('consecutive_absence_alert', False)
+    
+    if consec_alert or max_consec >= 3:
+        # Prioritize this — insert at front of reasons list
+        if current_streak >= 3:
+            reasons.insert(0, f"⚠️ Currently absent for {current_streak} consecutive weekdays — immediate follow-up required")
+        elif max_consec >= 5:
+            reasons.insert(0, f"⚠️ Longest absence streak this OJT: {max_consec} consecutive days — significant academic risk")
+        else:
+            reasons.insert(0, f"Absence streak detected: {max_consec} consecutive weekdays missed — attendance needs attention")
+    elif max_consec == 2:
+        reasons.append(f"2 consecutive absences detected — monitor closely to prevent a streak")
+    
     if attendance_rate < 60:
         reasons.append(f"Low attendance rate ({attendance_rate:.1f}%) - impacts 20% Weekly Progress score")
     elif attendance_rate < 80:

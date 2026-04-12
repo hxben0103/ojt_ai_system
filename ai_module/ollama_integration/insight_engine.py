@@ -336,38 +336,49 @@ def build_features_from_snapshot(snapshot: Dict[str, Any]) -> Dict[str, float]:
         ValueError: If feature names are not loaded
     """
     if not FEATURE_NAMES:
-        raise ValueError("Feature names not loaded. Models may not be initialized.")
-    
+        logger.error("❌ FEATURE_NAMES not loaded. Prediction may fail.")
+        raise ValueError("Model feature names not initialized.")
+        
     features = {}
+    missing_features = []
+    zero_features = []
     
     # Build features dictionary using exact feature names from feature_names.pkl
-    # The backend sends features with exact names matching FEATURE_COLUMNS, so direct mapping should work
     for feature_name in FEATURE_NAMES:
-        # Direct match (backend sends exact feature names)
         if feature_name in snapshot:
             value = snapshot[feature_name]
         else:
-            # Fallback: try to find by pattern matching (for backward compatibility)
+            # Fallback for backward compatibility
             value = None
             feature_lower = feature_name.lower()
-            
-            # Try common variations
             for key in snapshot.keys():
                 if key.lower() == feature_lower or key.lower().replace('_', ' ') == feature_lower.replace('_', ' '):
                     value = snapshot[key]
                     break
             
-            # If still not found, use 0.0
             if value is None:
                 value = 0.0
+                missing_features.append(feature_name)
         
-        # Ensure value is numeric and handle None/NaN
         try:
-            features[feature_name] = float(value) if value is not None else 0.0
-            if np.isnan(features[feature_name]) or np.isinf(features[feature_name]):
-                features[feature_name] = 0.0
+            val_float = float(value) if value is not None else 0.0
+            if np.isnan(val_float) or np.isinf(val_float):
+                val_float = 0.0
+            features[feature_name] = val_float
+            
+            if val_float == 0.0 and feature_name not in missing_features:
+                # Track features that are present but zero (potential drift)
+                if any(k in feature_name for k in ['grade', 'rate', 'ratio']):
+                    zero_features.append(feature_name)
         except (ValueError, TypeError):
             features[feature_name] = 0.0
+            missing_features.append(f"{feature_name}(invalid)")
+
+    # Log feature drift for observability
+    if missing_features:
+        logger.warning(f"⚠️ Feature Mapping Drift: {len(missing_features)} features missing from payload: {missing_features[:5]}...")
+    if zero_features:
+        logger.info(f"ℹ️ Potential Data Drift: {len(zero_features)} critical features are zero: {zero_features[:5]}...")
     
     return features
 

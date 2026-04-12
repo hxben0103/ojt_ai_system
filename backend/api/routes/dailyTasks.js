@@ -3,6 +3,13 @@ const router = express.Router();
 const { query } = require('../../config/db');
 const jwt = require('jsonwebtoken');
 
+// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
+  process.exit(1);
+}
+
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -12,7 +19,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -27,9 +34,19 @@ const authenticateToken = (req, res, next) => {
 // =====================================================
 router.get('/competencies', async (req, res) => {
   try {
-    const result = await query(
-      'SELECT competency_id, title, point_value FROM competencies ORDER BY point_value DESC, title'
-    );
+    const { program } = req.query;
+    
+    let queryText = 'SELECT competency_id, title, point_value FROM competencies';
+    let queryParams = [];
+    
+    if (program) {
+      queryText += ' WHERE program = $1 OR program = \'ALL\'';
+      queryParams.push(program);
+    }
+    
+    queryText += ' ORDER BY point_value DESC, title';
+    
+    const result = await query(queryText, queryParams);
 
     res.json({
       competencies: result.rows.map(row => ({
@@ -40,6 +57,49 @@ router.get('/competencies', async (req, res) => {
     });
   } catch (error) {
     console.error('Get competencies error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// =====================================================
+// PUT /api/daily-tasks/competencies/:id
+// Updates a competency point value (Auth required, Admin only)
+// =====================================================
+router.put('/competencies/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { pointValue } = req.body;
+    const currentUser = req.user;
+
+    // Authorization: Only Admins can update competencies
+    if (currentUser.role !== 'Admin' && currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied: Admin only' });
+    }
+
+    if (pointValue === undefined || pointValue === null) {
+      return res.status(400).json({ error: 'pointValue is required' });
+    }
+
+    const result = await query(
+      'UPDATE competencies SET point_value = $1, updated_at = CURRENT_TIMESTAMP WHERE competency_id = $2 RETURNING *',
+      [pointValue, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Competency not found' });
+    }
+
+    const updated = result.rows[0];
+    res.json({
+      message: 'Competency updated successfully',
+      competency: {
+        competencyId: updated.competency_id,
+        title: updated.title,
+        pointValue: updated.point_value
+      }
+    });
+  } catch (error) {
+    console.error('Update competency error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -1,5 +1,0 @@
-function create_attendance(unknown, unknown, unknown, unknown, unknown, unknown) is not unique\nerror: function create_attendance(unknown, unknown, unknown, unknown, unknown, unknown) is not unique
-    at C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\node_modules\pg-pool\index.js:45:11
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at async query (C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\config\db.js:34:17)
-    at async testAttendance (C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\tmp_test_attendance_create.js:14:20)

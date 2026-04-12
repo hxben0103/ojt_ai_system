@@ -1,7 +1,0 @@
-﻿Γ£à Connected to PostgreSQL database
-Executed query {
-  text: 'DELETE FROM attendance WHERE student_id = $1 AND date = $2',
-  duration: 1189,
-  rows: 0
-}
-Creating attendance record...

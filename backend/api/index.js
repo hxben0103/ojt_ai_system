@@ -79,6 +79,8 @@ const predictionRoutes = require('./routes/prediction');
 const coordinatorAnalyticsRoutes = require('./routes/coordinatorAnalytics');
 const reportsRoutes = require('./routes/reports');
 const progressReportsRoutes = require('./routes/progressReports');
+const chatbotRoutes = require('./routes/chatbot'); // ✅ Chatbot logging & history
+const notificationsRoutes = require('./routes/notifications'); // ✅ Notifications
 
 // Import OJT routes with error handling
 let ojtRoutes;
@@ -131,8 +133,52 @@ app.use('/api/ojt-sites', ojtSitesRoutes);
 app.use('/api', dailyTasksRoutes); // Daily tasks routes use /api prefix directly
 app.use('/api', coordinatorAnalyticsRoutes); // Coordinator analytics endpoints
 app.use('/api/student-reports', progressReportsRoutes);
+app.use('/api/chatbot', chatbotRoutes); // ✅ Chatbot logging & history
+app.use('/api/notifications', notificationsRoutes); // ✅ Notifications
 
 console.log('✅ All API routes registered');
+
+// Automatic database migration for Program columns
+(async () => {
+  try {
+    const { query } = require('./config/db');
+    
+    // 1. Add program column to users
+    await query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'users' AND column_name = 'program'
+        ) THEN
+          ALTER TABLE users ADD COLUMN program VARCHAR(50) DEFAULT 'Not Specified';
+        END IF;
+      END $$;
+    `);
+
+    // 2. Add program column to competencies
+    await query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'competencies' AND column_name = 'program'
+        ) THEN
+          ALTER TABLE competencies ADD COLUMN program VARCHAR(50) DEFAULT 'ALL';
+          
+          -- Seed specific IT/CS splits based on OJT guidelines
+          UPDATE competencies SET program = 'BSIT' WHERE title IN ('Networking', 'Technical Support', 'Information Security Analysis');
+          UPDATE competencies SET program = 'BSCS' WHERE title IN ('Software Development', 'Machine Learning Engineering', 'Algorithm Design');
+          -- Others like 'UX/UI Design', 'Data Entry' stay 'ALL'
+        END IF;
+      END $$;
+    `);
+
+    console.log('✅ Migrations for Phase 4 (Programs) ensured');
+  } catch (err) {
+    console.error('❌ Failed to run migrations for Phase 4:', err);
+  }
+})();
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {

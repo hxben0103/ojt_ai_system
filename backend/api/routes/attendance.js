@@ -6,6 +6,13 @@ const { query } = require('../../config/db');
 const { uploadAttendancePhoto } = require('../../config/supabaseClient');
 const jwt = require('jsonwebtoken');
 
+// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
+  process.exit(1);
+}
+
 // Photo upload: use memory storage (no local disk writes)
 const uploadPhoto = multer({
   storage: multer.memoryStorage(),
@@ -48,7 +55,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -480,6 +487,15 @@ router.post('/time-in', authenticateToken, async (req, res) => {
       status: savedAttendance?.status || 'Pending',
       time_in: savedAttendance?.morning_in || savedAttendance?.afternoon_in || savedAttendance?.overtime_in
     });
+    // Invalidate AI cache to force fresh predictions on dashboard reload
+    try {
+      await query(
+        `DELETE FROM ai_insights WHERE student_id = $1 AND insight_type IN ('daily_risk_prediction', 'performance_prediction')`,
+        [student_id]
+      );
+    } catch (cacheErr) {
+      console.error('AI cache invalidation failed:', cacheErr);
+    }
 
     res.status(201).json({
       success: true,
@@ -671,6 +687,16 @@ router.put('/time-out', authenticateToken, async (req, res) => {
     if (!attendance.full_name) {
       const userRes = await query('SELECT full_name FROM users WHERE user_id = $1', [attendance.student_id]);
       if (userRes.rows.length > 0) attendance.full_name = userRes.rows[0].full_name;
+    }
+
+    // Invalidate AI cache to force fresh predictions on dashboard reload
+    try {
+      await query(
+        `DELETE FROM ai_insights WHERE student_id = $1 AND insight_type IN ('daily_risk_prediction', 'performance_prediction')`,
+        [targetStudentId]
+      );
+    } catch (cacheErr) {
+      console.error('AI cache invalidation failed:', cacheErr);
     }
 
     res.json({ 

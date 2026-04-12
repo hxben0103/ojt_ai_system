@@ -200,7 +200,7 @@ def chat():
                                     "is_streaming": not done,
                                     "session_id": session_id or "default",
                                     "is_fallback": False,
-                                    "confidence_score": 0.85,
+                                    "confidence_score": 1.0,
                                     "used_context": []
                                 }) + "\n"
                                 if done:
@@ -352,7 +352,12 @@ def predict():
     try:
         data = request.get_json() or {}
         
-        # Use hybrid ML + Gemma prediction (now with built-in validation)
+        # Log summary of incoming payload for observability (Point-based check)
+        print(f"[PREDICT] Received request for: {data.get('student_name', 'Unknown')}")
+        print(f"[PREDICT] Hour Metrics: completed={data.get('total_hours_completed')}, required={data.get('required_hours')}")
+        print(f"[PREDICT] Competency Samples: software={data.get('hours_software_development')}, it_related={data.get('hours_it_related_research')}")
+        
+        # Use hybrid ML + Gemma prediction
         result = predict_with_explanation(data)
         
         # Check if prediction was successful

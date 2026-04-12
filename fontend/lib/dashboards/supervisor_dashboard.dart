@@ -130,7 +130,12 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
   }
 
   Widget _buildEvaluationInsight(SupervisorProvider provider) {
-    if (provider.isLoadingStudents) return const SizedBox.shrink();
+    if (provider.isLoadingStudents) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+        child: LoadingSkeleton(height: 180),
+      );
+    }
     
     final bool allDone = provider.pendingEvaluations == 0 && provider.totalAssigned > 0;
     final int needingAttention = provider.highRiskStudents;

@@ -4,6 +4,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
 
+// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
+  process.exit(1);
+}
+
 // Register User
 router.post('/register', async (req, res) => {
   try {
@@ -21,6 +28,7 @@ router.post('/register', async (req, res) => {
       address,
       required_hours,
       profile_photo,
+      program, // New field for Phase 4
       // Supervisor/Coordinator fields (can be stored in address or contact_number)
     } = req.body;
 
@@ -36,6 +44,7 @@ router.post('/register', async (req, res) => {
       contact_number,
       address,
       required_hours,
+      program,
       profile_photo: profile_photo ? `${profile_photo.substring(0, 50)}...` : null
     });
 
@@ -90,9 +99,9 @@ router.post('/register', async (req, res) => {
       `INSERT INTO users (
         full_name, email, password_hash, role, status,
         student_id, course, age, gender, contact_number, 
-        address, required_hours, profile_photo
+        address, required_hours, profile_photo, program
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         full_name,
@@ -113,7 +122,8 @@ router.post('/register', async (req, res) => {
           const hoursNum = typeof required_hours === 'number' ? required_hours : parseInt(String(required_hours));
           return isNaN(hoursNum) ? null : hoursNum;
         })() : null,
-        (profile_photo && String(profile_photo).trim() !== '') ? String(profile_photo).trim() : null
+        (profile_photo && String(profile_photo).trim() !== '') ? String(profile_photo).trim() : null,
+        (program && String(program).trim() !== '') ? String(program).trim() : 'Not Specified'
       ]
     );
 
@@ -149,7 +159,7 @@ router.post('/register', async (req, res) => {
     if (user.status === 'Active') {
       token = jwt.sign(
         { user_id: user.user_id, email: user.email, role: user.role },
-        process.env.JWT_SECRET || 'your_secret_key',
+        JWT_SECRET,
         { expiresIn: '7d' }
       );
     }
@@ -233,7 +243,7 @@ router.post('/login', async (req, res) => {
     // Generate JWT token
     const token = jwt.sign(
       { user_id: user.user_id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'your_secret_key',
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -284,7 +294,7 @@ router.get('/profile', async (req, res) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
+    const decoded = jwt.verify(token, JWT_SECRET);
 
     const result = await query(
       'SELECT * FROM users WHERE user_id = $1',
@@ -343,7 +353,7 @@ const authenticateToken = (req, res, next) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (error) {

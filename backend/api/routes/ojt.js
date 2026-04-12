@@ -3,6 +3,13 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
 
+// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
+  process.exit(1);
+}
+
 // Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   try {
@@ -12,7 +19,7 @@ const authenticateToken = (req, res, next) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (error) {
@@ -339,14 +346,15 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
     const ojtRecord = ojtResult.rows[0] || null;
     const requiredHours = ojtRecord ? (ojtRecord.required_hours || 300) : 300;
 
-    // Get attendance summary - CRITICAL: Collect attendance regardless of approval
+    // Get attendance summary - CRITICAL: Only count 'Approved' attendance
+    // NOTE: time-in auto-approves records, so this correctly reflects verified hours.
     const attendanceResult = await query(
       `SELECT 
          COALESCE(SUM(total_hours), 0) AS total_hours_completed,
          COUNT(DISTINCT date) AS days_present,
          MAX(date) AS last_attendance_date
        FROM attendance
-       WHERE student_id = $1 AND status IN ('Approved', 'Pending')`,
+       WHERE student_id = $1 AND status = 'Approved'`,
       [studentId]
     );
 

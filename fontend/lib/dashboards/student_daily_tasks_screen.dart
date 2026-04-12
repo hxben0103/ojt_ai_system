@@ -63,7 +63,7 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
 
       final results = await Future.wait([
         DailyTaskService.getDailyTasksForStudent(user!.userId!),
-        DailyTaskService.getCompetencies(),
+        DailyTaskService.getCompetencies(program: user.program),
         OjtService.getStudentStatus(user.userId!),
       ]);
 

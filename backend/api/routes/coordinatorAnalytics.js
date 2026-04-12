@@ -3,6 +3,13 @@ const router = express.Router();
 const { query } = require('../../config/db');
 const jwt = require('jsonwebtoken');
 
+// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
+  process.exit(1);
+}
+
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -12,7 +19,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -91,7 +98,7 @@ router.get('/analytics/coordinator/overview', authenticateToken, async (req, res
           COALESCE(COUNT(DISTINCT a.date), 0)                       AS days_present,
           COALESCE(COUNT(CASE WHEN a.morning_in IS NOT NULL AND a.morning_in > '08:00:00' THEN 1 END), 0) AS late_count
         FROM attendance a
-        WHERE a.status IN ('Approved', 'Pending')
+        WHERE a.status = 'Approved'  -- Only count verified attendance (time-in auto-approves)
         GROUP BY a.student_id
       ),
       -- Unified WPR logic: Σ(hours * point_value) / Σ(hours)

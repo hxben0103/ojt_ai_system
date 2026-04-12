@@ -5,13 +5,40 @@ import '../core/config.dart';
 
 class DailyTaskService {
   // Get all competencies
-  static Future<List<Competency>> getCompetencies() async {
+  static Future<List<Competency>> getCompetencies({String? program}) async {
     try {
-      final response = await ApiService.get('/competencies');
+      final endpoint = program != null ? '/competencies?program=$program' : '/competencies';
+      final response = await ApiService.get(endpoint);
+      
+      if (response.containsKey('error')) {
+        throw Exception(response['error'].toString());
+      }
+      
       final List<dynamic> data = response['competencies'] as List<dynamic>? ?? [];
       return data.map((json) => Competency.fromJson(json as Map<String, dynamic>)).toList();
     } catch (e) {
       throw Exception('Failed to fetch competencies: $e');
+    }
+  }
+
+  // Update competency point value (Admin only)
+  static Future<Competency> updateCompetencyPointValue(int id, int newValue) async {
+    try {
+      final response = await ApiService.put(
+        '/competencies/$id',
+        {
+          'pointValue': newValue,
+        },
+      );
+      
+      if (response.containsKey('error')) {
+        throw Exception(response['error'].toString());
+      }
+      
+      final data = response['competency'] ?? response;
+      return Competency.fromJson(data as Map<String, dynamic>);
+    } catch (e) {
+      throw Exception('Failed to update competency: $e');
     }
   }
 

@@ -4,6 +4,13 @@ const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
 
+// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
+  process.exit(1);
+}
+
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -13,7 +20,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -126,13 +133,13 @@ async function getStudentAIPayload(studentId) {
       LEFT JOIN task_competencies tc ON t.task_id = tc.task_id
       WHERE t.student_id = $1 AND t.status = 'Approved'
     ),
-    -- Competency hours breakdown (only approved tasks) — includes point_value for WPR computation
-    competency_hours AS (
+    -- Competency total points (only approved tasks)
+    competency_points AS (
       SELECT 
         c.competency_id,
         c.title,
         c.point_value,
-        COALESCE(SUM(t.hours_worked), 0) AS hours
+        COALESCE(SUM(c.point_value), 0) AS total_points
       FROM competencies c
       LEFT JOIN task_competencies tc ON c.competency_id = tc.competency_id
       LEFT JOIN ojt_daily_tasks t ON tc.task_id = t.task_id 
@@ -140,15 +147,15 @@ async function getStudentAIPayload(studentId) {
         AND t.status = 'Approved'
       GROUP BY c.competency_id, c.title, c.point_value
     ),
-    -- WPR: Weekly Progress Report (20%) — auto-computed from competency work (hours-weighted)
     wpr_computed AS (
       SELECT
         CASE
-          WHEN SUM(hours) > 0
-            THEN ROUND(SUM(hours * point_value)::NUMERIC / NULLIF(SUM(hours), 0), 2)
+          WHEN COUNT(*) > 0
+            THEN ROUND(AVG(point_value)::NUMERIC, 2)
           ELSE 0
         END AS wpr_score
-      FROM competency_hours
+      FROM competency_points
+      WHERE total_points > 0
     ),
     -- Task Score: Daily average → then average of daily averages
     -- Step 1: For each day, average the point_value of all tasks logged that day
@@ -329,7 +336,7 @@ async function getStudentAIPayload(studentId) {
       (SELECT max_consecutive_absences FROM consecutive_absence_stats) AS max_consecutive_absences,
       (SELECT current_absence_streak FROM consecutive_absence_stats) AS current_absence_streak,
       (SELECT row_to_json(t) FROM trend_stats t) AS trend_data,
-      (SELECT json_agg(json_build_object('title', title, 'hours', hours, 'point_value', point_value)) FROM competency_hours) AS competency_hours_json
+      (SELECT json_agg(json_build_object('title', title, 'points', total_points, 'point_value', point_value)) FROM competency_points) AS competency_points_json
   `, [studentId]);
 
   if (!snapshotResult.rows || snapshotResult.rows.length === 0 || !snapshotResult.rows[0].student_name) {
@@ -358,13 +365,17 @@ async function getStudentAIPayload(studentId) {
   // Use credited hours (after late penalty) for the progress ratio sent to the AI
   const hoursCompletedRatio = requiredHours > 0 ? creditedHoursCompleted / requiredHours : 0;
 
-  const competencyHoursJson = snap.competency_hours_json || [];
-  const competencyHoursMap = {};
-  competencyHoursJson.forEach(item => {
+  const competencyPointsJson = snap.competency_points_json || [];
+  const competencyPointsMap = {};
+  competencyPointsJson.forEach(item => {
     const title = item.title || '';
-    const hours = parseFloat(item.hours) || 0;
-    const featureName = title.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    competencyHoursMap[featureName] = hours;
+    const points = parseFloat(item.points) || 0;
+    // Improved normalization to ensure consistency with hardcoded keys (e.g. IT-Related -> it_related)
+    // 1. Lowercase, 2. Replace non-alphanum with underscores, 3. Collapse multiple __, 4. Trim _
+    const featureName = title.toLowerCase()
+                             .replace(/[^a-z0-9]+/g, '_')
+                             .replace(/^_+|_+$/g, '');
+    competencyPointsMap[featureName] = points;
   });
 
   // Task-based score: running average of each day's avg task scores (from task_score_computed CTE)
@@ -407,18 +418,19 @@ async function getStudentAIPayload(studentId) {
     // --- Task Score & Equivalent Grade ---
     total_task_points: totalTaskPoints,
     equivalent_grade: equivalentGrade,
-    // --- Competency Hours ---
-    hours_software_development: competencyHoursMap['software_development'] || 0,
-    hours_machine_learning_engineering: competencyHoursMap['machine_learning_engineering'] || 0,
-    hours_it_related_research: competencyHoursMap['it_related_research'] || 0,
-    hours_ux_ui_design: competencyHoursMap['user_experience_ui_design'] || 0,
-    hours_information_security_analysis: competencyHoursMap['information_security_analysis'] || 0,
-    hours_networking: competencyHoursMap['networking'] || 0,
-    hours_technical_support: competencyHoursMap['technical_support'] || 0,
-    hours_data_analysis: competencyHoursMap['data_analysis'] || 0,
-    hours_customer_service: competencyHoursMap['customer_service'] || 0,
-    hours_data_entry_management: competencyHoursMap['data_entry_and_management'] || 0,
-    hours_office_work: competencyHoursMap['office_work'] || 0,
+    // --- Competency Cumulative Points ---
+    // (Still using "hours_" keys for model compatibility, but value is now accumulated points)
+    hours_software_development: competencyPointsMap['software_development'] || 0,
+    hours_machine_learning_engineering: competencyPointsMap['machine_learning_engineering'] || 0,
+    hours_it_related_research: competencyPointsMap['it_related_research'] || 0,
+    hours_ux_ui_design: competencyPointsMap['user_experience_ui_design'] || 0,
+    hours_information_security_analysis: competencyPointsMap['information_security_analysis'] || 0,
+    hours_networking: competencyPointsMap['networking'] || 0,
+    hours_technical_support: competencyPointsMap['technical_support'] || 0,
+    hours_data_analysis: competencyPointsMap['data_analysis'] || 0,
+    hours_customer_service: competencyPointsMap['customer_service'] || 0,
+    hours_data_entry_management: competencyPointsMap['data_entry_and_management'] || 0,
+    hours_office_work: competencyPointsMap['office_work'] || 0,
     // --- Evaluation Grades ---
     weekly_progress_grade: weeklyProgressGrade,
     narrative_report_grade: narrativeReportGrade,

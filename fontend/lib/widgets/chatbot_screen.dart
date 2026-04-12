@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:async';
 import '../services/prediction_service.dart';
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
 import '../core/ai_config.dart';
 
 class ChatBotScreen extends StatefulWidget {
@@ -231,6 +232,17 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
 
         if (!hasReceivedData) {
           _showErrorMessage("Received empty response from server");
+        } else if (_streamingText.isNotEmpty) {
+          // Send log to the backend for AI payload metrics
+          try {
+            await ApiService.post('/chatbot/log', {
+              'query': userMessage,
+              'response': _streamingText,
+              'model_used': 'gemma2:2b'
+            });
+          } catch (error) {
+            debugPrint('Failed to log chatbot interaction: $error');
+          }
         }
 
         setState(() {

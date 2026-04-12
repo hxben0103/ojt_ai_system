@@ -17,6 +17,7 @@ import 'dashboards/student_dashboard.dart';
 import 'providers/student_provider.dart';
 import 'providers/coordinator_provider.dart';
 import 'providers/supervisor_provider.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +37,7 @@ class OjtAiApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => StudentProvider()),
         ChangeNotifierProvider(create: (_) => CoordinatorProvider()),
         ChangeNotifierProvider(create: (_) => SupervisorProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationService()),
       ],
       child: MaterialApp(
         title: 'AI OJT Platform',

@@ -16,6 +16,7 @@ class StudentProvider extends ChangeNotifier {
   String? studentName;
   String? studentId;
   String? course;
+  String? program;
   String? coordinator;
   String? supervisor;
 
@@ -77,6 +78,7 @@ class StudentProvider extends ChangeNotifier {
       studentName   = user.fullName;
       studentId     = user.studentId ?? '${user.userId}';
       course        = user.course ?? 'N/A';
+      program       = user.program ?? 'Not Specified';
       requiredHours = user.requiredHours ?? requiredHours;
     }
   }

@@ -16,6 +16,7 @@ class User {
   final String? address;
   final String? profilePhoto;
   final int? requiredHours;
+  final String? program;
 
   User({
     this.userId,
@@ -33,6 +34,7 @@ class User {
     this.address,
     this.profilePhoto,
     this.requiredHours,
+    this.program,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -54,6 +56,7 @@ class User {
       address: json['address'] as String?,
       profilePhoto: json['profile_photo'] as String?,
       requiredHours: json['required_hours'] as int?,
+      program: json['program'] as String?,
     );
   }
 
@@ -74,6 +77,7 @@ class User {
       if (address != null) 'address': address,
       if (profilePhoto != null) 'profile_photo': profilePhoto,
       if (requiredHours != null) 'required_hours': requiredHours,
+      if (program != null) 'program': program,
     };
   }
 
@@ -93,6 +97,7 @@ class User {
     String? address,
     String? profilePhoto,
     int? requiredHours,
+    String? program,
   }) {
     return User(
       userId: userId ?? this.userId,
@@ -110,6 +115,7 @@ class User {
       address: address ?? this.address,
       profilePhoto: profilePhoto ?? this.profilePhoto,
       requiredHours: requiredHours ?? this.requiredHours,
+      program: program ?? this.program,
     );
   }
 }

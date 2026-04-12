@@ -13,6 +13,7 @@ import '../widgets/error_state_widget.dart';
 import '../widgets/insight_card.dart';
 import '../widgets/modern_table_card.dart';
 import '../screens/login_screen.dart';
+import '../screens/admin/admin_competency_management_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -29,6 +30,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int _activeUsers = 0;
   int _pendingUsers = 0;
   int _coordinatorCount = 0;
+  int _bgisCount = 0;
+  int _bscsCount = 0;
   final Set<int> _processing = {};
   final DateFormat _dateFormat = DateFormat('MMM d, yyyy');
 
@@ -58,6 +61,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
             allUsers.where((user) => user.status == 'Pending').length;
         _coordinatorCount =
             allUsers.where((user) => user.role == 'Coordinator').length;
+        _bgisCount = allUsers.where((user) => user.status == 'Active' && user.role == 'Student' && (user.program == 'BSIS' || user.course == 'BSIS')).length;
+        _bscsCount = allUsers.where((user) => user.status == 'Active' && user.role == 'Student' && (user.program == 'BSCS' || user.course == 'BSCS')).length;
       });
     } catch (e) {
       setState(() {
@@ -163,6 +168,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ))
         ..add(_buildStatsSection(context))
         ..add(const SizedBox(height: AppTheme.spacing24))
+        ..add(_buildManagementSection(context))
+        ..add(const SizedBox(height: AppTheme.spacing24))
         ..add(_buildSystemHealthInsight())
         ..add(const SizedBox(height: AppTheme.spacing24))
         ..add(
@@ -266,19 +273,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
         children: [
           Expanded(
             child: ModernStatCard(
-              label: 'Total Users',
-              value: '$_totalUsers',
-              icon: Icons.people_alt_rounded,
-              color: AppTheme.adminPrimary,
+              label: 'Active BSIS',
+              value: '$_bgisCount',
+              icon: Icons.computer_rounded,
+              color: Colors.blue.shade700,
             ),
           ),
           const SizedBox(width: AppTheme.spacing8),
           Expanded(
             child: ModernStatCard(
-              label: 'Active',
-              value: '$_activeUsers',
-              icon: Icons.verified_user_rounded,
-              color: AppTheme.successColor,
+              label: 'Active BSCS',
+              value: '$_bscsCount',
+              icon: Icons.code_rounded,
+              color: Colors.indigo.shade700,
             ),
           ),
           const SizedBox(width: AppTheme.spacing8),
@@ -297,6 +304,57 @@ class _AdminDashboardState extends State<AdminDashboard> {
               value: '$_coordinatorCount',
               icon: Icons.school_rounded,
               color: AppTheme.coordinatorPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildManagementSection(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            title: 'Institutional Configuration',
+            icon: Icons.settings_rounded,
+          ),
+          const SizedBox(height: AppTheme.spacing12),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+              boxShadow: [AppTheme.cardShadow],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: ListTile(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AdminCompetencyManagementScreen(),
+                    ),
+                  );
+                },
+                contentPadding: const EdgeInsets.all(AppTheme.spacing16),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.adminPrimary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+                  ),
+                  child: const Icon(Icons.psychology_alt_rounded, color: AppTheme.adminPrimary),
+                ),
+                title: const Text(
+                  'Skill Competency Matrix',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: const Text('Adjust point values for different OJT skill categories.'),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+              ),
             ),
           ),
         ],

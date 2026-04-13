@@ -129,10 +129,10 @@ class PredictionService {
   }
 
   // Get daily risk prediction for a student
-  static Future<Map<String, dynamic>> getDailyPrediction(int studentId) async {
+  static Future<Map<String, dynamic>> getDailyPrediction(int studentId, {bool cacheOnly = false}) async {
     try {
       final response = await ApiService.get(
-        '${ApiConfig.prediction}/daily/$studentId',
+        '${ApiConfig.prediction}/daily/$studentId${cacheOnly ? "?cache_only=true" : ""}',
       );
 
       return Map<String, dynamic>.from(response);

@@ -436,8 +436,65 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     List<String>? trustFlags;
 
     if (!kIsWeb) {
+      // PROACTIVELY CHECK LOCATION PERMISSIONS!
+      final locEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!locEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+               content: Text("⚠️ Device Location (GPS) is turned OFF. Please turn it on in your phone's Quick Settings."),
+               backgroundColor: Colors.orange,
+               duration: Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+
+      var perm = await Permission.locationWhenInUse.status;
+      if (!perm.isGranted) {
+         perm = await Permission.locationWhenInUse.request();
+      }
+      if (perm.isPermanentlyDenied) {
+         if (mounted) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text("Location Permission Required"),
+                content: const Text(
+                  "Location permission is required for attendance to verify your geofence. "
+                  "Please enable it in app settings.",
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text("Cancel"),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      openAppSettings();
+                    },
+                    child: const Text("Open Settings"),
+                  ),
+                ],
+              ),
+            );
+         }
+      }
+
       // For time-out use current position as checkout; for time-in as checkin
-      final position = await LocationService.getCurrentPosition();
+      // Add a timeLimit so it doesn't hang forever indoors
+      Position? position;
+      try {
+        if (perm.isGranted && locEnabled) {
+           position = await Geolocator.getCurrentPosition(
+             timeLimit: const Duration(seconds: 10),
+           );
+        }
+      } catch (e) {
+        print("Location timeout or error: $e");
+      }
+
       if (position != null) {
         // Fetch geofence site for this student's company
         final sites = await OjtSitesService.getSitesByCompanyName(_companyName);
@@ -477,11 +534,11 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                     siteAddress: nearestSite.address,
                     siteLatitude: nearestSite.latitude,
                     siteLongitude: nearestSite.longitude,
-                    currentLatitude: position.latitude,
-                    currentLongitude: position.longitude,
+                    currentLatitude: position!.latitude,
+                    currentLongitude: position!.longitude,
                     distanceMeters: distanceM,
                     accuracyMeters:
-                        position.accuracy > 0 ? position.accuracy : null,
+                        position!.accuracy > 0 ? position!.accuracy : null,
                     insideGeofence: insideGeofence,
                     trustScore: trustScore,
                     onProceed: () => Navigator.pop(ctx, true),
@@ -531,6 +588,27 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         trustScore = trust.result.score;
         trustFlags =
             trust.result.reasons.isEmpty ? null : trust.result.reasons;
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("⚠️ GPS Location unavailable. Attendance will be recorded without location data."),
+              duration: Duration(seconds: 3),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } else {
+      // kIsWeb is true
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("ℹ️ Running on Web. GPS Location tracking is disabled."),
+            duration: Duration(seconds: 3),
+            backgroundColor: Colors.blueGrey,
+          ),
+        );
       }
     }
 

@@ -16,11 +16,15 @@ class ExplainableAiCard extends StatelessWidget {
     if (prediction['ai_prediction'] == null) return const SizedBox.shrink();
     
     final ai = Map<String, dynamic>.from(prediction['ai_prediction'] as Map);
-    // AI Narrative (Gemma) - Prefer more detailed fields first
     final summary = ai['gemma_explanation'] as String? 
         ?? ai['summary'] as String? 
         ?? prediction['summary'] as String?
         ?? 'No summary available.';
+
+    final recommendations = (ai['gemma_recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
+        ?? (ai['recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
+        ?? (prediction['recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
+        ?? [];
 
     // Early-stage detection: show informational card ONLY when the backend explicitly
     // flags early_stage:true AND we don't have a specific AI narrative yet.
@@ -85,7 +89,7 @@ class ExplainableAiCard extends StatelessWidget {
             
             const Divider(height: 1),
             // Gemma AI Narrative
-            _buildNarrativeSection(context, summary),
+            _buildNarrativeSection(context, summary, recommendations),
           ],
         ],
       ),
@@ -336,7 +340,7 @@ class ExplainableAiCard extends StatelessWidget {
     );
   }
 
-  Widget _buildNarrativeSection(BuildContext context, String summary) {
+  Widget _buildNarrativeSection(BuildContext context, String summary, List<String> recommendations) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -374,6 +378,37 @@ class ExplainableAiCard extends StatelessWidget {
               fontStyle: FontStyle.italic,
             ),
           ),
+          if (recommendations.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...recommendations.map((rec) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade400,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      rec,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: Colors.purple.shade800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )),
+          ],
         ],
       ),
     );

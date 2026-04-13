@@ -167,11 +167,11 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       };
 
       // Detailed per-student snapshots (for list & modal views)
-      final snapshotFutures = <Future<_CoordinatorStudentSnapshot?>>[];
+      // Load sequentially to prevent overloading the local LLM server queue causing connection timeouts
+      final snapshotsRaw = <_CoordinatorStudentSnapshot?>[];
       for (final record in ojtRecords) {
-        snapshotFutures.add(_buildStudentSnapshot(record, todayRecord: todayMap[record.studentId]));
+        snapshotsRaw.add(await _buildStudentSnapshot(record, todayRecord: todayMap[record.studentId]));
       }
-      final snapshotsRaw = await Future.wait(snapshotFutures);
       if (!mounted) return;
       final snapshots =
           snapshotsRaw.whereType<_CoordinatorStudentSnapshot>().toList();
@@ -380,7 +380,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
 
       Map<String, dynamic>? prediction;
       try {
-        prediction = await PredictionService.getDailyPrediction(studentId);
+        prediction = await PredictionService.getDailyPrediction(studentId, cacheOnly: true);
       } catch (e) {
         debugPrint('[CoordinatorDashboard] Prediction failed for student $studentId: $e');
         prediction = null;

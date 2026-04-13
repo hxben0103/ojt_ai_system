@@ -787,6 +787,7 @@ router.post('/batch', async (req, res) => {
 router.get('/daily/:studentId', authenticateToken, async (req, res) => {
   const studentId = req.params.studentId;
   const { role, user_id } = req.user;
+  const cacheOnly = req.query.cache_only === 'true';
 
   // Data Isolation: Check access
   if (role === 'Coordinator') {
@@ -801,12 +802,13 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
 
   try {
     // Check if we have a recent prediction (last 4 hours) to avoid overwhelming the LLM
+    // If cacheOnly is true, we fallback to the latest available prediction even if older than 4 hours
     const recentPrediction = await query(
       `SELECT result, created_at 
        FROM ai_insights 
        WHERE student_id = $1 
          AND insight_type = 'daily_risk_prediction'
-         AND created_at >= NOW() - INTERVAL '4 hours'
+         ${cacheOnly ? "" : "AND created_at >= NOW() - INTERVAL '4 hours'"}
        ORDER BY created_at DESC 
        LIMIT 1`,
       [studentId]
@@ -820,6 +822,17 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
         ai_prediction: typeof cached.result === 'string' ? JSON.parse(cached.result) : cached.result,
         generated_at: cached.created_at
       });
+    }
+
+    if (cacheOnly) {
+       // If tracking from cache purely, and no cache exists, just return a pending state
+       // to avoid tying up the Flask LLM loop on simple dashboard views
+       return res.json({
+         student_id: parseInt(studentId),
+         cached: true,
+         ai_prediction: { risk_level: 'PENDING', score: 0, summary: 'AI Insight Pending Generation' },
+         generated_at: new Date().toISOString()
+       });
     }
 
     // 1) Build snapshot

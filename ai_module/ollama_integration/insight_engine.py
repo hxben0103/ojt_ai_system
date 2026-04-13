@@ -833,7 +833,7 @@ def ml_predict(features_dict: Dict[str, float]) -> Dict[str, Any]:
 # =========================================================
 # Gemma (Ollama) Integration
 # =========================================================
-def call_gemma(prompt: str, model: str = None, timeout: int = 180) -> str:
+def call_gemma(prompt: str, model: str = None, timeout: int = 600) -> str:
     """
     Call local Ollama instance running Gemma model.
     

@@ -97,11 +97,12 @@ const dailyTasksRoutes = require('./routes/dailyTasks');
 const ojtSitesRoutes = require('./routes/ojtSites');
 
 // ─── Rate Limiters ────────────────────────────────────────────────────────────
-// Tight limit on the daily prediction endpoint — it calls Flask + Ollama (heavy)
+// Daily prediction endpoint — calls Flask + Ollama (heavy)
+// Raised to 200 per 15 min to support coordinator dashboards loading all students at once
 const predictionDailyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30,                   // 30 requests per window per IP
-  standardHeaders: 'draft-7', // RateLimit headers per IETF draft (v8+)
+  max: 200,                  // 200 requests per window per IP
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: {
     error: 'Too many prediction requests. Please wait a few minutes before trying again.',
@@ -112,8 +113,8 @@ const predictionDailyLimiter = rateLimit({
 // General limit for all other prediction routes
 const predictionLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,                  // 100 requests per window per IP
-  standardHeaders: 'draft-7', // RateLimit headers per IETF draft (v8+)
+  max: 500,                  // 500 requests per window per IP
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: {
     error: 'Too many requests to the prediction API. Please slow down.',

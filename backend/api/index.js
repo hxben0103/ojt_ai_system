@@ -1,7 +1,8 @@
 process.env.TZ = 'Asia/Manila';
 const express = require('express');
 const cors = require('cors');
-const bodyParser = require('body-parser');
+const helmet = require('helmet');
+const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const dgram = require('dgram');
 require('dotenv').config({ path: './config/env/.env' });
@@ -46,9 +47,12 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 };
 
+app.use(helmet()); // Add security headers
+app.use(compression()); // Compress responses
+
 app.use(cors(corsOptions));
-app.use(bodyParser.json({ limit: '15mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '15mb' }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // API Response Time Logging Middleware
 app.use('/api', (req, res, next) => {
@@ -81,6 +85,8 @@ const reportsRoutes = require('./routes/reports');
 const progressReportsRoutes = require('./routes/progressReports');
 const chatbotRoutes = require('./routes/chatbot'); // ✅ Chatbot logging & history
 const notificationsRoutes = require('./routes/notifications'); // ✅ Notifications
+const exportsRoutes = require('./routes/exports'); // ✅ CSV Data Export
+const calendarRoutes = require('./routes/calendar'); // ✅ University Calendar
 
 // Import OJT routes with error handling
 let ojtRoutes;
@@ -136,13 +142,15 @@ app.use('/api', coordinatorAnalyticsRoutes); // Coordinator analytics endpoints
 app.use('/api/student-reports', progressReportsRoutes);
 app.use('/api/chatbot', chatbotRoutes); // ✅ Chatbot logging & history
 app.use('/api/notifications', notificationsRoutes); // ✅ Notifications
+app.use('/api/exports', exportsRoutes); // ✅ CSV Data Export
+app.use('/api/calendar', calendarRoutes); // ✅ University Calendar
 
 console.log('✅ All API routes registered');
 
-// Automatic database migration for Program columns
-(async () => {
+// Automatic database migration for Program columns (deferred)
+setTimeout(async () => {
   try {
-    const { query } = require('./config/db');
+    const { query } = require('../config/db');
     
     // 1. Add program column to users
     await query(`
@@ -179,7 +187,7 @@ console.log('✅ All API routes registered');
   } catch (err) {
     console.error('❌ Failed to run migrations for Phase 4:', err);
   }
-})();
+}, 0);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {

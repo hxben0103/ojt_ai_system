@@ -42,7 +42,18 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
     try {
       final user = await AuthService.getCurrentUser();
       if (user?.userId != null) {
-        final status = await OjtService.getStudentStatus(user!.userId!);
+        // ✅ COORDINATOR BYPASS: Coordinators can always view student DTRs
+        if (user!.role.toLowerCase().contains('coordinator')) {
+          if (mounted) {
+            setState(() {
+              _canPerformOjtActions = true;
+              _isLoading = false;
+            });
+          }
+          return;
+        }
+
+        final status = await OjtService.getStudentStatus(user.userId!);
         if (mounted) {
           setState(() {
             _canPerformOjtActions = status['can_perform_ojt_actions'] == true;
@@ -300,3 +311,4 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
     return total;
   }
 }
+

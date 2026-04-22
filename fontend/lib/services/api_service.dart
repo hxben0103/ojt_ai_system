@@ -107,6 +107,25 @@ class ApiService {
     }
   }
 
+  static Future<Stream<List<int>>> getStream(String endpoint) async {
+    try {
+      final response = await _dio.get<ResponseBody>(
+        endpoint,
+        options: Options(responseType: ResponseType.stream),
+      );
+      
+      if (response.data == null) {
+        throw Exception('No data received from stream');
+      }
+      
+      return response.data!.stream;
+    } on DioException catch (e) {
+      throw Exception(_handleDioError(e));
+    } catch (e) {
+      throw Exception('Streaming error: $e');
+    }
+  }
+
   static Map<String, dynamic> _handleResponse(Response response) {
     if (response.statusCode != null && response.statusCode! >= 200 && response.statusCode! < 300) {
       if (response.data == null || response.data.toString().isEmpty) {
@@ -162,3 +181,4 @@ class ApiService {
     throw Exception(message);
   }
 }
+

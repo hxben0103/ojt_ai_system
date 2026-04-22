@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
@@ -23,6 +24,9 @@ import '../utils/web_image_picker.dart';
 import '../core/app_theme.dart';
 import '../widgets/geofence_verification_panel.dart';
 import '../widgets/attendance_integrity_row.dart';
+import '../widgets/attendance/attendance_summary_card.dart';
+import '../widgets/attendance/geofence_status_panel.dart';
+import '../widgets/attendance/attendance_photo_evidence.dart';
 import '../../widgets/restricted_access_screen.dart';
 
 class StudentAttendanceScreen extends StatefulWidget {
@@ -163,6 +167,36 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       // Check if it's a new day and reset all daily state if needed
       await _checkAndResetDailyState();
 
+      Future<void> _checkOjtStatus() async {
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (user?.userId != null) {
+        // ✅ COORDINATOR BYPASS
+        if (user!.role.toLowerCase().contains('coordinator')) {
+          if (mounted) {
+            setState(() {
+              _canPerformOjtActions = true;
+              _isLoading = false;
+            });
+          }
+          return;
+        }
+
+        final status = await OjtService.getStudentStatus(user.userId!);
+        if (mounted) {
+          setState(() {
+            _canPerformOjtActions = status['can_perform_ojt_actions'] == true;
+            _isLoading = false;
+          });
+        }
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
       // Get current user
       final user = await AuthService.getCurrentUser();
       if (user == null) {
@@ -173,26 +207,34 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
 
       // Get OJT record for this student (for segment logging and geofence site lookup)
       try {
-        final ojtRecords = await OjtService.getOjtRecords(studentId: _studentId);
-        
-        // Ensure student has an active/ongoing record with assigned coordinator/supervisor
-        final activeRecord = ojtRecords.where((r) => 
-            (r.status == 'Active' || r.status == 'Ongoing') && 
-            r.coordinatorId != null && 
-            r.supervisorId != null).firstOrNull;
-
-        if (activeRecord != null) {
-          _ojtRecordId = activeRecord.recordId;
-          _companyName = activeRecord.companyName;
-          _companyAddress = activeRecord.companyAddress;
-          _canPerformOjtActions = true;
+        final userRole = user.role.toLowerCase();
+        // ✅ COORDINATOR BYPASS: Allow access to the UI even if they don't have a personal OJT record
+        if (userRole.contains('coordinator')) {
+           _canPerformOjtActions = true;
+           // If we are inspecting a specific student, we should ideally fetch THEIR record,
+           // but for now, we just bypass the block.
         } else {
-           _canPerformOjtActions = false;
+          final ojtRecords = await OjtService.getOjtRecords(studentId: _studentId);
+          
+          // Ensure student has an active/ongoing record with assigned coordinator/supervisor
+          final activeRecord = ojtRecords.where((r) => 
+              (r.status == 'Active' || r.status == 'Ongoing') && 
+              r.coordinatorId != null && 
+              r.supervisorId != null).firstOrNull;
+
+          if (activeRecord != null) {
+            _ojtRecordId = activeRecord.recordId;
+            _companyName = activeRecord.companyName;
+            _companyAddress = activeRecord.companyAddress;
+            _canPerformOjtActions = true;
+          } else {
+            _canPerformOjtActions = false;
+          }
         }
       } catch (e) {
         // OJT record not found, but continue anyway
         print('Warning: Could not fetch OJT record: $e');
-        _canPerformOjtActions = false;
+        _canPerformOjtActions = user.role.toLowerCase().contains('coordinator');
       }
 
       // Load today's attendance and history
@@ -435,178 +477,140 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     int? trustScore;
     List<String>? trustFlags;
 
-    if (!kIsWeb) {
-      // PROACTIVELY CHECK LOCATION PERMISSIONS!
+    // PROACTIVELY CHECK LOCATION!
+    bool locationFetched = false;
+    Position? position;
+    
+    // Show a small non-blocking progress if location takes time
+    try {
       final locEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!locEnabled) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-               content: Text("⚠️ Device Location (GPS) is turned OFF. Please turn it on in your phone's Quick Settings."),
-               backgroundColor: Colors.orange,
-               duration: Duration(seconds: 4),
-            ),
-          );
-        }
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
       }
 
-      var perm = await Permission.locationWhenInUse.status;
-      if (!perm.isGranted) {
-         perm = await Permission.locationWhenInUse.request();
-      }
-      if (perm.isPermanentlyDenied) {
-         if (mounted) {
-            await showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text("Location Permission Required"),
-                content: const Text(
-                  "Location permission is required for attendance to verify your geofence. "
-                  "Please enable it in app settings.",
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text("Cancel"),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      openAppSettings();
-                    },
-                    child: const Text("Open Settings"),
-                  ),
-                ],
-              ),
-            );
+      if (locEnabled && (permission == LocationPermission.whileInUse || permission == LocationPermission.always)) {
+         try {
+           position = await Geolocator.getCurrentPosition(
+             timeLimit: const Duration(seconds: 20),
+             desiredAccuracy: LocationAccuracy.high,
+           );
+         } catch (e) {
+           debugPrint("Location timeout or error: $e");
+           // One-time retry if timeout
+           if (e is TimeoutException) {
+             position = await Geolocator.getCurrentPosition(
+               timeLimit: const Duration(seconds: 10),
+               desiredAccuracy: LocationAccuracy.medium,
+             );
+           }
          }
       }
+    } catch (e) {
+      debugPrint("Pre-attendance location check failed: $e");
+    }
 
-      // For time-out use current position as checkout; for time-in as checkin
-      // Add a timeLimit so it doesn't hang forever indoors
-      Position? position;
-      try {
-        if (perm.isGranted && locEnabled) {
-           position = await Geolocator.getCurrentPosition(
-             timeLimit: const Duration(seconds: 10),
-           );
-        }
-      } catch (e) {
-        print("Location timeout or error: $e");
-      }
-
-      if (position != null) {
-        // Fetch geofence site for this student's company
-        final sites = await OjtSitesService.getSitesByCompanyName(_companyName);
-        if (sites.isNotEmpty && GeofenceConfig.enforceGeofence) {
-          GeofenceSite nearestSite = sites.first;
-          ({bool inside, double distanceMeters}) bestGeofence = GeofenceService.check(
-            nearestSite,
+    if (position != null) {
+      locationFetched = true;
+      // Fetch geofence site for this student's company
+      final sites = await OjtSitesService.getSitesByCompanyName(_companyName);
+      if (sites.isNotEmpty && GeofenceConfig.enforceGeofence) {
+        GeofenceSite nearestSite = sites.first;
+        ({bool inside, double distanceMeters}) bestGeofence = GeofenceService.check(
+          nearestSite,
+          position.latitude,
+          position.longitude,
+        );
+        
+        for (int i = 1; i < sites.length; i++) {
+          final check = GeofenceService.check(
+            sites[i],
             position.latitude,
             position.longitude,
           );
-          
-          for (int i = 1; i < sites.length; i++) {
-            final check = GeofenceService.check(
-              sites[i],
-              position.latitude,
-              position.longitude,
-            );
-            if (check.distanceMeters < bestGeofence.distanceMeters) {
-              nearestSite = sites[i];
-              bestGeofence = check;
-            }
-          }
-          
-          final geofence = bestGeofence;
-          
-          insideGeofence = geofence.inside;
-          distanceM = geofence.distanceMeters;
-
-          // Show professional verification panel before camera opens
-          if (mounted) {
-            final proceed = await showModalBottomSheet<bool>(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (ctx) => GeofenceVerificationPanel(
-                    siteName: nearestSite.name,
-                    siteAddress: nearestSite.address,
-                    siteLatitude: nearestSite.latitude,
-                    siteLongitude: nearestSite.longitude,
-                    currentLatitude: position!.latitude,
-                    currentLongitude: position!.longitude,
-                    distanceMeters: distanceM,
-                    accuracyMeters:
-                        position!.accuracy > 0 ? position!.accuracy : null,
-                    insideGeofence: insideGeofence,
-                    trustScore: trustScore,
-                    onProceed: () => Navigator.pop(ctx, true),
-                  ),
-                ) ??
-                false;
-
-            if (!proceed) return; // cancelled or blocked
-          }
-
-          if (!geofence.inside && GeofenceConfig.blockOutsideGeofence) {
-            // Already blocked via panel UI — but guard here too for safety
-            return;
+          if (check.distanceMeters < bestGeofence.distanceMeters) {
+            nearestSite = sites[i];
+            bestGeofence = check;
           }
         }
-        // Trust evaluation (mock, teleport, low accuracy)
+        
+        final geofence = bestGeofence;
+        
+        insideGeofence = geofence.inside;
+        distanceM = geofence.distanceMeters;
+
+        // Show professional verification panel before camera opens
+        if (mounted) {
+          final proceed = await showModalBottomSheet<bool>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (ctx) => GeofenceVerificationPanel(
+                  siteName: nearestSite.name,
+                  siteAddress: nearestSite.address,
+                  siteLatitude: nearestSite.latitude,
+                  siteLongitude: nearestSite.longitude,
+                  currentLatitude: position!.latitude,
+                  currentLongitude: position!.longitude,
+                  distanceMeters: distanceM,
+                  accuracyMeters:
+                      position!.accuracy > 0 ? position!.accuracy : null,
+                  insideGeofence: insideGeofence,
+                  trustScore: trustScore,
+                  onProceed: () => Navigator.pop(ctx, true),
+                ),
+              ) ??
+              false;
+
+          if (!proceed) return; // cancelled or blocked
+        }
+
+        if (!geofence.inside && GeofenceConfig.blockOutsideGeofence) {
+          return;
+        }
+      }
+      
+      // Trust evaluation (mock, teleport, low accuracy)
+      // Only run on mobile as web doesn't support mock detection well
+      if (!kIsWeb) {
         final trust = await LocationSecurityService.evaluate(position);
-        if (GeofenceConfig.blockIfMockLocation &&
-            (trust.evidence.isMock == true)) {
+        if (GeofenceConfig.blockIfMockLocation && (trust.evidence.isMock == true)) {
           if (mounted) {
             showDialog(
               context: context,
               builder: (ctx) => AlertDialog(
                 title: const Text('Location not allowed'),
-                content: const Text(
-                  'Mock or simulated location is not allowed for attendance.',
-                ),
+                content: const Text('Mock or simulated location is not allowed for attendance.'),
                 actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('OK'),
-                  ),
+                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
                 ],
               ),
             );
           }
           return;
         }
-        if (isTimeIn) {
-          checkinLat = position.latitude;
-          checkinLng = position.longitude;
-        } else {
-          checkoutLat = position.latitude;
-          checkoutLng = position.longitude;
-        }
-        accuracyM = position.accuracy > 0 ? position.accuracy : null;
         trustScore = trust.result.score;
-        trustFlags =
-            trust.result.reasons.isEmpty ? null : trust.result.reasons;
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("⚠️ GPS Location unavailable. Attendance will be recorded without location data."),
-              duration: Duration(seconds: 3),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
+        trustFlags = trust.result.reasons.isEmpty ? null : trust.result.reasons;
       }
+      
+      if (isTimeIn) {
+        checkinLat = position.latitude;
+        checkinLng = position.longitude;
+      } else {
+        checkoutLat = position.latitude;
+        checkoutLng = position.longitude;
+      }
+      accuracyM = position.accuracy > 0 ? position.accuracy : null;
     } else {
-      // kIsWeb is true
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("ℹ️ Running on Web. GPS Location tracking is disabled."),
-            duration: Duration(seconds: 3),
-            backgroundColor: Colors.blueGrey,
+          SnackBar(
+            content: Text(kIsWeb 
+              ? "ℹ️ Browser location unavailable. High accuracy might be disabled." 
+              : "⚠️ GPS signal weak. Recorded without location."),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.orange,
           ),
         );
       }
@@ -843,13 +847,44 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       } catch (e) {
         // Error saving to database
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("⚠️ Failed to save attendance to database: $e"),
-              duration: const Duration(seconds: 4),
-              backgroundColor: Colors.red,
-            ),
-          );
+          final errorMsg = e.toString();
+          
+          if (errorMsg.contains('IDENTITY_VERIFICATION_FAILED')) {
+            showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Row(
+                  children: [
+                    Icon(Icons.face_retouching_off, color: Colors.red, size: 28),
+                    SizedBox(width: 10),
+                    Text("Verification Failed"),
+                  ],
+                ),
+                content: const Text(
+                  "The AI could not verify your identity. Please make sure:\n\n"
+                  "• Your face is clearly visible\n"
+                  "• You are in a well-lit area\n"
+                  "• You are not wearing a mask or glasses\n\n"
+                  "You must match your registration profile photo to record attendance.",
+                  style: TextStyle(fontSize: 15),
+                ),
+                actions: [
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text("Try Again"),
+                  ),
+                ],
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("⚠️ Failed to save attendance: $e"),
+                duration: const Duration(seconds: 4),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
           // Revert image if save failed
           setState(() {
             _attendanceImageBytes = null;
@@ -1109,266 +1144,31 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     );
   }
 
+  // --- Modular Components Implementation ---
+  
   Widget _buildGeofencePanel() {
-    final bool isOutside = _isInsideGeofence == false;
-    final Color panelColor = isOutside ? AppTheme.errorColor : AppTheme.successColor;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.location_on, color: panelColor),
-                const SizedBox(width: 8),
-                Text("Geofence Verification", style: AppTheme.heading3),
-                const Spacer(),
-                if (_isInsideGeofence != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: panelColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _isInsideGeofence! ? "Verified" : "Outside Area",
-                      style: TextStyle(color: panelColor, fontWeight: FontWeight.bold, fontSize: 10),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing12),
-            Text(_siteName ?? _companyName ?? "Loading site details...", style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.bold)),
-            Text(_siteAddress ?? _companyAddress ?? "Checking location...", style: AppTheme.bodySmall),
-            const SizedBox(height: AppTheme.spacing12),
-            if (_currentLat != null) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildLocationInfo("Coordinates", "${_currentLat!.toStringAsFixed(4)}, ${_currentLng!.toStringAsFixed(4)}"),
-                  _buildLocationInfo("Distance", _distanceToSite != null ? "${_distanceToSite!.toStringAsFixed(1)}m" : "N/A"),
-                  _buildLocationInfo("Accuracy", _gpsAccuracy != null ? "±${_gpsAccuracy!.toStringAsFixed(1)}m" : "N/A"),
-                ],
-              ),
-            ],
-            if (isOutside) ...[
-              const SizedBox(height: AppTheme.spacing12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.errorColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.warning_amber_rounded, color: AppTheme.errorColor),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        "You are outside the authorized OJT site. Attendance cannot be submitted.",
-                        style: AppTheme.bodySmall.copyWith(color: AppTheme.errorColor, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLocationInfo(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-        Text(value, style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.bold)),
-      ],
+    return GeofenceStatusPanel(
+      isInsideGeofence: _isInsideGeofence,
+      siteName: _siteName ?? _companyName,
+      siteAddress: _siteAddress ?? _companyAddress,
+      currentLat: _currentLat,
+      currentLng: _currentLng,
+      distanceToSite: _distanceToSite,
+      gpsAccuracy: _gpsAccuracy,
     );
   }
 
   Widget _buildPhotoCard() {
-    if (_attendanceImageBytes == null) return const SizedBox.shrink();
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Photo Evidence", style: AppTheme.heading3),
-                TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _attendanceImageBytes = null;
-                    });
-                  },
-                  icon: const Icon(Icons.refresh, size: 16),
-                  label: const Text("Retake", style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                children: [
-                  Image.memory(
-                    _attendanceImageBytes!,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                          colors: [Colors.black54, Colors.transparent],
-                        ),
-                      ),
-                      child: Text(
-                        "Recorded time is based on this photo's capture timestamp.",
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return AttendancePhotoEvidence(
+      imageBytes: _attendanceImageBytes,
+      onRetake: () => setState(() => _attendanceImageBytes = null),
     );
   }
 
   Widget _buildComputationCard() {
-    if (_todayAttendance == null) return const SizedBox.shrink();
-
-    final double credited = _todayAttendance!.regularHours ?? 0.0;
-    final int deduction = _todayAttendance!.deductionMinutes ?? 0;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Attendance Summary", style: AppTheme.heading3),
-            const SizedBox(height: AppTheme.spacing16),
-            Row(
-              children: [
-                Expanded(child: _buildSummaryItem("Morning In", _formatTimeForDisplay(_todayAttendance!.morningIn))),
-                Expanded(child: _buildSummaryItem("Morning Out", _formatTimeForDisplay(_todayAttendance!.morningOut))),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing12),
-            Row(
-              children: [
-                Expanded(child: _buildSummaryItem("Afternoon In", _formatTimeForDisplay(_todayAttendance!.afternoonIn))),
-                Expanded(child: _buildSummaryItem("Afternoon Out", _formatTimeForDisplay(_todayAttendance!.afternoonOut))),
-              ],
-            ),
-            if (_todayAttendance!.overtimeIn != null) ...[
-              const SizedBox(height: AppTheme.spacing12),
-              Row(
-                children: [
-                  Expanded(child: _buildSummaryItem("Overtime In", _formatTimeForDisplay(_todayAttendance!.overtimeIn))),
-                  Expanded(child: _buildSummaryItem("Overtime Out", _formatTimeForDisplay(_todayAttendance!.overtimeOut))),
-                ],
-              ),
-            ],
-            const Divider(height: 32),
-            Row(
-              children: [
-                Expanded(child: _buildSummaryItem("Late Deduction", "$deduction mins", icon: Icons.timer_off_outlined, color: deduction > 0 ? AppTheme.errorColor : null)),
-                Expanded(child: _buildSummaryItem("Credited Hours", "${credited.toStringAsFixed(1)} hrs", icon: Icons.check_circle_outline, color: AppTheme.successColor)),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing12),
-            Text(
-              "Note: Early arrival gives no extra credit. Late arrivals are rounded to the next 30-minute block.",
-              style: AppTheme.caption.copyWith(fontStyle: FontStyle.italic),
-            ),
-            if (_todayAttendance!.coordinatorComment != null) ...[
-              const SizedBox(height: AppTheme.spacing16),
-              const Divider(),
-              const SizedBox(height: AppTheme.spacing8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.comment_outlined, size: 16, color: Colors.blue),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Coordinator Feedback",
-                          style: AppTheme.bodySmall.copyWith(
-                            color: Colors.blue,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _todayAttendance!.coordinatorComment!,
-                      style: AppTheme.bodyMedium,
-                    ),
-                    if (_todayAttendance!.coordinatorCommentAt != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          DateFormat('MMM d, h:mm a').format(_todayAttendance!.coordinatorCommentAt!),
-                          style: AppTheme.caption.copyWith(fontSize: 10),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryItem(String label, String value, {IconData? icon, Color? color}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: AppTheme.bodySmall),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            if (icon != null) Icon(icon, size: 16, color: color ?? Colors.blueGrey),
-            if (icon != null) const SizedBox(width: 4),
-            Text(
-              value.isEmpty ? "--:--" : value,
-              style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.bold, color: color),
-            ),
-          ],
-        ),
-      ],
+    return AttendanceSummaryCard(
+      attendance: _todayAttendance,
+      formatTime: _formatTimeForDisplay,
     );
   }
 
@@ -1384,23 +1184,29 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     } else {
       final att = _todayAttendance!;
       
+      // Check current state based on what's already logged, progressing linearly
+      // If afternoon is active or completed, we completely ignore missing morning logs
+      if (att.afternoonIn != null) {
+        if (att.afternoonOut == null) {
+          nextOutSegment = AttendanceSegments.afternoonOut;
+        } else if (att.overtimeIn == null && (now.hour >= 17)) { // Only suggest OT if it's past 5 PM
+          nextInSegment = AttendanceSegments.overtimeIn;
+        } else if (att.overtimeIn != null && att.overtimeOut == null) {
+          nextOutSegment = AttendanceSegments.overtimeOut;
+        }
+      } 
       // If nothing logged yet but it's afternoon, allow skipping morning
-      if (att.morningIn == null && att.afternoonIn == null && isAfternoonTime) {
+      else if (att.morningIn == null && isAfternoonTime) {
         nextInSegment = AttendanceSegments.afternoonIn;
       }
-      // Otherwise maintain strict linear sequence for current active block
+      // Normal morning flow
       else if (att.morningIn == null) {
         nextInSegment = AttendanceSegments.morningIn;
       } else if (att.morningOut == null) {
         nextOutSegment = AttendanceSegments.morningOut;
-      } else if (att.afternoonIn == null) {
+      } else {
+        // Morning completed, prompt for afternoon
         nextInSegment = AttendanceSegments.afternoonIn;
-      } else if (att.afternoonOut == null) {
-        nextOutSegment = AttendanceSegments.afternoonOut;
-      } else if (att.overtimeIn == null) {
-        nextInSegment = AttendanceSegments.overtimeIn;
-      } else if (att.overtimeOut == null) {
-        nextOutSegment = AttendanceSegments.overtimeOut;
       }
     }
 
@@ -1619,3 +1425,4 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     );
   }
 }
+

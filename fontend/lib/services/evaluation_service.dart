@@ -32,6 +32,7 @@ class EvaluationService {
     String? feedback,
     DateTime? evaluationPeriodStart,
     DateTime? evaluationPeriodEnd,
+    String? evaluationType,
   }) async {
     try {
       final response = await ApiService.post(
@@ -46,6 +47,7 @@ class EvaluationService {
             'evaluation_period_start': evaluationPeriodStart.toIso8601String().split('T')[0],
           if (evaluationPeriodEnd != null)
             'evaluation_period_end': evaluationPeriodEnd.toIso8601String().split('T')[0],
+          if (evaluationType != null) 'evaluation_type': evaluationType,
         },
       );
 
@@ -100,4 +102,5 @@ class EvaluationService {
     }
   }
 }
+
 

@@ -81,12 +81,13 @@ class InsightCard extends StatelessWidget {
     }
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      padding: const EdgeInsets.all(AppTheme.spacing20),
+      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16, vertical: AppTheme.spacing8),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [AppTheme.cardShadow],
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: Colors.blueGrey.shade50, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -96,40 +97,46 @@ class InsightCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
+                  color: statusColor.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: statusColor, size: 24),
+                child: Icon(icon, color: statusColor, size: 20),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: AppTheme.heading3),
+                    Text(
+                      title, 
+                      style: AppTheme.heading3.copyWith(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.blueGrey.shade900)
+                    ),
                     if (subtitle != null)
-                      Text(subtitle!, style: AppTheme.bodySmall.copyWith(color: Colors.grey[600])),
+                      Text(
+                        subtitle!, 
+                        style: AppTheme.caption.copyWith(color: Colors.blueGrey.shade400, fontSize: 11)
+                      ),
                   ],
                 ),
               ),
               if (trailing != null) trailing!,
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               if (progressValue != null) ...[
                 SizedBox(
-                  width: 60,
-                  height: 60,
+                  width: 64,
+                  height: 64,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       CircularProgressIndicator(
                         value: progressValue,
-                        strokeWidth: 6,
-                        backgroundColor: statusColor.withOpacity(0.1),
+                        strokeWidth: 5,
+                        backgroundColor: statusColor.withOpacity(0.05),
                         valueColor: AlwaysStoppedAnimation<Color>(statusColor),
                         strokeCap: StrokeCap.round,
                       ),
@@ -137,16 +144,17 @@ class InsightCard extends StatelessWidget {
                         child: Text(
                           "${(progressValue! * 100).toInt()}%",
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 12,
                             fontWeight: FontWeight.w900,
                             color: statusColor,
+                            fontFamily: 'Outfit',
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 24),
               ],
               Expanded(
                 child: Column(
@@ -155,26 +163,28 @@ class InsightCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
+                        color: statusColor.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(100),
                       ),
                       child: Text(
                         statusLabel.toUpperCase(),
                         style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
                           color: statusColor,
-                          letterSpacing: 0.5,
+                          letterSpacing: 1.1,
+                          fontFamily: 'Plus Jakarta Sans',
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     if (recommendation != null)
                       Text(
                         recommendation!,
                         style: AppTheme.bodyMedium.copyWith(
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey[800],
+                          color: Colors.blueGrey.shade700,
+                          fontSize: 13,
                         ),
                       ),
                   ],
@@ -183,20 +193,28 @@ class InsightCard extends StatelessWidget {
             ],
           ),
           if (insights.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            const Divider(height: 1),
+            const SizedBox(height: 24),
+            Divider(height: 1, color: Colors.blueGrey.shade50),
             const SizedBox(height: 16),
             ...insights.map((insight) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
+                  padding: const EdgeInsets.only(bottom: 12.0),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.auto_awesome_rounded, size: 14, color: statusColor.withOpacity(0.5)),
-                      const SizedBox(width: 10),
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.08),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.auto_awesome_rounded, size: 10, color: statusColor),
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           insight,
-                          style: AppTheme.bodySmall.copyWith(height: 1.4),
+                          style: AppTheme.bodySmall.copyWith(height: 1.5, color: Colors.blueGrey.shade600, fontWeight: FontWeight.w500),
                         ),
                       ),
                     ],
@@ -208,3 +226,4 @@ class InsightCard extends StatelessWidget {
     );
   }
 }
+

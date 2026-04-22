@@ -532,3 +532,4 @@ class _CoordinatorPerformanceAnalysisScreenState
     }
   }
 }
+

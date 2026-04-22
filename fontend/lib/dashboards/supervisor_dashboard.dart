@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
@@ -14,6 +15,7 @@ import '../widgets/insight_card.dart';
 import '../widgets/modern_table_card.dart';
 import '../widgets/integrity_badge.dart';
 import 'supervisor_daily_tasks_review_screen.dart';
+import '../screens/supervisor/student_detail_screen.dart';
 import '../screens/login_screen.dart';
 import '../services/auth_service.dart';
 import '../models/attendance.dart';
@@ -161,11 +163,11 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
   Widget _buildStudentTable(SupervisorProvider provider) {
     if (provider.assignedStudents.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing24),
+        padding: const EdgeInsets.all(AppTheme.spacing32),
         child: Center(
           child: Column(
             children: [
-              Icon(Icons.people_outline_rounded, size: 48, color: Colors.grey[300]),
+              Icon(Icons.people_outline_rounded, size: 48, color: Colors.blueGrey.shade200),
               const SizedBox(height: 12),
               Text('No students assigned yet.', style: AppTheme.bodySmall),
             ],
@@ -174,83 +176,135 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
       );
     }
     
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: constraints.maxWidth),
-            child: DataTable(
-              headingRowColor: MaterialStateProperty.all(Colors.grey.shade50),
-        columnSpacing: 24,
-        horizontalMargin: 16,
-        dataRowMaxHeight: 65,
-        dataRowMinHeight: 60,
-        columns: const [
-          DataColumn(label: Text('Student', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Attendance Consistency', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Pending Evaluations', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Action', style: TextStyle(fontWeight: FontWeight.bold))),
-        ],
-        rows: provider.assignedStudents.map((record) {
-          final Attendance? todayRecord = provider.todayAttendanceMap[record.studentId];
-          final hasFlag = todayRecord?.verificationStatus == 'FLAGGED';
-          
-          return DataRow(
-            cells: [
-              DataCell(
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: AppTheme.supervisorPrimary.withOpacity(0.1),
-                      child: Text(
-                        (record.studentName ?? "S")[0].toUpperCase(),
-                        style: TextStyle(color: AppTheme.supervisorPrimary, fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      constraints: const BoxConstraints(maxWidth: 120),
-                      child: Text(
-                        record.studentName ?? 'Unknown Student',
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(
-                Row(
-                  children: [
-                    Icon(hasFlag ? Icons.warning_amber_rounded : Icons.check_circle_outline, 
-                         color: hasFlag ? AppTheme.errorColor : AppTheme.successColor, size: 16),
-                    const SizedBox(width: 4),
-                    Text(hasFlag ? 'Poor' : 'Consistent', 
-                         style: TextStyle(fontSize: 13, color: hasFlag ? AppTheme.errorColor : AppTheme.successColor, fontWeight: FontWeight.w500)),
-                  ],
-                ),
-              ),
-              DataCell(
-                 Text(record.status == 'Evaluation Pending' ? '1 Pending' : 'None', 
-                     style: TextStyle(fontSize: 13, color: record.status == 'Evaluation Pending' ? AppTheme.warningColor : Colors.grey.shade700)),
-              ),
-              DataCell(
-                IconButton(
-                  icon: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupervisorEvaluationFormScreen())),
-                ),
-              ),
-            ],
-          );
-        }).toList(),
+    return Theme(
+      data: Theme.of(context).copyWith(
+        dividerColor: Colors.blueGrey.shade50,
+        dataTableTheme: DataTableThemeData(
+          headingTextStyle: AppTheme.caption.copyWith(fontWeight: FontWeight.w700, fontSize: 10, letterSpacing: 1),
+          dataTextStyle: AppTheme.bodyMedium.copyWith(fontSize: 13),
+        ),
       ),
-    ),
-  );
-  },
-  );
-}
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          horizontalMargin: 20,
+          columnSpacing: 24,
+          dataRowMinHeight: 70,
+          dataRowMaxHeight: 75,
+          headingRowHeight: 56,
+          showCheckboxColumn: false,
+          columns: const [
+            DataColumn(label: Text('STUDENT')),
+            DataColumn(label: Text('INTEGRITY STATUS')),
+            DataColumn(label: Text('EVALUATION')),
+            DataColumn(label: Text('TIMELINE')),
+            DataColumn(label: Text('ACTION')),
+          ],
+          rows: provider.assignedStudents.map((record) {
+            final Attendance? todayRecord = provider.todayAttendanceMap[record.studentId];
+            final hasFlag = todayRecord?.verificationStatus == 'FLAGGED';
+            
+            return DataRow(
+              onSelectChanged: (_) => Navigator.push(
+                context, 
+                MaterialPageRoute(builder: (_) => StudentDetailScreen(record: record))
+              ),
+              cells: [
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppTheme.supervisorPrimary.withOpacity(0.08),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          (record.studentName ?? "S")[0].toUpperCase(),
+                          style: AppTheme.heading3.copyWith(color: AppTheme.supervisorPrimary, fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        record.studentName ?? 'Unknown Student',
+                        style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                DataCell(
+                  Builder(builder: (context) {
+                    final String risk = record.riskLevel ?? 'LOW';
+                    final bool missingToday = todayRecord == null;
+                    
+                    if (missingToday) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.blueGrey.shade100, width: 1),
+                        ),
+                        child: Text('NO SIGN-IN', 
+                             style: AppTheme.caption.copyWith(fontSize: 8, color: Colors.blueGrey.shade500, fontWeight: FontWeight.w800)),
+                      );
+                    }
+
+                    Color statusColor = AppTheme.successColor;
+                    String statusText = 'CONSISTENT';
+
+                    if (risk == 'HIGH' || hasFlag) {
+                      statusColor = AppTheme.errorColor;
+                      statusText = hasFlag ? 'FLAGGED' : 'AT RISK';
+                    } else if (risk == 'MEDIUM') {
+                      statusColor = AppTheme.warningColor;
+                      statusText = 'IRREGULAR';
+                    }
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: statusColor.withOpacity(0.1), width: 1),
+                      ),
+                      child: Text(statusText, 
+                           style: AppTheme.caption.copyWith(fontSize: 8, color: statusColor, fontWeight: FontWeight.w800)),
+                    );
+                  }),
+                ),
+                DataCell(
+                   Text(record.status == 'Evaluation Pending' ? '1 Pending' : 'None', 
+                       style: AppTheme.bodyMedium.copyWith(
+                         color: record.status == 'Evaluation Pending' ? AppTheme.warningColor : Colors.blueGrey.shade500,
+                         fontWeight: record.status == 'Evaluation Pending' ? FontWeight.w700 : FontWeight.w500,
+                         fontSize: 12,
+                       )),
+                ),
+                DataCell(
+                   Text(record.endDate != null ? DateFormat('MMM dd, yyyy').format(record.endDate!) : 'N/A', 
+                       style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w600, color: Colors.blueGrey.shade600, fontSize: 12)),
+                ),
+                DataCell(
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.supervisorPrimary.withOpacity(0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.supervisorPrimary.withOpacity(0.4), size: 12),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
 
   Widget _buildFlagIndicator(Attendance record) {
     if (record.verificationStatus == 'FLAGGED') {
@@ -290,28 +344,21 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
   }
 
   Widget _buildManagementGroup() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
-        ],
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
           _actionTile(
-            const Icon(Icons.people_alt_rounded, color: Colors.teal),
+            const Icon(Icons.people_alt_rounded, color: Colors.teal, size: 20),
             "Monitor & Evaluate Students",
-            "Track assigned students' progress and submit final evaluations",
+            "Review progress and submit evaluations",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupervisorEvaluationFormScreen())),
           ),
-          Divider(height: 1, color: Colors.grey[100]),
+          const SizedBox(height: 12),
           _actionTile(
-            const Icon(Icons.fact_check_rounded, color: Colors.indigo),
+            const Icon(Icons.fact_check_rounded, color: Colors.indigo, size: 20),
             "Daily Task Review",
-            "Approve or reject work submissions",
+            "Audit work submissions & logs",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupervisorDailyTasksReviewScreen())),
             isLast: true,
           ),
@@ -321,98 +368,176 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
   }
 
   Widget _actionTile(Widget icon, String title, String subtitle, VoidCallback onTap, {bool isLast = false}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: isLast ? const BorderRadius.vertical(bottom: Radius.circular(16)) : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(10)),
-              child: icon,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: Colors.blueGrey.shade100, width: 1),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: icon,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w700, fontSize: 15)),
+                      const SizedBox(height: 2),
+                      Text(subtitle, style: AppTheme.bodySmall.copyWith(color: Colors.blueGrey.shade500)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.chevron_right_rounded, color: Colors.blueGrey.shade400, size: 18),
+                ),
+              ],
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
-                  Text(subtitle, style: AppTheme.bodySmall.copyWith(color: Colors.grey[500])),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: Colors.grey[300], size: 18),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  // --- Profile Header with Gradient & Shadow ---
+  // --- Professional Enterprise Hero Header ---
   Widget _buildProfileHeader(SupervisorProvider provider) {
     return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
             AppTheme.supervisorPrimary,
-            AppTheme.supervisorPrimary.withOpacity(0.8),
+            const Color(0xFF065F46), // A slightly lighter emerald for depth
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
         boxShadow: [
           BoxShadow(
             color: AppTheme.supervisorPrimary.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      padding: const EdgeInsets.all(AppTheme.spacing16),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 42,
-            backgroundColor: Colors.white,
-            child: Text(
-              provider.fullName.split(" ").where((e) => e.isNotEmpty).map((e) => e[0]).take(2).join(),
-              style: TextStyle(
-                color: AppTheme.supervisorPrimary,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withOpacity(0.5), width: 1.5),
+                ),
+                child: CircleAvatar(
+                  radius: 36,
+                  backgroundImage: provider.profileImageBytes != null ? MemoryImage(provider.profileImageBytes!) : null,
+                  backgroundColor: Colors.white.withOpacity(0.2),
+                  child: provider.profileImageBytes == null
+                      ? Text(
+                          provider.fullName.isNotEmpty ? provider.fullName[0].toUpperCase() : "S",
+                          style: AppTheme.heading1.copyWith(color: Colors.white, fontSize: 32),
+                        )
+                      : null,
+                ),
               ),
-            ),
-          ).animate().scale(duration: 600.ms, curve: Curves.easeOutBack),
-          const SizedBox(width: AppTheme.spacing16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  provider.fullName,
-                  style: AppTheme.heading2.copyWith(color: Colors.white),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      provider.fullName,
+                      style: AppTheme.heading2.copyWith(color: Colors.white, fontSize: 22),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.badge_rounded, size: 12, color: Colors.teal.shade100),
+                          const SizedBox(width: 6),
+                          Text(
+                            provider.position.toUpperCase(),
+                            style: AppTheme.caption.copyWith(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 10,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: AppTheme.spacing4),
-                Text(
-                  "ID: ${provider.idNumber?.isNotEmpty == true ? provider.idNumber : 'Unavailable'}",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
-                Text(
-                  "Office: ${provider.office?.isNotEmpty == true ? provider.office : 'Not specified'}",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
-                Text(
-                  "Position: ${provider.position?.isNotEmpty == true ? provider.position : 'Supervisor'}",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              _buildModernProfileStat("ID Number", provider.idNumber, Icons.fingerprint_rounded),
+              const SizedBox(width: 16),
+              _buildModernProfileStat("Dept/Office", provider.office, Icons.business_center_rounded),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModernProfileStat(String label, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: Colors.teal.shade200),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 9, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                  Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -454,7 +579,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const SupervisorEvaluationFormScreen(),
+                  builder: (_) => SupervisorEvaluationFormScreen(),
                 ),
               ),
             ),
@@ -469,7 +594,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const SupervisorEvaluationFormScreen(),
+                  builder: (_) => SupervisorEvaluationFormScreen(),
                 ),
               ),
             ),
@@ -579,3 +704,4 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
     );
   }
 }
+

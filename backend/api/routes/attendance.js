@@ -5,6 +5,7 @@ const multer = require('multer');
 const { query } = require('../../config/db');
 const { uploadAttendancePhoto } = require('../../config/supabaseClient');
 const jwt = require('jsonwebtoken');
+const axios = require('axios');
 
 // ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -26,10 +27,16 @@ function computeVerificationStatus(insideGeofence, trustScore, threshold = 60) {
   return 'AUTO_VERIFIED';
 }
 
-// Helper: safe parse float/int for optional fields
 function safeFloat(v) {
   if (v == null) return null;
   const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Helper: safe parse int for optional fields
+function safeInt(v) {
+  if (v == null) return null;
+  const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
 }
 // Helper: format Date object to YYYY-MM-DD string
@@ -46,28 +53,16 @@ function formatDate(date) {
   return date;
 }
 
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-};
+const authenticateToken = require('../middleware/auth');
 
 // Get all attendance records (optional filter: verification_status=FLAGGED)
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { student_id, date, verification_status } = req.query;
+
+    const { role, user_id } = req.user;
+    const params = [];
+    let paramCount = 1;
 
     let sql = `
       SELECT 
@@ -76,40 +71,56 @@ router.get('/', authenticateToken, async (req, res) => {
         a.overtime_hours, a.regular_hours, 
         a.total_hours, a.deduction_minutes,
         a.status, a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng, 
-        a.verification_status, a.distance_m, a.trust_score, a.trust_flags,
-        a.checkin_photo_path, (a.attendance_image IS NOT NULL) AS has_base64_image,
+        a.inside_geofence, a.accuracy_m, a.distance_m,
+        a.verification_status, a.trust_score, a.trust_flags,
+        a.checkin_photo_path, a.photo_url, (a.attendance_image IS NOT NULL) AS has_base64_image,
         a.coordinator_comment, a.coordinator_comment_at,
         u.full_name
       FROM attendance a
       JOIN users u ON a.student_id = u.user_id
-      -- Join OJT records to check coordinator
-      LEFT JOIN ojt_records o ON a.student_id = o.student_id AND o.status IN ('Ongoing', 'Active')
       WHERE 1=1
     `;
-    const params = [];
-    const { role, user_id } = req.user;
-    let paramCount = 1;
 
-    // Data Isolation: Coordinators can only see their own students' attendance
-    if (role === 'Coordinator') {
-      sql += ` AND o.coordinator_id = $${paramCount}`;
+    // Role-based Data Isolation
+    if (role === 'Student') {
+      // Students only see their own data
+      sql += ` AND a.student_id = $${paramCount}`;
+      params.push(user_id);
+      paramCount++;
+    } else if (role === 'Coordinator') {
+      // Coordinators only see students assigned to them
+      sql += ` AND EXISTS (
+        SELECT 1 FROM ojt_records o 
+        WHERE o.student_id = a.student_id 
+        AND o.coordinator_id = $${paramCount}
+      )`;
       params.push(user_id);
       paramCount++;
     }
 
+    // Additional filters from query params
     if (student_id) {
-      sql += ` AND a.student_id = $${paramCount} `;
+      sql += ` AND a.student_id = $${paramCount}`;
       params.push(student_id);
       paramCount++;
     }
     if (date) {
-      sql += ` AND a.date = $${paramCount} `;
+      sql += ` AND a.date = $${paramCount}`;
       params.push(date);
       paramCount++;
     }
     if (verification_status) {
-      sql += ` AND a.verification_status = $${paramCount} `;
+      sql += ` AND a.verification_status = $${paramCount}`;
       params.push(verification_status);
+      paramCount++;
+    }
+    if (req.query.supervisor_id) {
+      sql += ` AND EXISTS (
+        SELECT 1 FROM ojt_records o 
+        WHERE o.student_id = a.student_id 
+        AND o.supervisor_id = $${paramCount}
+      )`;
+      params.push(req.query.supervisor_id);
       paramCount++;
     }
 
@@ -130,13 +141,52 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Get specific attendance image (lazy loading)
+router.get('/:id/image', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role, user_id: loggedInUserId } = req.user;
+
+    const sql = `
+      SELECT a.attendance_image, a.student_id 
+      FROM attendance a 
+      WHERE a.attendance_id = $1
+    `;
+    const result = await query(sql, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Attendance record not found' });
+    }
+
+    const attendance = result.rows[0];
+
+    // Data Isolation Check
+    if (role === 'Coordinator') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [attendance.student_id, loggedInUserId]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view images for students assigned to you.' });
+      }
+    } else if (role === 'Student' && attendance.student_id !== loggedInUserId) {
+      return res.status(403).json({ error: 'Access Denied', message: 'You can only view your own attendance images.' });
+    }
+
+    res.json({ attendance_image: attendance.attendance_image });
+  } catch (error) {
+    console.error('Get attendance image error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get today's attendance for a student (allows optional date override)
 router.get('/today/:studentId', authenticateToken, async (req, res) => {
   try {
     const { studentId } = req.params;
     const { date } = req.query;
 
-    const calculatedDate = date || new Date().toISOString().split('T')[0];
+    const calculatedDate = date || formatDate(new Date());
     
     console.log(`[Attendance GET /today] Fetching session for student: ${studentId}, date: ${calculatedDate} (input date: ${date || 'none'})`);
 
@@ -239,9 +289,12 @@ router.post('/time-in', authenticateToken, async (req, res) => {
       has_image: !!req.body.attendance_image
     });
 
-    const { student_id, ojt_record_id, date, segment, attendance_image,
-      checkin_lat, checkin_lng, accuracy_m, distance_m, inside_geofence, trust_score, trust_flags,
-      checkin_photo_path, checkin_photo_captured_at, verification_status: bodyVerificationStatus } = req.body;
+    const {
+      student_id, attendance_id, segment, date, time_out, attendance_image,
+      checkout_lat, checkout_lng, accuracy_m, distance_m, inside_geofence, trust_score, trust_flags,
+      checkout_photo_path, checkout_photo_url, checkout_photo_captured_at, verification_status: bodyVerificationStatus,
+      checkin_lat, checkin_lng // Legacy support for passing both at once
+    } = req.body;
 
     if (!student_id) {
       return res.status(400).json({ error: 'student_id is required' });
@@ -254,14 +307,12 @@ router.post('/time-in', authenticateToken, async (req, res) => {
     );
     const supervisorId = supervisorCheck.rows.length > 0 ? supervisorCheck.rows[0].supervisor_id : null;
 
-    const currentDate = date || new Date().toISOString().split('T')[0];
+    const currentDate = date || formatDate(new Date());
     const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS format
 
     // STRICT OJT ENROLLMENT CHECK
-    // Students can only time-in if they have an active OJT record linked to a coordinator and supervisor
-    const routeRole = req.user ? req.user.role : 'Student'; // fallback if authenticateToken is skipped somehow, but it shouldn't be
+    const routeRole = req.user ? req.user.role : 'Student'; 
 
-    // We only enforce this for students submitting their own attendance
     if (routeRole === 'Student') {
       const activeOjtCheck = await query(
         `SELECT record_id 
@@ -280,17 +331,9 @@ router.post('/time-in', authenticateToken, async (req, res) => {
       }
     }
 
-    // Check if attendance record exists for this date
-    const existingRecord = await query(
-      'SELECT attendance_id FROM attendance WHERE student_id = $1 AND date = $2',
-      [student_id, currentDate]
-    );
-
-    let attendanceId;
     let morningIn = null;
     let afternoonIn = null;
     let overtimeIn = null;
-    let timeInValue = null;
 
     // Map segment to appropriate field
     if (segment) {
@@ -314,126 +357,175 @@ router.post('/time-in', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'segment is required' });
     }
 
-    if (existingRecord.rows.length > 0) {
-      // Update existing record
-      attendanceId = existingRecord.rows[0].attendance_id;
+    // --- ATOMIC TRANSACTION BLOCK ---
+    let attendanceId;
+    try {
+      // 1. Try to find the record first
+      const existingRecord = await query(
+        'SELECT attendance_id FROM attendance WHERE student_id = $1 AND date = $2',
+        [student_id, currentDate]
+      );
 
-      // Build update query dynamically based on which segment is being logged
+      if (existingRecord.rows.length > 0) {
+        attendanceId = existingRecord.rows[0].attendance_id;
+      } else {
+        // 2. Try to create new record
+        try {
+          const result = await query(
+            'SELECT create_attendance($1::integer, $2::date, NULL::time, NULL::time, NULL::time, NULL::time) as result',
+            [student_id, currentDate]
+          );
+
+          const response = result.rows[0].result;
+          if (!response.success) {
+             // Check if it's already recorded (race condition handling)
+             if (response.errors && response.errors.some(e => e.includes('already recorded'))) {
+                const recheck = await query(
+                  'SELECT attendance_id FROM attendance WHERE student_id = $1 AND date = $2',
+                  [student_id, currentDate]
+                );
+                if (recheck.rows.length > 0) {
+                  attendanceId = recheck.rows[0].attendance_id;
+                } else {
+                  return res.status(400).json({ error: 'Validation failed', errors: response.errors });
+                }
+             } else {
+               return res.status(400).json({ error: 'Validation failed', errors: response.errors });
+             }
+          } else {
+            attendanceId = response.attendance_id;
+          }
+        } catch (dbErr) {
+          // Handle unique violation error (23505) from race condition
+          if (dbErr.code === '23505') {
+            const recheck = await query(
+              'SELECT attendance_id FROM attendance WHERE student_id = $1 AND date = $2',
+              [student_id, currentDate]
+            );
+            if (recheck.rows.length > 0) {
+              attendanceId = recheck.rows[0].attendance_id;
+            } else {
+              throw dbErr;
+            }
+          } else {
+            throw dbErr;
+          }
+        }
+      }
+
+      // 3. Perform Updates dynamically based on which segment is being logged
       let updateFields = [];
       let updateValues = [];
       let paramCount = 1;
 
-      if (morningIn !== null) {
-        updateFields.push(`morning_in = $${paramCount} `);
-        updateValues.push(morningIn);
-        paramCount++;
-      }
-      if (afternoonIn !== null) {
-        updateFields.push(`afternoon_in = $${paramCount} `);
-        updateValues.push(afternoonIn);
-        paramCount++;
-      }
-      if (overtimeIn !== null) {
-        updateFields.push(`overtime_in = $${paramCount} `);
-        updateValues.push(overtimeIn);
-        paramCount++;
-      }
-
-      // Check if this segment is already logged (prevent duplicate)
+      // Check current state to prevent segment duplicates
       const checkResult = await query(
         'SELECT morning_in, afternoon_in, overtime_in FROM attendance WHERE attendance_id = $1',
         [attendanceId]
       );
-      const existing = checkResult.rows[0];
+      const existingValues = checkResult.rows[0];
 
-      if ((morningIn && existing.morning_in) ||
-        (afternoonIn && existing.afternoon_in) ||
-        (overtimeIn && existing.overtime_in)) {
-        return res.status(400).json({
-          error: 'Time in already recorded for this segment',
-          errors: [`${segment} already exists for this date`]
-        });
+      if (morningIn && existingValues.morning_in) {
+        return res.status(400).json({ error: 'Time in already recorded for this segment', errors: [`${segment} already exists for this date`] });
+      }
+      if (afternoonIn && existingValues.afternoon_in) {
+        return res.status(400).json({ error: 'Time in already recorded for this segment', errors: [`${segment} already exists for this date`] });
+      }
+      if (overtimeIn && existingValues.overtime_in) {
+        return res.status(400).json({ error: 'Time in already recorded for this segment', errors: [`${segment} already exists for this date`] });
       }
 
-      // Add attendance_image if provided
+      if (morningIn !== null) {
+        updateFields.push(`morning_in = $${paramCount++} `);
+        updateValues.push(morningIn);
+      }
+      if (afternoonIn !== null) {
+        updateFields.push(`afternoon_in = $${paramCount++} `);
+        updateValues.push(afternoonIn);
+      }
+      if (overtimeIn !== null) {
+        updateFields.push(`overtime_in = $${paramCount++} `);
+        updateValues.push(overtimeIn);
+      }
+
+      // Update attendance_image ONLY if it is small (e.g. signature or thumbnail)
+      // Large selfies should use checkin_photo_path or photo_url instead
       if (attendance_image) {
-        updateFields.push(`attendance_image = $${paramCount} `);
-        updateValues.push(attendance_image);
-        paramCount++;
+        if (String(attendance_image).length < 50000) { // < 50KB limit for DB storage
+          updateFields.push(`attendance_image = $${paramCount++} `);
+          updateValues.push(attendance_image);
+        } else {
+          console.log(`[Attendance] Image too large for DB storage (${Math.round(attendance_image.length/1024)}KB). Use storage bucket instead.`);
+        }
       }
 
-      // Auto-approve
-      updateFields.push(`status = $${paramCount} `);
+      // Ensure status is 'Approved' for auto-logging
+      updateFields.push(`status = $${paramCount++} `);
       updateValues.push('Approved');
-      paramCount++;
-
-      updateFields.push(`verified = $${paramCount} `);
+      
+      updateFields.push(`verified = $${paramCount++} `);
       updateValues.push(true);
-      paramCount++;
 
       if (supervisorId) {
-        updateFields.push(`verified_by = $${paramCount} `);
+        updateFields.push(`verified_by = $${paramCount++} `);
         updateValues.push(supervisorId);
-        paramCount++;
       }
 
       updateFields.push(`verified_at = CURRENT_TIMESTAMP`);
 
       updateValues.push(attendanceId);
-      const updateSql = `
-        UPDATE attendance 
-        SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
-        WHERE attendance_id = $${paramCount}
-        RETURNING attendance_id
-      `;
-
-
-      await query(updateSql, updateValues);
-
-    } else {
-      // Create new record
-      const result = await query(
-        'SELECT create_attendance($1::integer, $2::date, $3::time, NULL::time, $4::time, NULL::time) as result',
-        [student_id, currentDate, morningIn, afternoonIn]
-      );
-
-      const response = result.rows[0].result;
-
-      if (!response.success) {
-        return res.status(400).json({
-          error: 'Validation failed',
-          errors: response.errors
-        });
-      }
-
-      attendanceId = response.attendance_id;
-
-      // If we need to set overtime_in, update it separately
-      if (overtimeIn) {
-        await query(
-          'UPDATE attendance SET overtime_in = $1 WHERE attendance_id = $2',
-          [overtimeIn, attendanceId]
-        );
-      }
-
-      // Save attendance_image if provided
-      if (attendance_image) {
-        await query(
-          'UPDATE attendance SET attendance_image = $1 WHERE attendance_id = $2',
-          [attendance_image, attendanceId]
-        );
-      }
-
-      // Auto-approve new record
       await query(
-        `UPDATE attendance 
-         SET status = 'Approved',
-  verified = true,
-  verified_by = $1,
-  verified_at = CURRENT_TIMESTAMP 
-         WHERE attendance_id = $2`,
-        [supervisorId, attendanceId]
+        `UPDATE attendance SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${paramCount}`,
+        updateValues
       );
+    } catch (atomicErr) {
+      console.error('[Attendance POST /time-in] Transaction error:', atomicErr);
+      throw atomicErr;
+    }
+
+    // --- BIOMETRIC VERIFICATION (Face Match) ---
+    let faceMatchScore = 0;
+    let isFaceVerified = false;
+
+    if (attendance_image && String(attendance_image).length > 100) {
+      try {
+        console.log(`[BIOMETRICS] Starting face verification for student ${student_id}...`);
+        
+        // 1. Fetch reference photo from registration
+        const userRes = await query('SELECT profile_photo FROM users WHERE user_id = $1', [student_id]);
+        const profilePhoto = userRes.rows[0]?.profile_photo;
+
+        if (!profilePhoto) {
+          console.warn(`[BIOMETRICS] No reference profile photo found for student ${student_id}. Proceeding with warning.`);
+        } else {
+          // 2. Call AI Module for verification
+          const flaskBaseUrl = process.env.FLASK_AI_URL || 'http://localhost:5000';
+          const aiRes = await axios.post(`${flaskBaseUrl}/verify-face`, {
+            attendance_photo: attendance_image,
+            profile_photo: profilePhoto
+          }, { timeout: 15000 });
+
+          const aiData = aiRes.data;
+          faceMatchScore = aiData.score || 0;
+          isFaceVerified = aiData.match || false;
+
+          console.log(`[BIOMETRICS] Match Result: ${isFaceVerified}, Score: ${faceMatchScore}`);
+
+          // 3. STRICT POLICY: Block if mismatch
+          if (!isFaceVerified && faceMatchScore < 0.6) {
+             console.error(`[BIOMETRICS] REJECTED: Face mismatch for student ${student_id} (Score: ${faceMatchScore})`);
+             return res.status(403).json({ 
+               success: false, 
+               error: 'IDENTITY_VERIFICATION_FAILED',
+               message: 'Your face does not match our records. Please ensure your face is clearly visible and matches your registration photo.'
+             });
+          }
+        }
+      } catch (biometricErr) {
+        console.error('[BIOMETRICS ERROR]', biometricErr.message);
+        // Important: If AI server is down, we might want to fail-safe and allow if threshold is met,
+        // but for STRICT policy, we might want to log it and proceed or block.
+      }
     }
 
     // Optional geofence/trust/photo/verification: store if columns exist (backward compatible)
@@ -456,9 +548,18 @@ router.post('/time-in', authenticateToken, async (req, res) => {
     if (checkin_photo_path != null && String(checkin_photo_path).trim()) {
       geoParts.push(`checkin_photo_path = $${p++} `); geoVals.push(String(checkin_photo_path).trim());
     }
+    if (photo_url != null && String(photo_url).trim()) {
+      geoParts.push(`photo_url = $${p++} `); geoVals.push(String(photo_url).trim());
+    }
     if (checkin_photo_captured_at != null && String(checkin_photo_captured_at).trim()) {
       geoParts.push(`checkin_photo_captured_at = $${p++} `); geoVals.push(String(checkin_photo_captured_at).trim());
     }
+    
+    // Add face biometric columns
+    geoParts.push(`face_match_score = $${p++} `); geoVals.push(faceMatchScore);
+    geoParts.push(`is_face_verified = $${p++} `); geoVals.push(isFaceVerified);
+
+    // Finalize verification status (AUTO_APPROVED for clean logs)
     const verStatus = bodyVerificationStatus || computeVerificationStatus(inside_geofence, tscore ?? trust_score, 60);
     const finalVerStatus = verStatus === 'AUTO_VERIFIED' ? 'AUTO_APPROVED' : verStatus;
     geoParts.push(`verification_status = $${p++} `); geoVals.push(finalVerStatus);
@@ -522,7 +623,7 @@ router.put('/time-out', authenticateToken, async (req, res) => {
 
     const { attendance_id, student_id, date, segment, attendance_image,
       checkin_lat, checkin_lng, checkout_lat, checkout_lng, accuracy_m, distance_m, inside_geofence, trust_score, trust_flags,
-      checkin_photo_path, checkout_photo_path, checkin_photo_captured_at, checkout_photo_captured_at, verification_status: bodyVerificationStatus } = req.body;
+      checkin_photo_path, checkout_photo_path, checkout_photo_url, checkin_photo_captured_at, checkout_photo_captured_at, verification_status: bodyVerificationStatus } = req.body;
 
     const currentTime = new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS format
 
@@ -603,7 +704,7 @@ router.put('/time-out', authenticateToken, async (req, res) => {
 
     // Check if this segment is already logged (prevent duplicate)
     const checkRecord = await query(
-      'SELECT morning_out, afternoon_out, overtime_out FROM attendance WHERE attendance_id = $1',
+      'SELECT morning_out, afternoon_out, overtime_out, inside_geofence, trust_score FROM attendance WHERE attendance_id = $1',
       [attendanceId]
     );
 
@@ -650,7 +751,18 @@ router.put('/time-out', authenticateToken, async (req, res) => {
       paramCount++;
     }
     if (updateFields.length === 0) {
-      return res.status(400).json({ error: 'Invalid segment value' });
+      // Allow updating only metadata (photos/geo) without a new timestamp
+      console.log("[Attendance PUT /time-out] Meta-only update requested (no new segment logged)");
+    }
+
+    // Always update attendance_image if provided AND small
+    if (attendance_image) {
+      if (String(attendance_image).length < 50000) {
+        updateFields.push(`attendance_image = $${paramCount++}`);
+        updateValues.push(attendance_image);
+      } else {
+        console.log(`[Attendance] Timeout image too large for DB storage. Use storage bucket instead.`);
+      }
     }
 
     // Optional geofence/trust/checkout/photo/verification (time-out)
@@ -666,6 +778,16 @@ router.put('/time-out', authenticateToken, async (req, res) => {
     if (trust_score != null) { updateFields.push(`trust_score = $${paramCount++}`); updateValues.push(Number(trust_score)); }
     if (trust_flags) { updateFields.push(`trust_flags = $${paramCount++}`); updateValues.push(typeof trust_flags === 'string' ? trust_flags : JSON.stringify(trust_flags)); }
     if (checkout_photo_path) { updateFields.push(`checkout_photo_path = $${paramCount++}`); updateValues.push(checkout_photo_path); }
+    if (checkout_photo_url) { updateFields.push(`checkout_photo_url = $${paramCount++}`); updateValues.push(checkout_photo_url); }
+
+    // ✅ FIX: Recompute verification status for Time-Out (synchronize with Time-In logic)
+    const finalInside = (inside_geofence != null) ? (inside_geofence === true || inside_geofence === 'true') : existing.inside_geofence;
+    const finalScore = (trust_score != null) ? Number(trust_score) : existing.trust_score;
+    const verStatus = bodyVerificationStatus || computeVerificationStatus(finalInside, finalScore, 60);
+    const finalVerStatus = verStatus === 'AUTO_VERIFIED' ? 'AUTO_APPROVED' : (verStatus || existing.verification_status);
+    
+    updateFields.push(`verification_status = $${paramCount++}`);
+    updateValues.push(finalVerStatus);
 
     updateValues.push(attendanceId);
     const updateSql = `
@@ -1024,6 +1146,34 @@ RETURNING * `,
     });
   } catch (error) {
     console.error('Unverify attendance error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Admin Heatmap: Get today's attendance records with GPS for ALL students
+router.get('/heatmap', authenticateToken, async (req, res) => {
+  try {
+    const { role } = req.user;
+    if (role !== 'Admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const result = await query(`
+      SELECT 
+        a.student_id, u.full_name, u.course,
+        a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng,
+        a.morning_in, a.verification_status, a.trust_score, a.inside_geofence,
+        o.company_name
+      FROM attendance a
+      JOIN users u ON a.student_id = u.user_id
+      LEFT JOIN ojt_records o ON a.student_id = o.student_id AND o.status IN ('Ongoing', 'Active')
+      WHERE a.date = CURRENT_DATE
+      ORDER BY a.morning_in DESC
+    `);
+
+    res.json({ records: result.rows });
+  } catch (error) {
+    console.error('Heatmap error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

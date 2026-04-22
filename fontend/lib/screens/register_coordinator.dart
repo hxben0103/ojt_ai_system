@@ -1,5 +1,9 @@
-import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 
 class RegisterCoordinator extends StatefulWidget {
@@ -20,6 +24,9 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
 
   bool _showPassword = false;
   bool _isLoading = false;
+  File? _profileImage;
+  Uint8List? _profileImageBytes; // Used for Flutter Web
+  final ImagePicker _picker = ImagePicker();
 
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -46,6 +53,24 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
     super.dispose();
   }
 
+  Future<void> _pickProfileImage() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      if (kIsWeb) {
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _profileImageBytes = bytes;
+          _profileImage = null;
+        });
+      } else {
+        setState(() {
+          _profileImage = File(image.path);
+          _profileImageBytes = null;
+        });
+      }
+    }
+  }
+
   // 🌀 Submit registration
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -69,6 +94,15 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
         throw Exception('Please fill in all required fields');
       }
 
+      // Convert profile image to base64
+      String? profilePhotoBase64;
+      if (_profileImageBytes != null) {
+        profilePhotoBase64 = base64Encode(_profileImageBytes!);
+      } else if (_profileImage != null) {
+        final imageBytes = await _profileImage!.readAsBytes();
+        profilePhotoBase64 = base64Encode(imageBytes);
+      }
+
       // Store coordinator ID in student_id field (reusing existing field)
       await AuthService.register(
         fullName: fullName,
@@ -76,6 +110,7 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
         password: password,
         role: 'Coordinator',
         studentId: coordinatorId.isNotEmpty ? coordinatorId : null,
+        profilePhoto: profilePhotoBase64,
       );
 
       if (mounted) {
@@ -173,18 +208,52 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                         child: Column(
                           children: [
                             const SizedBox(height: 10),
-                            Image.network(
-                              'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', // Coordinator icon
-                              height: 80,
+
+                            // Profile Picture
+                            GestureDetector(
+                              onTap: _pickProfileImage,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 400),
+                                curve: Curves.easeInOut,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.indigo.withOpacity(0.3),
+                                      blurRadius: 10,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                                child: Builder(
+                                  builder: (context) {
+                                    ImageProvider<Object>? avatarImage;
+                                    if (_profileImageBytes != null) {
+                                      avatarImage = MemoryImage(_profileImageBytes!);
+                                    } else if (_profileImage != null) {
+                                      avatarImage = FileImage(_profileImage!);
+                                    }
+
+                                    return CircleAvatar(
+                                      radius: 55,
+                                      backgroundColor: Colors.grey.shade300,
+                                      backgroundImage: avatarImage,
+                                      child: avatarImage == null
+                                          ? Image.network(
+                                              'https://cdn-icons-png.flaticon.com/512/2921/2921222.png', // camera icon
+                                              height: 40,
+                                              color: Colors.indigo,
+                                            )
+                                          : null,
+                                    );
+                                  },
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 10),
                             const Text(
-                              "Coordinator Registration",
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.indigo,
-                              ),
+                              "Tap to upload 2x2 Profile Picture",
+                              style: TextStyle(color: Colors.grey, fontSize: 14),
                             ),
                             const SizedBox(height: 20),
 
@@ -371,3 +440,4 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
     );
   }
 }
+

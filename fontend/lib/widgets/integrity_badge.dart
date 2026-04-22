@@ -106,3 +106,4 @@ class IntegrityBadge extends StatelessWidget {
     );
   }
 }
+

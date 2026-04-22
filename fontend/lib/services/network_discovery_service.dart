@@ -216,3 +216,4 @@ class NetworkDiscoveryService {
   /// Reset discovery cache (useful for Wi-Fi changes)
   static void reset() => _discovered = false;
 }
+

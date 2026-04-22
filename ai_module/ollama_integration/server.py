@@ -3,10 +3,24 @@ from flask_cors import CORS
 from chatbot_handler import chatbot_response
 from competency_handler import suggest_competency
 from insight_engine import predict_with_explanation, predict_performance, build_features_from_snapshot
+from face_engine import verify_faces
 import re
+import time
+from flask import g
 
 app = Flask(__name__)
 CORS(app)  # ✅ Enables communication with Flutter (web or mobile)
+
+@app.before_request
+def start_timer():
+    g.start = time.time()
+
+@app.after_request
+def log_request(response):
+    if hasattr(g, 'start'):
+        duration = (time.time() - g.start) * 1000
+        print(f"[API] {request.method} {request.path} - {response.status_code} - {duration:.2f}ms")
+    return response
 
 def format_response(text):
     """
@@ -388,6 +402,54 @@ def predict():
             "details": str(e)
         }), 500
 
+@app.route('/predict-stream', methods=['POST'])
+def predict_stream():
+    """
+    Streaming AI Performance Prediction Endpoint.
+    Yields full ML metadata as the first chunk, followed by the AI narrative tokens.
+    """
+    try:
+        data = request.get_json() or {}
+        student_data = data.get("student_data")
+        
+        if not student_data:
+            return jsonify({"success": False, "error": "No student data provided"}), 400
+
+        from insight_engine import predict_with_explanation, call_gemma_stream
+        from flask import Response, stream_with_context
+        import json
+
+        # Step 1: Pre-calculate the prompt using standard logic (trivially small latency)
+        # We'll use a simplified version for the stream or just reuse insight_engine logic.
+        # For simplicity, we'll implement the generator here.
+        
+        def generate():
+            # First, get the static ML result (which is fast)
+            # We bypass the full Gemma wait by using call_gemma_stream
+            
+            # This is a bit complex to do in one go, so let's use the insight_engine 
+            # to get the ML result first, then stream the narrative.
+            ml_and_context = predict_with_explanation(student_data, include_gemma=False)
+            
+            # Yield the static JSON first (ML result, grading, integrity)
+            yield json.dumps({"type": "metadata", "data": ml_and_context}) + "\n--CHUNK--\n"
+            
+            # Yield the AI narrative chunks
+            # Construct the prompt manually or use a helper
+            prompt = f"Student performance summary for {student_data.get('student_name', 'Student')}:\n- Risk: {ml_and_context['risk_level']}\n- Recommendations: ..."
+            # Note: In a real refactor, I'd move prompt construction to a shared helper.
+            # Using basic prompt for now as a proof of concept.
+            
+            for token in call_gemma_stream(prompt):
+                yield json.dumps({"type": "token", "content": token}) + "\n--CHUNK--\n"
+
+        return Response(stream_with_context(generate()), mimetype='application/json-stream')
+
+    except Exception as e:
+        import traceback
+        print(f"[PREDICT-STREAM ERROR] {traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/suggest-competency', methods=['POST'])
 def suggest():
     """
@@ -448,7 +510,7 @@ def suggest_remark():
         resp = req_lib.post(
             ollama_url,
             json={"model": ollama_model, "prompt": prompt, "stream": False},
-            timeout=60
+            timeout=30
         )
         resp.raise_for_status()
         suggestion = resp.json().get("response", "").strip().split("\n")[0]
@@ -467,5 +529,35 @@ def suggest_remark():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/verify-face', methods=['POST'])
+def verify_face_route():
+    """
+    AI Face Verification Endpoint.
+    Compares attendance photo with profile photo.
+    """
+    try:
+        data = request.get_json() or {}
+        attendance_photo = data.get("attendance_photo")
+        profile_photo = data.get("profile_photo")
+
+        if not attendance_photo or not profile_photo:
+            return jsonify({
+                "success": False,
+                "error": "Both attendance_photo and profile_photo are required"
+            }), 400
+
+        result = verify_faces(attendance_photo, profile_photo)
+        
+        status_code = 200 if result.get("success") else 500
+        return jsonify(result), status_code
+
+    except Exception as e:
+        print(f"[VERIFY-FACE ERROR] {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, threaded=True)

@@ -1175,3 +1175,4 @@ class _BlinkingDotsState extends State<_BlinkingDots>
     );
   }
 }
+

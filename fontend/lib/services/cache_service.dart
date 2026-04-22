@@ -6,6 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Supports optional TTL (time-to-live). If no TTL is specified, data never
 /// expires and must be manually invalidated.
 class CacheService {
+  static SharedPreferences? _prefs;
+
+  static Future<SharedPreferences> get _instance async {
+    _prefs ??= await SharedPreferences.getInstance();
+    return _prefs!;
+  }
+
   // -------------------------------------------------------------------------
   // Public API
   // -------------------------------------------------------------------------
@@ -19,7 +26,7 @@ class CacheService {
     Duration? ttl,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _instance;
       final payload = json.encode({
         'data': data,
         'saved_at': DateTime.now().millisecondsSinceEpoch,
@@ -41,7 +48,7 @@ class CacheService {
     bool ignoreTtl = false,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _instance;
       final raw = prefs.getString(_prefixedKey(key));
       if (raw == null) return null;
 
@@ -74,7 +81,7 @@ class CacheService {
   /// Remove a specific cache entry.
   static Future<void> invalidate(String key) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _instance;
       await prefs.remove(_prefixedKey(key));
     } catch (e) {
       debugPrint('[CacheService] Failed to invalidate "$key": $e');
@@ -84,7 +91,7 @@ class CacheService {
   /// Remove all cache entries for a given user prefix (used on logout).
   static Future<void> clearForUser(int userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _instance;
       final keys = prefs.getKeys().where(
         (k) => k.startsWith('${_prefix}_${userId}_'),
       );
@@ -104,3 +111,4 @@ class CacheService {
 
   static String _prefixedKey(String key) => '${_prefix}_$key';
 }
+

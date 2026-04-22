@@ -81,8 +81,9 @@ class ApiConfig {
   static const String studentReports = '/student-reports';
   static const String health = '/health';
 
-  // Timeout duration
-  static const Duration timeout = Duration(seconds: 600);
+  // Timeout durations
+  static const Duration timeout = Duration(seconds: 30);
+  static const Duration aiTimeout = Duration(seconds: 360); // 6 minutes to accommodate heavy AI tasks
 }
 
 /// Geofencing and location trust flags. All backward compatible when geofence not configured.
@@ -114,3 +115,4 @@ class AppConstants {
   static const String appName = 'OJT AI System';
   static const String appVersion = '1.0.0';
 }
+

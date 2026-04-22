@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
+const authenticateToken = require('../middleware/auth');
 
 // ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -12,24 +13,6 @@ if (!JWT_SECRET) {
   console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
   process.exit(1);
 }
-
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -43,7 +26,7 @@ const storage = multer.diskStorage({
   filename: function (req, file, cb) {
     const studentId = req.body.student_id || 'unknown';
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `WPR-${studentId}-${uniqueSuffix}${path.extname(file.originalname)}`);
+    cb(null, `NR-${studentId}-${uniqueSuffix}${path.extname(file.originalname)}`);
   }
 });
 
@@ -88,7 +71,7 @@ router.post('/', authenticateToken, upload.single('report_file'), async (req, re
     );
 
     res.status(201).json({
-      message: 'Progress report uploaded successfully',
+      message: 'Narrative report uploaded successfully',
       report: result.rows[0]
     });
   } catch (error) {
@@ -173,11 +156,11 @@ router.get('/', authenticateToken, async (req, res) => {
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, feedback } = req.body;
+    const { status, feedback, rating } = req.body;
 
     const result = await query(
-      'UPDATE student_progress_reports SET status = $1, feedback = $2, updated_at = CURRENT_TIMESTAMP WHERE report_id = $3 RETURNING *',
-      [status, feedback, id]
+      'UPDATE student_progress_reports SET status = $1, feedback = $2, rating = $3, updated_at = CURRENT_TIMESTAMP WHERE report_id = $4 RETURNING *',
+      [status, feedback, rating || 0, id]
     );
 
     if (result.rows.length === 0) {
@@ -194,7 +177,58 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
-// Download report file
+// Download/View report file
+router.get('/:id/view', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  console.log(`\n[DEBUG] Narrative View Request - ID: ${id}`);
+  console.log(`[DEBUG] User: ${req.user.user_id} (${req.user.role})`);
+
+  try {
+    const result = await query('SELECT file_path, file_name FROM student_progress_reports WHERE report_id = $1', [id]);
+    
+    if (result.rows.length === 0) {
+      console.error(`[DEBUG] Report ${id} not found in database`);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    const { file_path: filePath, file_name: fileName } = result.rows[0];
+    console.log(`[DEBUG] Database path: ${filePath}`);
+    
+    if (fs.existsSync(filePath)) {
+      const ext = path.extname(fileName).toLowerCase();
+      let contentType = 'application/octet-stream';
+      
+      if (ext === '.pdf') contentType = 'application/pdf';
+      else if (ext === '.doc') contentType = 'application/msword';
+      else if (ext === '.docx') contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+      console.log(`[DEBUG] Content-Type: ${contentType}`);
+      console.log(`[DEBUG] Serving file...`);
+
+      // Relax security headers specifically for this file stream
+      // This prevents browsers from blocking the view due to strict same-origin policies
+      res.setHeader('Content-Type', contentType);
+      
+      // Use RFC 5987 for proper filename encoding in all browsers
+      const encodedFileName = encodeURIComponent(fileName);
+      res.setHeader('Content-Disposition', `inline; filename="${fileName}"; filename*=UTF-8''${encodedFileName}`);
+      
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+      res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval'; img-src * data:; media-src *;");
+
+      res.sendFile(path.resolve(filePath));
+    } else {
+      console.error(`[DEBUG] File not found on disk at: ${filePath}`);
+      res.status(404).json({ error: 'File not found on server' });
+    }
+  } catch (error) {
+    console.error(`[DEBUG] View report error for ${id}:`, error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Backward compatibility for download
 router.get('/:id/download', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;

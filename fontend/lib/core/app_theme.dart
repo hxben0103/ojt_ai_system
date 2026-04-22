@@ -4,16 +4,17 @@ import 'package:google_fonts/google_fonts.dart';
 /// Centralized app theme for consistent styling across all dashboards
 class AppTheme {
   // Deeper primary colors for a more premium look
-  static const Color studentPrimary = Color(0xFF1565C0); // Deep Blue
-  static const Color coordinatorPrimary = Color(0xFF6A1B9A); // Deep Purple
-  static const Color supervisorPrimary = Color(0xFF00695C); // Deep Teal
-  static const Color adminPrimary = Color(0xFFB71C1C); // Deep Red
+  // Deeper primary colors for a more professional, trustworthy look
+  static const Color studentPrimary = Color(0xFF0F172A); // Navy Slate
+  static const Color coordinatorPrimary = Color(0xFF312E81); // Indigo
+  static const Color supervisorPrimary = Color(0xFF064E3B); // Deep Emerald
+  static const Color adminPrimary = Color(0xFF7F1D1D); // Crimson
 
-  // Common colors
-  static const Color successColor = Color(0xFF2E7D32); // Deeper Green
-  static const Color warningColor = Color(0xFFEF6C00); // Deeper Orange
-  static const Color errorColor = Color(0xFFC62828);
-  static const Color infoColor = Color(0xFF0277BD);
+  // Common colors for a cleaner palette
+  static const Color successColor = Color(0xFF10B981); // Emerald
+  static const Color warningColor = Color(0xFFF59E0B); // Amber
+  static const Color errorColor = Color(0xFFEF4444); // Rose
+  static const Color infoColor = Color(0xFF3B82F6); // Blue
   static const Color surfaceColor = Color(0xFFF0F2F5); // Slightly blueish-grey background
 
   // Spacing scale (8pt foundation)
@@ -34,54 +35,70 @@ class AppTheme {
   static const double borderRadiusLarge = 16.0;
   static const double borderRadiusXL = 24.0;
 
-  // Card shadow decoration
+  // Pro-level Soft Shadows
+  static const List<BoxShadow> softShadow = [
+    BoxShadow(
+      color: Color(0x0A000000),
+      blurRadius: 1,
+      offset: Offset(0, 1),
+    ),
+    BoxShadow(
+      color: Color(0x0F000000),
+      blurRadius: 15,
+      offset: Offset(0, 10),
+    ),
+  ];
+
   static const BoxShadow cardShadow = BoxShadow(
-    color: Colors.black12,
-    blurRadius: 10,
+    color: Color(0x0D000000),
+    blurRadius: 12,
     offset: Offset(0, 4),
   );
 
-  // Text styles using Google Fonts Inter
-  static TextStyle get heading1 => GoogleFonts.inter(
-        fontSize: 28,
-        fontWeight: FontWeight.bold,
-        color: Colors.black87,
+  // Text styles using Outfit (Headings) and Plus Jakarta Sans (Body)
+  static TextStyle get heading1 => GoogleFonts.outfit(
+        fontSize: 32,
+        fontWeight: FontWeight.w800,
+        color: const Color(0xFF0F172A),
+        letterSpacing: -0.5,
       );
 
-  static TextStyle get heading2 => GoogleFonts.inter(
-        fontSize: 22,
-        fontWeight: FontWeight.bold,
-        color: Colors.black87,
-      );
-
-  static TextStyle get heading3 => GoogleFonts.inter(
-        fontSize: 18,
+  static TextStyle get heading2 => GoogleFonts.outfit(
+        fontSize: 24,
         fontWeight: FontWeight.w700,
-        color: Colors.black87,
+        color: const Color(0xFF1E293B),
+        letterSpacing: -0.3,
       );
 
-  static TextStyle get bodyLarge => GoogleFonts.inter(
+  static TextStyle get heading3 => GoogleFonts.outfit(
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        color: const Color(0xFF334155),
+      );
+
+  static TextStyle get bodyLarge => GoogleFonts.plusJakartaSans(
         fontSize: 16,
-        color: Colors.black87,
-        letterSpacing: 0.15,
+        color: const Color(0xFF334155),
+        fontWeight: FontWeight.w500,
+        height: 1.5,
       );
 
-  static TextStyle get bodyMedium => GoogleFonts.inter(
+  static TextStyle get bodyMedium => GoogleFonts.plusJakartaSans(
         fontSize: 14,
-        color: Colors.black87,
-        letterSpacing: 0.25,
+        color: const Color(0xFF475569),
+        height: 1.5,
       );
 
-  static TextStyle get bodySmall => GoogleFonts.inter(
+  static TextStyle get bodySmall => GoogleFonts.plusJakartaSans(
         fontSize: 12,
-        color: Colors.black54,
-        letterSpacing: 0.4,
+        color: const Color(0xFF64748B),
       );
 
-  static TextStyle get caption => GoogleFonts.inter(
+  static TextStyle get caption => GoogleFonts.plusJakartaSans(
         fontSize: 11,
-        color: Colors.black38,
-        letterSpacing: 0.4,
+        color: const Color(0xFF94A3B8),
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
       );
 
   /// Material 3 light theme used by the app.
@@ -200,4 +217,5 @@ class AppTheme {
     );
   }
 }
+
 

@@ -8,6 +8,7 @@ class SectionHeader extends StatelessWidget {
   final IconData? icon;
   final Widget? trailing;
   final Widget? action;
+  final Color? color;
 
   const SectionHeader({
     super.key,
@@ -16,47 +17,59 @@ class SectionHeader extends StatelessWidget {
     this.icon,
     this.trailing,
     this.action,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppTheme.spacing16,
-        AppTheme.spacing24,
-        AppTheme.spacing16,
-        AppTheme.spacing8,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTheme.spacing16,
+        vertical: AppTheme.spacing8,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              if (icon != null) ...[
-                Icon(
-                  icon,
-                  size: 20,
-                  color: Colors.black54,
-                ),
-                const SizedBox(width: AppTheme.spacing8),
-              ],
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTheme.heading3,
-                ),
+              Row(
+                children: [
+                  if (icon != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: (color ?? AppTheme.studentPrimary).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        icon,
+                        size: 18,
+                        color: color ?? AppTheme.studentPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Text(
+                    title,
+                    style: AppTheme.heading3.copyWith(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
               ),
               if (trailing != null) trailing!,
               if (action != null) action!,
             ],
           ),
           if (subtitle != null) ...[
-            const SizedBox(height: AppTheme.spacing4),
+            const SizedBox(height: 4),
             Padding(
-              padding: EdgeInsets.only(left: icon != null ? 28.0 : 0),
+              padding: EdgeInsets.only(left: icon != null ? 38 : 0),
               child: Text(
                 subtitle!,
-                style: AppTheme.bodySmall,
+                style: AppTheme.bodySmall.copyWith(color: Colors.blueGrey.shade400),
               ),
             ),
           ],
@@ -65,4 +78,5 @@ class SectionHeader extends StatelessWidget {
     );
   }
 }
+
 

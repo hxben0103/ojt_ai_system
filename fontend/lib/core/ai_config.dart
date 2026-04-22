@@ -30,3 +30,4 @@ class AiConfig {
   static String get greetingEndpoint => '$chatbotBaseUrl/greeting';
 }
 
+

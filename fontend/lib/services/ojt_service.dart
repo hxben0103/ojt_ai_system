@@ -1,4 +1,5 @@
 import '../models/ojt_record.dart';
+import '../models/narrative_report.dart';
 import 'api_service.dart';
 import '../core/config.dart';
 
@@ -41,6 +42,20 @@ class OjtService {
     }
   }
 
+  /// Get aggregated supervisor overview (Optimized single-endpoint call)
+  static Future<Map<String, dynamic>> getSupervisorOverview(int supervisorId) async {
+    try {
+      final response = await ApiService.get('${ApiConfig.ojt}/supervisor-overview/$supervisorId');
+      if (response.containsKey('error')) {
+        throw Exception(response['error'] is String 
+            ? response['error'] 
+            : response['error'].toString());
+      }
+      return Map<String, dynamic>.from(response);
+    } catch (e) {
+      throw Exception('Failed to fetch supervisor overview: $e');
+    }
+  }
 
   /// Look up students by alphanumeric school ID (e.g. "2021-00123").
   /// Returns a list of matching active students.
@@ -131,8 +146,8 @@ class OjtService {
     }
   }
 
-  // Upload progress report (WPR)
-  static Future<Map<String, dynamic>> uploadProgressReport({
+  // Upload narrative report
+  static Future<Map<String, dynamic>> uploadNarrativeReport({
     required int studentId,
     required String title,
     required String description,
@@ -142,7 +157,7 @@ class OjtService {
   }) async {
     try {
       final response = await ApiService.uploadFile(
-        '${ApiConfig.studentReports}',
+        ApiConfig.studentReports,
         file,
         fileName,
         fieldName: 'report_file',
@@ -161,24 +176,88 @@ class OjtService {
 
       return response;
     } catch (e) {
-      throw Exception('Failed to upload report: $e');
+      throw Exception('Failed to upload narrative report: $e');
     }
   }
 
-  // Get student progress reports
-  static Future<List<Map<String, dynamic>>> getStudentReports(int studentId) async {
+  // Get narrative reports for a student
+  static Future<List<NarrativeReport>> getNarrativeReports({int? studentId}) async {
     try {
-      final response = await ApiService.get(
-        '${ApiConfig.studentReports}/student/$studentId',
-      );
+      final endpoint = studentId != null 
+          ? '${ApiConfig.studentReports}/student/$studentId'
+          : ApiConfig.studentReports;
+          
+      final response = await ApiService.get(endpoint);
       if (response.containsKey('error')) {
         throw Exception(response['error'].toString());
       }
       final List<dynamic> data = response['reports'] ?? [];
-      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      return data.map((e) => NarrativeReport.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     } catch (e) {
-      throw Exception('Failed to fetch reports: $e');
+      throw Exception('Failed to fetch narrative reports: $e');
     }
   }
+
+  // Review narrative report (Coordinator only)
+  static Future<NarrativeReport> reviewNarrativeReport({
+    required int reportId,
+    required String status,
+    required int rating,
+    String? feedback,
+  }) async {
+    try {
+      final response = await ApiService.put(
+        '${ApiConfig.studentReports}/$reportId/status',
+        {
+          'status': status,
+          'rating': rating,
+          if (feedback != null) 'feedback': feedback,
+        },
+      );
+
+      if (response.containsKey('error')) {
+        throw Exception(response['error'].toString());
+      }
+
+      final data = response['report'] ?? response;
+      return NarrativeReport.fromJson(Map<String, dynamic>.from(data as Map));
+    } catch (e) {
+      throw Exception('Failed to review narrative report: $e');
+    }
+  }
+
+  // Get File URL for reports (accepts optional token for browser viewing)
+  static String getNarrativeReportUrl(int reportId, {bool isDownload = false, String? token}) {
+    final action = isDownload ? 'download' : 'view';
+    String url = '${ApiConfig.baseUrl}${ApiConfig.studentReports}/$reportId/$action';
+    if (token != null) {
+      url += '?token=$token';
+    }
+    return url;
+  }
+
+  @Deprecated('Use uploadNarrativeReport instead')
+  static Future<Map<String, dynamic>> uploadProgressReport({
+    required int studentId,
+    required String title,
+    required String description,
+    required dynamic file,
+    required String fileName,
+    int? weekNumber,
+  }) => uploadNarrativeReport(
+    studentId: studentId,
+    title: title,
+    description: description,
+    file: file,
+    fileName: fileName,
+    weekNumber: weekNumber,
+  );
+
+  @Deprecated('Use getNarrativeReports instead')
+  static Future<List<Map<String, dynamic>>> getStudentReports(int studentId) async {
+    final reports = await getNarrativeReports(studentId: studentId);
+    return reports.map((r) => r.toJson()).toList();
+  }
 }
+
 

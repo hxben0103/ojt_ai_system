@@ -35,16 +35,17 @@ class StatCard extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: [AppTheme.cardShadow],
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: Colors.blueGrey.shade50, width: 1),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+          borderRadius: BorderRadius.circular(24),
           child: Padding(
-            padding: const EdgeInsets.all(AppTheme.spacing20),
+            padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -54,67 +55,79 @@ class StatCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: cardColor.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+                        color: cardColor.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       child: Icon(
                         icon,
                         color: cardColor,
-                        size: 26,
+                        size: 24,
                       ),
                     ),
                     if (trend != null)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: (trendPositive ?? true) 
-                              ? AppTheme.successColor.withOpacity(0.1)
-                              : AppTheme.errorColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
+                              ? AppTheme.successColor.withOpacity(0.08)
+                              : AppTheme.errorColor.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(100),
                         ),
-                        child: Text(
-                          trend!,
-                          style: TextStyle(
-                            color: (trendPositive ?? true)
-                                ? AppTheme.successColor
-                                : AppTheme.errorColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              (trendPositive ?? true) ? Icons.trending_up : Icons.trending_down,
+                              color: (trendPositive ?? true) ? AppTheme.successColor : AppTheme.errorColor,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              trend!,
+                              style: AppTheme.caption.copyWith(
+                                color: (trendPositive ?? true)
+                                    ? AppTheme.successColor
+                                    : AppTheme.errorColor,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
                         ),
                       )
                     else if (onTap != null)
                       Icon(
-                        Icons.arrow_forward_ios,
-                        size: 16,
-                        color: Colors.grey[300],
+                        Icons.chevron_right_rounded,
+                        size: 20,
+                        color: Colors.blueGrey.shade300,
                       ),
                   ],
                 ),
-                const SizedBox(height: AppTheme.spacing16),
+                const SizedBox(height: 20),
                 Text(
                   value,
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.w800,
-                    color: cardColor, // Value color matches the primary color
-                    letterSpacing: -0.5,
+                  style: AppTheme.heading1.copyWith(
+                    fontSize: 32,
+                    color: Colors.blueGrey.shade900,
+                    height: 1.1,
                   ),
                 ),
-                const SizedBox(height: AppTheme.spacing4),
+                const SizedBox(height: 4),
                 Text(
-                  title,
-                  style: AppTheme.bodyMedium.copyWith(
-                    color: Colors.grey[700],
-                    fontWeight: FontWeight.w600,
+                  title.toUpperCase(),
+                  style: AppTheme.caption.copyWith(
+                    color: Colors.blueGrey.shade500,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                    fontSize: 10,
                   ),
                 ),
                 if (subtitle != null) ...[
-                  const SizedBox(height: AppTheme.spacing4),
+                  const SizedBox(height: 8),
                   Text(
                     subtitle!,
                     style: AppTheme.bodySmall.copyWith(
-                      color: Colors.black45,
+                      color: Colors.blueGrey.shade400,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -127,4 +140,5 @@ class StatCard extends StatelessWidget {
     );
   }
 }
+
 

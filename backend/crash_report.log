@@ -1,0 +1,15 @@
+[2026-04-22T03:17:21.762Z] GLOBAL ERROR
+Method: POST URL: /api/auth/login
+Message: Unexpected token '"', ""{ bad json }"" is not valid JSON
+Stack: SyntaxError: Unexpected token '"', ""{ bad json }"" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at createStrictSyntaxError (C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\node_modules\body-parser\lib\types\json.js:169:10)
+    at parse (C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\node_modules\body-parser\lib\types\json.js:86:15)
+    at C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\node_modules\body-parser\lib\read.js:128:18
+    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)
+    at invokeCallback (C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\node_modules\raw-body\index.js:238:16)
+    at done (C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\node_modules\raw-body\index.js:227:7)
+    at IncomingMessage.onEnd (C:\Users\ACER\Desktop\OJT _AI_SYSTEM\backend\node_modules\raw-body\index.js:287:7)
+    at IncomingMessage.emit (node:events:508:28)
+    at endReadableNT (node:internal/streams/readable:1701:12)
+------------------------------------

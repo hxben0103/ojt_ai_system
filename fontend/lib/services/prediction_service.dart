@@ -1,7 +1,9 @@
+import 'dart:convert';
 import '../models/ai_insight.dart';
 import '../models/chatbot_log.dart';
 import 'api_service.dart';
 import '../core/config.dart';
+import 'cache_service.dart';
 
 class PredictionService {
   // Get AI insights
@@ -128,15 +130,68 @@ class PredictionService {
     }
   }
 
+  // Stream daily prediction narrative
+  static Stream<Map<String, dynamic>> getDailyPredictionStream(int studentId) async* {
+    try {
+      final stream = await ApiService.getStream('${ApiConfig.prediction}/daily/stream/$studentId');
+      
+      String buffer = "";
+      await for (final chunk in stream) {
+        final text = String.fromCharCodes(chunk);
+        buffer += text;
+        
+        // We look for our --CHUNK-- delimiter used in server.py
+        final parts = buffer.split("\n--CHUNK--\n");
+        // Keep the last part in buffer if it doesn't end with delimiter
+        buffer = parts.last;
+        
+        for (int i = 0; i < parts.length - 1; i++) {
+          final part = parts[i].trim();
+          if (part.isEmpty) continue;
+          
+          try {
+            final json = Map<String, dynamic>.from(jsonDecode(part));
+            yield json;
+          } catch (e) {
+            print('Stream parse error: $e for part: $part');
+          }
+        }
+      }
+    } catch (e) {
+      yield {'type': 'error', 'message': e.toString()};
+    }
+  }
+
   // Get daily risk prediction for a student
   static Future<Map<String, dynamic>> getDailyPrediction(int studentId, {bool cacheOnly = false}) async {
+    final cacheKey = 'daily_pred_$studentId';
+    
     try {
+      if (cacheOnly) {
+        final cached = await CacheService.load(cacheKey, ignoreTtl: false);
+        if (cached != null) return cached;
+      }
+
       final response = await ApiService.get(
         '${ApiConfig.prediction}/daily/$studentId${cacheOnly ? "?cache_only=true" : ""}',
       );
 
-      return Map<String, dynamic>.from(response);
+      final result = Map<String, dynamic>.from(response);
+      
+      // Save successful AI responses to local cache (4 hour TTL matches backend throttling)
+      if (result['ai_prediction'] != null) {
+        await CacheService.save(cacheKey, result, ttl: const Duration(hours: 4));
+      }
+      
+      return result;
     } catch (e) {
+      // Fallback to cache on network failure
+      final cached = await CacheService.load(cacheKey, ignoreTtl: true);
+      if (cached != null) {
+        cached['cached'] = true;
+        cached['offline_fallback'] = true;
+        return cached;
+      }
       throw Exception('Failed to load daily prediction: $e');
     }
   }
@@ -159,4 +214,5 @@ class PredictionService {
     }
   }
 }
+
 

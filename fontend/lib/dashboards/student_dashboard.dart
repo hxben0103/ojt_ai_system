@@ -12,6 +12,7 @@ import '../widgets/role_guard.dart';
 import 'student_checklist_screen.dart';
 import 'student_attendance_screen.dart';
 import 'student_dtr_view_screen.dart';
+import 'student_analytics_screen.dart';
 import 'student_daily_tasks_screen.dart';
 import '../screens/login_screen.dart';
 import '../services/attendance_service.dart';
@@ -28,7 +29,6 @@ import '../services/cache_service.dart';
 import '../widgets/insight_card.dart';
 import '../widgets/integrity_badge.dart';
 import '../widgets/progress_summary_card.dart';
-import '../widgets/ojt_progress_hero_card.dart';
 import '../widgets/ojt_progress_hero_card.dart';
 import '../widgets/explainable_ai_card.dart';
 import '../widgets/weekly_ai_summary_card.dart';
@@ -683,85 +683,133 @@ class _StudentDashboardState extends State<StudentDashboard>
   // ── Profile Header ──
   Widget _buildProfileHeader() {
     ImageProvider? profileImageProvider;
-    if (!kIsWeb && _profileImage != null) {
-      try {
-        profileImageProvider = file_helper.createImageProvider(_profileImage);
-      } catch (_) {
-        if (_profileImageBytes != null) {
-          profileImageProvider = MemoryImage(_profileImageBytes!);
-        }
-      }
-    } else if (_profileImageBytes != null) {
-      profileImageProvider = MemoryImage(_profileImageBytes!);
-    }
-
     return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
             AppTheme.studentPrimary,
-            AppTheme.studentPrimary.withOpacity(0.8),
+            const Color(0xFF1E293B), // Deeper navy for depth
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
         boxShadow: [
           BoxShadow(
             color: AppTheme.studentPrimary.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      padding: const EdgeInsets.all(AppTheme.spacing20),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: CircleAvatar(
-              radius: 36,
-              backgroundImage: profileImageProvider,
-              backgroundColor: Colors.white,
-              child: profileImageProvider == null
-                  ? Icon(Icons.person_rounded, size: 36, color: AppTheme.studentPrimary)
-                  : null,
-            ).animate().scale(duration: 600.ms, curve: Curves.easeOutBack),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withOpacity(0.5), width: 1.5),
+                ),
+                child: CircleAvatar(
+                  radius: 36,
+                  backgroundImage: _profileImage != null 
+                    ? (kIsWeb ? MemoryImage(_profileImageBytes!) : FileImage(_profileImage!) as ImageProvider)
+                    : (_profileImageBytes != null ? MemoryImage(_profileImageBytes!) : null),
+                  backgroundColor: Colors.white.withOpacity(0.1),
+                  child: (_profileImage == null && _profileImageBytes == null)
+                      ? Text(
+                          (_studentName ?? "S").isNotEmpty ? _studentName![0].toUpperCase() : "S",
+                          style: AppTheme.heading1.copyWith(color: Colors.white, fontSize: 32),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _studentName ?? "Loading Profile...",
+                      style: AppTheme.heading2.copyWith(color: Colors.white, fontSize: 22),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.school_rounded, size: 12, color: Colors.blue.shade100),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              (_course ?? "NO COURSE").toUpperCase(),
+                              style: AppTheme.caption.copyWith(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 9,
+                                letterSpacing: 1.1,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: AppTheme.spacing16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _studentName ?? "Loading Profile...",
-                  style: AppTheme.heading2.copyWith(color: Colors.white),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  "ID: ${_studentId ?? 'N/A'}",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white.withOpacity(0.9)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  "${_course ?? 'No Course Assigned'}",
-                  style: AppTheme.bodySmall.copyWith(color: Colors.white.withOpacity(0.8)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              _buildModernProfileStat("ID Number", _studentId ?? "N/A", Icons.fingerprint_rounded),
+              const SizedBox(width: 16),
+              if (_studentStatus?['ojt_record']?['end_date'] != null)
+                _buildModernProfileStat("End Date", DateFormat('MMM d, yyyy').format(DateTime.parse(_studentStatus!['ojt_record']['end_date'])), Icons.event_available_rounded)
+              else
+                _buildModernProfileStat("Advisor", _coordinator ?? "N/A", Icons.person_search_rounded),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModernProfileStat(String label, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: Colors.blue.shade200),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 9, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                  Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -781,84 +829,118 @@ class _StudentDashboardState extends State<StudentDashboard>
         : 0;
     final int progressPct = (aiInsight?['score'] as num?)?.toInt() ?? computedPct;
 
-    final attendanceMap = _studentStatus?['attendance'] as Map<String, dynamic>?;
-    final int daysPresent = (attendanceMap?['days_present'] as num?)?.toInt() ?? 0;
-    
-    final dailyTasksMap = _studentStatus?['daily_tasks'] as Map<String, dynamic>?;
-    final int completedTasks = (dailyTasksMap?['completed_tasks'] as num?)?.toInt() ?? 0;
-
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: Colors.blueGrey.shade50, width: 1),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.trending_up_rounded, color: AppTheme.studentPrimary),
-              const SizedBox(width: 8),
-              Text(
-                'Progress Overview',
-                style: AppTheme.heading3.copyWith(fontSize: 18),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => StudentAnalyticsScreen(
+                  studentName: _studentName ?? "Unknown",
+                  studentId: _studentId ?? "N/A",
+                  course: _course ?? "N/A",
+                  userId: _studentUserId!,
+                ),
               ),
-            ],
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Overall Progress",
+                          style: AppTheme.heading3.copyWith(fontSize: 18),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          "Based on AI engagement analysis",
+                          style: AppTheme.bodySmall.copyWith(color: Colors.blueGrey.shade400),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.studentPrimary.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(100),
+                      ),
+                      child: Text(
+                        "$progressPct%",
+                        style: AppTheme.caption.copyWith(color: AppTheme.studentPrimary, fontWeight: FontWeight.w800, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: progressPct / 100.0,
+                    minHeight: 12,
+                    backgroundColor: AppTheme.studentPrimary.withOpacity(0.05),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.studentPrimary),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                     _buildModernStatItem("Completed", "$completedHours", "HRS", Icons.timer_rounded, AppTheme.successColor),
+                     const SizedBox(width: 16),
+                     _buildModernStatItem("Target", "$requiredHours", "HRS", Icons.flag_rounded, AppTheme.infoColor),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildProgressStat(
-                  'Progress Score',
-                  '$progressPct%',
-                  Icons.score_rounded,
-                  AppTheme.studentPrimary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildProgressStat(
-                  'Completed Hours',
-                  '$completedHours / $requiredHours',
-                  Icons.access_time_rounded,
-                  AppTheme.successColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-               Expanded(
-                child: _buildProgressStat(
-                  'Attendance Status',
-                  '$daysPresent days present',
-                  Icons.event_available_rounded,
-                  AppTheme.infoColor,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildProgressStat(
-                  'Daily Tasks',
-                  '$completedTasks tasks done',
-                  Icons.task_alt_rounded,
-                  AppTheme.warningColor,
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernStatItem(String label, String value, String unit, IconData icon, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.03),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.08), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(value, style: AppTheme.heading2.copyWith(color: color, fontSize: 24, height: 1)),
+                const SizedBox(width: 4),
+                Text(unit, style: AppTheme.caption.copyWith(color: color.withOpacity(0.5), fontSize: 9)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(label.toUpperCase(), style: AppTheme.caption.copyWith(fontSize: 9, letterSpacing: 0.8, color: Colors.blueGrey.shade400)),
+          ],
+        ),
       ),
     );
   }
@@ -1110,84 +1192,87 @@ class _StudentDashboardState extends State<StudentDashboard>
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: Colors.grey.shade100, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.verified_user_rounded, color: Colors.teal.shade700),
-              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.verified_user_rounded, color: Colors.teal.shade700, size: 20),
+              ),
+              const SizedBox(width: 16),
               Text(
                 'Integrity Status',
-                style: AppTheme.heading3.copyWith(fontSize: 16),
+                style: AppTheme.heading3.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ],
           ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              _buildModernIntegrityStat(
+                'Trust Score', 
+                integrityScore != null ? '$integrityScore%' : 'N/A', 
+                integrityScore != null && integrityScore > 80 ? Colors.teal : Colors.amber,
+              ),
+              const SizedBox(width: 16),
+              _buildModernIntegrityStat(
+                'Geofence', 
+                insideGeofence ? 'VERIFIED' : 'OUTSIDE', 
+                insideGeofence ? Colors.teal : Colors.red,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Divider(height: 1, color: Colors.grey.shade100),
           const SizedBox(height: 16),
           Row(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Trust Score', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                    const SizedBox(height: 4),
-                    Text(
-                      integrityScore != null ? '$integrityScore / 100' : 'N/A',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal.shade800),
-                    ),
-                  ],
-                ),
+              Icon(Icons.history_rounded, size: 14, color: Colors.grey.shade400),
+              const SizedBox(width: 8),
+              Text(
+                'Last System Verification: ', 
+                style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade500, fontSize: 10),
               ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Geofence', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(insideGeofence ? Icons.check_circle : Icons.error, size: 16, color: insideGeofence ? Colors.green : Colors.red),
-                        const SizedBox(width: 4),
-                        Text(
-                          insideGeofence ? 'Verified' : 'Outside',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: insideGeofence ? Colors.green : Colors.red),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(Icons.history_rounded, size: 16, color: Colors.grey.shade600),
-              const SizedBox(width: 6),
-              Text('Last Record: ', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               Expanded(
                 child: Text(
                   lastAttendanceDate,
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade800),
+                  style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700, color: Colors.grey.shade600, fontSize: 11),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernIntegrityStat(String label, String value, Color color) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(), 
+            style: AppTheme.bodySmall.copyWith(fontSize: 9, letterSpacing: 1.1, color: Colors.grey.shade400),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: AppTheme.heading3.copyWith(fontSize: 18, color: color, fontWeight: FontWeight.w800),
           ),
         ],
       ),
@@ -1205,6 +1290,17 @@ class _StudentDashboardState extends State<StudentDashboard>
       completedHours: completed,
       requiredHours: required,
       estimatedCompletion: remaining > 0 ? "~${(remaining / 8).ceil()} days" : "Completed",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => StudentDTRViewScreen(
+            studentName: _studentName ?? "Unknown Student",
+            studentId: _studentId ?? "N/A",
+            course: _course ?? "N/A",
+            dtrRecords: _dtrRecords,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1215,43 +1311,53 @@ class _StudentDashboardState extends State<StudentDashboard>
       child: Row(
         children: [
           Expanded(
-            child: FilledButton.icon(
-              onPressed: () => _showAttendanceOptions(context),
-              icon: const Icon(Icons.login_rounded, size: 18),
-              label: const Text('Time In / Out'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.studentPrimary,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                boxShadow: AppTheme.softShadow,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: FilledButton.icon(
+                onPressed: () => _showAttendanceOptions(context),
+                icon: const Icon(Icons.login_rounded, size: 20),
+                label: Text('Time In / Out', style: AppTheme.bodyLarge.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.studentPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
               ),
             ),
           ),
-          const SizedBox(width: AppTheme.spacing12),
+          const SizedBox(width: AppTheme.spacing16),
           Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => StudentDTRViewScreen(
-                      studentName: _studentName ?? "Unknown",
-                      studentId: _studentId ?? "N/A",
-                      course: _course ?? "N/A",
-                      dtrRecords: _dtrRecords,
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StudentAnalyticsScreen(
+                        studentName: _studentName ?? "Unknown",
+                        studentId: _studentId ?? "N/A",
+                        course: _course ?? "N/A",
+                        userId: _studentUserId!,
+                      ),
                     ),
+                  );
+                },
+                icon: const Icon(Icons.analytics_rounded, size: 20),
+                label: Text('DTR Analytics', style: AppTheme.bodyLarge.copyWith(color: AppTheme.studentPrimary, fontWeight: FontWeight.w700)),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: AppTheme.studentPrimary.withOpacity(0.2), width: 1.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                );
-              },
-              icon: const Icon(Icons.list_alt_rounded, size: 18),
-              label: const Text('View DTR'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                foregroundColor: AppTheme.studentPrimary,
-                side: BorderSide(color: AppTheme.studentPrimary, width: 1.5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
                 ),
               ),
             ),
@@ -1488,11 +1594,11 @@ class _StudentDashboardState extends State<StudentDashboard>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => StudentDTRViewScreen(
+                          builder: (context) => StudentAnalyticsScreen(
                             studentName: _studentName ?? "Unknown",
                             studentId: _studentId ?? "N/A",
                             course: _course ?? "N/A",
-                            dtrRecords: _dtrRecords,
+                            userId: _studentUserId!,
                           ),
                         ),
                       );
@@ -1944,11 +2050,11 @@ class _StudentDashboardState extends State<StudentDashboard>
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => StudentDTRViewScreen(
-                        studentName: _studentName ?? "Unknown",
+                      builder: (_) => StudentAnalyticsScreen(
+                        studentName: _studentName ?? "Student",
                         studentId: _studentId ?? "N/A",
                         course: _course ?? "N/A",
-                        dtrRecords: _dtrRecords,
+                        userId: _studentUserId!,
                       ),
                     ),
                   );
@@ -1973,3 +2079,4 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
 }
+

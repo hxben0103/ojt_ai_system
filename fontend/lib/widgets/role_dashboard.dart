@@ -50,82 +50,74 @@ class _RoleDashboardState extends State<RoleDashboard>
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Main Dashboard
     return Scaffold(
-      backgroundColor: AppTheme.surfaceColor,
+      backgroundColor: Colors.white,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text(widget.title),
-        backgroundColor: widget.color,
+        title: Text(
+          widget.title,
+          style: AppTheme.heading3.copyWith(color: Colors.white, fontSize: 18),
+        ),
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
-        bottom: widget.headerContent != null 
-          ? PreferredSize(
-              preferredSize: const Size.fromHeight(30),
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: AppTheme.spacing12),
-                child: widget.headerContent!,
-              ),
-            )
-          : null,
-        shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(
-                bottom: Radius.circular(AppTheme.borderRadiusLarge),
+        centerTitle: true,
+        elevation: 0,
+        actions: widget.appBarActions,
+      ),
+      body: ListView(
+        padding: EdgeInsets.zero,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          if (widget.customActions != null) ...widget.customActions!,
+
+          if (widget.tasks != null && widget.tasks!.isNotEmpty) ...[
+            const SizedBox(height: 32),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                "Operational Tasks",
+                style: AppTheme.heading3.copyWith(fontSize: 18, color: Colors.blueGrey.shade900),
               ),
             ),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppTheme.spacing16),
-        child: ListView(
-          physics: const BouncingScrollPhysics(),
-          children: [
-            if (widget.customActions != null) ...widget.customActions!,
-
-            if (widget.tasks != null && widget.tasks!.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-                child: Text(
-                  "Available Tasks",
-                  style: AppTheme.heading3,
-                ),
-              )
-                  .animate()
-                  .fadeIn(duration: 400.ms)
-                  .slideX(begin: -0.2, end: 0),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-                child: Divider(height: 24),
-              ),
-              ...widget.tasks!
-                  .asMap()
-                  .entries
-                  .map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing8),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Divider(height: 24, thickness: 1),
+            ),
+            ...widget.tasks!
+                .asMap()
+                .entries
+                .map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: Material(
+                      color: Colors.transparent,
                       child: ListTile(
+                        onTap: () {},
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         leading: Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: widget.color.withOpacity(0.1),
-                            shape: BoxShape.circle,
+                            color: widget.color.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Icon(Icons.check_circle_outline,
-                              color: widget.color, size: 20),
+                          child: Icon(Icons.arrow_right_alt_rounded,
+                              color: widget.color, size: 18),
                         ),
                         title: Text(
                           entry.value,
-                          style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w500),
+                          style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w600, color: Colors.blueGrey.shade800),
                         ),
-                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        trailing: Icon(Icons.chevron_right_rounded, size: 18, color: Colors.blueGrey.shade300),
                       ),
-                    )
-                        .animate(delay: (entry.key * 100).ms)
-                        .fadeIn(duration: 400.ms)
-                        .slideX(begin: 0.2, end: 0),
-                  ),
-            ],
-            const SizedBox(height: 80), // Space for FAB
+                    ),
+                  )
+                      .animate(delay: (entry.key * 100).ms)
+                      .fadeIn(duration: 400.ms)
+                      .slideX(begin: 0.1, end: 0),
+                ),
           ],
-        ),
+          const SizedBox(height: 100), // Space for FAB
+        ],
       ),
 
       // 💬 Animated Floating AI Chat Button
@@ -236,3 +228,4 @@ class _RoleDashboardState extends State<RoleDashboard>
     );
   }
 }
+

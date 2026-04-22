@@ -40,6 +40,7 @@ router.get('/records', authenticateToken, async (req, res) => {
     let sql = `
       SELECT o.*,
              s.full_name AS student_name,
+             s.student_id AS school_id,
              c.full_name AS coordinator_name,
              sup.full_name AS supervisor_name
       FROM ojt_records o
@@ -108,6 +109,87 @@ router.get('/records/:recordId', authenticateToken, async (req, res) => {
     }
   } catch (error) {
     console.error('Get OJT record error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get supervisor dashboard overview (Optimized aggregated endpoint)
+router.get('/supervisor-overview/:supervisorId', authenticateToken, async (req, res) => {
+  try {
+    const { supervisorId } = req.params;
+    const { user_id, role } = req.user;
+
+    // Security check: Supervisors can only view their own overview, Admins can view any
+    if (role !== 'Admin' && parseInt(user_id) !== parseInt(supervisorId)) {
+      return res.status(403).json({ 
+        error: 'Access Denied', 
+        message: 'You can only view your own statistics.' 
+      });
+    }
+
+    // 1. Fetch Students with Evaluation & AI status in one query
+    // This removes the N+1 API request problem on the frontend
+    const studentStatsSql = `
+      SELECT 
+          o.record_id,
+          o.student_id,
+          o.coordinator_id,
+          o.supervisor_id,
+          u.full_name AS student_name,
+          u.student_id AS school_id,
+          o.company_name,
+          o.status,
+          o.end_date,
+          le.latest_evaluation,
+          la.latest_ai_insight
+      FROM ojt_records o
+      JOIN users u ON o.student_id = u.user_id
+      LEFT JOIN LATERAL (
+          SELECT json_build_object(
+              'eval_id', ev.eval_id,
+              'status', ev.status
+          ) AS latest_evaluation
+          FROM evaluations ev 
+          WHERE ev.student_id = o.student_id 
+          AND ev.supervisor_id = o.supervisor_id
+          ORDER BY ev.date_evaluated DESC
+          LIMIT 1
+      ) le ON true
+      LEFT JOIN LATERAL (
+          SELECT result AS latest_ai_insight
+          FROM ai_insights ai
+          WHERE ai.student_id = o.student_id
+          AND ai.insight_type IN ('daily_risk_prediction', 'performance_prediction')
+          ORDER BY created_at DESC
+          LIMIT 1
+      ) la ON true
+      WHERE o.supervisor_id = $1
+      AND o.status IN ('Ongoing', 'Active')
+      ORDER BY u.full_name ASC
+    `;
+
+    const studentsResult = await query(studentStatsSql, [supervisorId]);
+    
+    // 2. Fetch today's attendance for these students in the same request
+    const todayStr = new Date().toISOString().split('T')[0];
+    const attendanceSql = `
+        SELECT a.* 
+        FROM attendance a
+        JOIN ojt_records o ON a.student_id = o.student_id
+        WHERE o.supervisor_id = $1 
+        AND a.date = $2
+        AND o.status IN ('Ongoing', 'Active')
+    `;
+    const attendanceResult = await query(attendanceSql, [supervisorId, todayStr]);
+
+    res.json({
+        students: studentsResult.rows,
+        attendance: attendanceResult.rows,
+        generated_at: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Supervisor overview error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -600,6 +682,71 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
       },
       error: 'Failed to compute student status on server'
     });
+  }
+});
+
+// Get student requirements checklist
+router.get('/requirements/:studentId', authenticateToken, async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    
+    if (!studentId || isNaN(parseInt(studentId))) {
+      return res.status(400).json({ error: 'Valid studentId is required' });
+    }
+
+    // Ensure requirements are initialized for this student
+    // We use a separate try-catch so initialization failure doesn't block if they already exist
+    try {
+      await query('SELECT initialize_student_requirements($1)', [studentId]);
+    } catch (initError) {
+      console.warn(`Initialization warning for student ${studentId}:`, initError.message);
+      // Continue anyway, they might already be initialized or table might be accessible
+    }
+
+    const result = await query(
+      `SELECT id, requirement_name, status, file_path, updated_at 
+       FROM student_requirements 
+       WHERE student_id = $1 
+       ORDER BY id ASC`,
+      [studentId]
+    );
+
+    res.json({ success: true, requirements: result.rows });
+  } catch (error) {
+    console.error(`Get requirements error for student ${req.params.studentId}:`, error);
+    res.status(500).json({ error: 'Failed to retrieve requirements', message: error.message });
+  }
+});
+
+// Update student requirement status
+router.post('/requirements/:studentId/update', authenticateToken, async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { requirement_name, status, file_path } = req.body;
+
+    if (!requirement_name || !status) {
+      return res.status(400).json({ error: 'requirement_name and status are required' });
+    }
+
+    const result = await query(
+      `INSERT INTO student_requirements (student_id, requirement_name, status, file_path, updated_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+       ON CONFLICT (student_id, requirement_name) 
+       DO UPDATE SET 
+          status = EXCLUDED.status, 
+          file_path = EXCLUDED.file_path, 
+          updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [studentId, requirement_name, status, file_path || null]
+    );
+
+    res.json({ 
+      message: 'Requirement updated successfully', 
+      requirement: result.rows[0] 
+    });
+  } catch (error) {
+    console.error('Update requirement error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

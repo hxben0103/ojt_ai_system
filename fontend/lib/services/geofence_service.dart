@@ -35,3 +35,4 @@ class GeofenceService {
     return (inside: inside, distanceMeters: distanceMeters);
   }
 }
+

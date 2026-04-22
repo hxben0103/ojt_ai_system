@@ -167,3 +167,4 @@ class _RoleGuardState extends State<RoleGuard> {
 
 enum _GuardStatus { loading, notLoggedIn, unauthorized, authorized, error }
 
+

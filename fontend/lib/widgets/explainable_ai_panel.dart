@@ -256,3 +256,4 @@ class ExplainableAiPanel extends StatelessWidget {
         : rawReason[0].toUpperCase() + rawReason.substring(1).replaceAll('_', ' ');
   }
 }
+

@@ -11,6 +11,7 @@ import '../services/ojt_service.dart';
 import '../services/prediction_service.dart';
 import '../widgets/integrity_badge.dart';
 import '../widgets/explainable_ai_card.dart';
+import 'student_analytics_screen.dart';
 
 class CoordinatorStudentMonitor extends StatefulWidget {
   const CoordinatorStudentMonitor({super.key});
@@ -680,11 +681,38 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
               ],
             ),
             
-            if (entry.predictionData != null)
               ExplainableAiCard(
                 prediction: entry.predictionData!,
                 isExpanded: true,
               ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StudentAnalyticsScreen(
+                      studentName: entry.name,
+                      studentId: entry.studentId.toString(),
+                      course: entry.hostCompany,
+                      userId: entry.studentId,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.insights_rounded),
+              label: const Text("View Student Analytics Timeline"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.coordinatorPrimary.withOpacity(0.1),
+                foregroundColor: AppTheme.coordinatorPrimary,
+                elevation: 0,
+                minimumSize: const Size(double.infinity, 45),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: AppTheme.coordinatorPrimary.withOpacity(0.2)),
+                ),
+              ),
+            ),
           ],
         ),
       ),

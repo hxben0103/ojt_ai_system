@@ -6,6 +6,30 @@ import 'ojt_service.dart';
 
 class AttendanceService {
   // Get all attendance records (optional filter: verificationStatus = FLAGGED, etc.)
+  // Upload an image to Supabase Storage via the backend
+  static Future<Map<String, dynamic>> uploadImageToStorage({
+    required int studentId,
+    required String photoType,
+    required List<int> imageBytes,
+    String? fileName,
+  }) async {
+    try {
+      final response = await ApiService.uploadFile(
+        '${ApiConfig.attendance}/upload-photo',
+        imageBytes,
+        fileName ?? 'attendance_${studentId}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        fieldName: 'photo',
+        additionalData: {
+          'student_id': studentId.toString(),
+          'photo_type': photoType,
+        },
+      );
+      return response;
+    } catch (e) {
+      throw Exception('Failed to upload photo: $e');
+    }
+  }
+
   static Future<List<Attendance>> getAttendance({
     int? studentId,
     String? date,
@@ -119,6 +143,7 @@ class AttendanceService {
     int? trustScore,
     List<String>? trustFlags,
     String? checkinPhotoPath,
+    String? photoUrl,
     String? checkinPhotoCapturedAt,
   }) async {
     try {
@@ -138,6 +163,7 @@ class AttendanceService {
       if (trustScore != null) body['trust_score'] = trustScore;
       if (trustFlags != null && trustFlags.isNotEmpty) body['trust_flags'] = trustFlags;
       if (checkinPhotoPath != null) body['checkin_photo_path'] = checkinPhotoPath;
+      if (photoUrl != null) body['photo_url'] = photoUrl;
       if (checkinPhotoCapturedAt != null) body['checkin_photo_captured_at'] = checkinPhotoCapturedAt;
 
       final response = await ApiService.post(
@@ -179,6 +205,7 @@ class AttendanceService {
     int? trustScore,
     List<String>? trustFlags,
     String? checkoutPhotoPath,
+    String? checkoutPhotoUrl,
     String? checkoutPhotoCapturedAt,
   }) async {
     try {
@@ -200,6 +227,7 @@ class AttendanceService {
       if (trustScore != null) body['trust_score'] = trustScore;
       if (trustFlags != null && trustFlags.isNotEmpty) body['trust_flags'] = trustFlags;
       if (checkoutPhotoPath != null) body['checkout_photo_path'] = checkoutPhotoPath;
+      if (checkoutPhotoUrl != null) body['checkout_photo_url'] = checkoutPhotoUrl;
       if (checkoutPhotoCapturedAt != null) body['checkout_photo_captured_at'] = checkoutPhotoCapturedAt;
 
       final response = await ApiService.put(
@@ -305,17 +333,7 @@ class AttendanceService {
       if (studentId != null && studentIds.contains(studentId)) {
         params.add('student_id=$studentId');
       } else {
-        // Get attendance for all supervisor's students
-        final List<Attendance> allAttendance = [];
-        for (final studentId in studentIds) {
-          try {
-            final attendance = await getAttendance(studentId: studentId, date: date);
-            allAttendance.addAll(attendance);
-          } catch (_) {
-            // Skip if error for one student
-          }
-        }
-        return allAttendance;
+        params.add('supervisor_id=$supervisorId');
       }
       
       if (date != null) {
@@ -347,4 +365,5 @@ class AttendanceService {
     }
   }
 }
+
 

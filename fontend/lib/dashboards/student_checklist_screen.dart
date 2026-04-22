@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/app_theme.dart';
+import '../services/auth_service.dart';
+import '../services/api_service.dart';
+import '../core/config.dart';
 
 class StudentChecklistScreen extends StatefulWidget {
   const StudentChecklistScreen({super.key});
@@ -10,8 +13,36 @@ class StudentChecklistScreen extends StatefulWidget {
 }
 
 class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
-  // Track uploaded files
-  final Map<String, String> _uploadedFiles = {};
+  // Track requirements from backend
+  List<dynamic> _requirements = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRequirements();
+  }
+
+  Future<void> _fetchRequirements() async {
+    try {
+      final user = await AuthService.getCurrentUser();
+      if (user?.userId == null) throw Exception("User not authenticated");
+
+      final response = await ApiService.get('${ApiConfig.ojt}/requirements/${user!.userId}');
+      if (response['requirements'] != null) {
+        setState(() {
+          _requirements = response['requirements'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
 
   // --- File Upload Function ---
   Future<void> _uploadFile(String label) async {
@@ -24,11 +55,19 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
       if (result != null && result.files.single.path != null) {
         final file = result.files.single;
         final fileName = file.name;
-        final fileSize = file.size;
 
-        setState(() {
-          _uploadedFiles[label] = fileName;
+        final user = await AuthService.getCurrentUser();
+        if (user?.userId == null) return;
+
+        // Update backend
+        await ApiService.post('${ApiConfig.ojt}/requirements/${user!.userId}/update', {
+          'requirement_name': label,
+          'status': 'Completed',
+          'file_path': fileName,
         });
+
+        // Refresh list
+        await _fetchRequirements();
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -89,18 +128,24 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
 
   // --- Upload item widget ---
   Widget _buildUploadItem(String label, {IconData? icon}) {
-    final isUploaded = _uploadedFiles.containsKey(label);
-    final fileName = _uploadedFiles[label];
+    // Find requirement in the list fetched from backend
+    final req = _requirements.firstWhere(
+      (r) => r['requirement_name'] == label,
+      orElse: () => null,
+    );
+
+    final bool isCompleted = req != null && req['status'] == 'Completed';
+    final String? fileName = req != null ? req['file_path'] : null;
 
     return Card(
-      elevation: 1,
+      elevation: 0,
       margin: const EdgeInsets.only(bottom: AppTheme.spacing8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
         side: BorderSide(
-          color: isUploaded
-              ? AppTheme.successColor.withOpacity(0.3)
-              : Colors.grey.withOpacity(0.2),
+          color: isCompleted
+              ? AppTheme.successColor.withOpacity(0.2)
+              : Colors.grey.withOpacity(0.1),
           width: 1,
         ),
       ),
@@ -111,24 +156,23 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
           padding: const EdgeInsets.all(AppTheme.spacing12),
           child: Row(
             children: [
+              // Checkmark or Blank box
               Container(
-                padding: const EdgeInsets.all(8),
+                width: 24,
+                height: 24,
                 decoration: BoxDecoration(
-                  color: (isUploaded
-                          ? AppTheme.successColor
-                          : AppTheme.studentPrimary)
-                      .withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusSmall),
+                  color: isCompleted ? AppTheme.successColor : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: isCompleted ? AppTheme.successColor : Colors.grey.shade400,
+                    width: 2,
+                  ),
                 ),
-                child: Icon(
-                  icon ?? Icons.description,
-                  color: isUploaded
-                      ? AppTheme.successColor
-                      : AppTheme.studentPrimary,
-                  size: 20,
-                ),
+                child: isCompleted
+                    ? const Icon(Icons.check, color: Colors.white, size: 16)
+                    : null,
               ),
-              const SizedBox(width: AppTheme.spacing12),
+              const SizedBox(width: AppTheme.spacing16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -136,44 +180,31 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
                     Text(
                       label,
                       style: AppTheme.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w500,
-                        color: isUploaded ? Colors.black87 : Colors.black87,
+                        fontWeight: isCompleted ? FontWeight.w600 : FontWeight.w400,
+                        color: isCompleted ? Colors.black87 : Colors.black54,
                       ),
                     ),
-                    if (isUploaded && fileName != null) ...[
-                      const SizedBox(height: AppTheme.spacing4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.check_circle,
-                            size: 14,
-                            color: AppTheme.successColor,
-                          ),
-                          const SizedBox(width: AppTheme.spacing4),
-                          Expanded(
-                            child: Text(
-                              fileName,
-                              style: AppTheme.bodySmall.copyWith(
-                                color: AppTheme.successColor,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                    if (isCompleted && fileName != null) ...[
+                      const SizedBox(height: AppTheme.spacing2),
+                      Text(
+                        fileName,
+                        style: AppTheme.bodySmall.copyWith(
+                          color: AppTheme.successColor.withOpacity(0.8),
+                          fontSize: 11,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ],
                 ),
               ),
               const SizedBox(width: AppTheme.spacing8),
-              Icon(
-                isUploaded ? Icons.check_circle : Icons.upload_file,
-                color: isUploaded
-                    ? AppTheme.successColor
-                    : AppTheme.studentPrimary,
-                size: 24,
-              ),
+              if (!isCompleted)
+                Icon(
+                  Icons.upload_file,
+                  color: AppTheme.studentPrimary.withOpacity(0.5),
+                  size: 20,
+                ),
             ],
           ),
         ),
@@ -281,7 +312,7 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
             const SizedBox(height: AppTheme.spacing8),
 
             // Progress indicator
-            if (_uploadedFiles.isNotEmpty) ...[
+            if (_requirements.any((r) => r['status'] == 'Completed')) ...[
               const SizedBox(height: AppTheme.spacing16),
               Container(
                 padding: const EdgeInsets.all(AppTheme.spacing12),
@@ -298,7 +329,7 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
                     ),
                     const SizedBox(width: AppTheme.spacing8),
                     Text(
-                      "${_uploadedFiles.length} document(s) uploaded",
+                      "${_requirements.where((r) => r['status'] == 'Completed').length} document(s) completed",
                       style: AppTheme.bodyMedium.copyWith(
                         color: AppTheme.successColor,
                         fontWeight: FontWeight.w600,
@@ -419,10 +450,28 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: AppTheme.spacing16),
-        child: _buildChecklistCard(),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text("Error: $_errorMessage"),
+                      ElevatedButton(
+                        onPressed: _fetchRequirements,
+                        child: const Text("Retry"),
+                      ),
+                    ],
+                  ),
+                )
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: AppTheme.spacing16),
+                  child: _buildChecklistCard(),
+                ),
     );
   }
 }
+

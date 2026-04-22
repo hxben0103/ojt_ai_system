@@ -26,7 +26,7 @@ class ReportService {
   // Create report
   static Future<SystemReport> createReport({
     required String reportType,
-    required int generatedBy,
+    int? generatedBy, // Now optional - backend uses token
     required Map<String, dynamic> content,
     DateTime? reportPeriodStart,
     DateTime? reportPeriodEnd,
@@ -36,7 +36,7 @@ class ReportService {
         ApiConfig.reports,
         {
           'report_type': reportType,
-          'generated_by': generatedBy,
+          if (generatedBy != null) 'generated_by': generatedBy,
           'content': content,
           if (reportPeriodStart != null)
             'report_period_start': reportPeriodStart.toIso8601String().split('T')[0],
@@ -56,6 +56,15 @@ class ReportService {
     }
   }
 
+  // Delete report
+  static Future<void> deleteReport(int reportId) async {
+    try {
+      await ApiService.delete('${ApiConfig.reports}/$reportId');
+    } catch (e) {
+      throw Exception('Failed to delete report: $e');
+    }
+  }
+
   // Get report by ID
   static Future<SystemReport> getReport(int reportId) async {
     try {
@@ -66,4 +75,5 @@ class ReportService {
     }
   }
 }
+
 

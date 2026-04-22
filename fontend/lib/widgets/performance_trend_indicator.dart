@@ -90,3 +90,4 @@ class PerformanceTrendIndicator extends StatelessWidget {
     );
   }
 }
+

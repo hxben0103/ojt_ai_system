@@ -143,3 +143,4 @@ class _IntegrityItem extends StatelessWidget {
     );
   }
 }
+

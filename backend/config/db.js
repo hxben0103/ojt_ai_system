@@ -8,7 +8,7 @@ dns.setDefaultResultOrder('ipv4first');
 // PostgreSQL Database Connection (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 10, // Reduced to 10 - Transaction Pooler (6543) will handle the scale
+  max: 20, // Increased to 20 for batch AI predictions
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
   ssl: {
@@ -34,7 +34,12 @@ const query = async (text, params) => {
   try {
     const res = await pool.query(text, params);
     const duration = Date.now() - start;
-    console.log('Executed query', { text, duration, rows: res.rowCount });
+    if (process.env.NODE_ENV === 'development') {
+      const truncatedText = text.length > 200 ? text.substring(0, 197) + '...' : text;
+      console.log('Executed query', { text: truncatedText, duration, rows: res.rowCount });
+    } else if (duration > 500) {
+      console.log('Slow query', { duration, rows: res.rowCount });
+    }
     return res;
   } catch (error) {
     console.error('Query error:', error);

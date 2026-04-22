@@ -287,3 +287,4 @@ class AIRecommendationCard extends StatelessWidget {
     }
   }
 }
+

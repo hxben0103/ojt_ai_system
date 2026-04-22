@@ -67,15 +67,6 @@ def _detect_intent(text: str) -> str:
 
 
 def _generate_student_summary(data: Dict) -> str:
-    """Generate a summary for a student's dashboard data."""
-    hours = data.get("hours", {})
-    completed = hours.get("completed", 0)
-    required = hours.get("required", 300)
-    remaining = max(0, required - completed)
-    progress = (completed / required * 100) if required > 0 else 0
-    
-    attendance = data.get("attendance", {})
-    tasks = data.get("daily_tasks", {})
     """Generate an explanatory summary for a student's dashboard data."""
     hours = data.get('hours', {})
     completed = hours.get('completed', 0)

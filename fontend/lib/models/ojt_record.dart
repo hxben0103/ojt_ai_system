@@ -2,6 +2,7 @@ class OjtRecord {
   final int? recordId;
   final int studentId;
   final String? studentName;
+  final String? schoolId;
   final String? companyName;
   final int coordinatorId;
   final String? coordinatorName;
@@ -22,6 +23,7 @@ class OjtRecord {
     this.recordId,
     required this.studentId,
     this.studentName,
+    this.schoolId,
     this.companyName,
     required this.coordinatorId,
     this.coordinatorName,
@@ -35,13 +37,17 @@ class OjtRecord {
     this.companyContact,
     this.supervisorContact,
     this.coordinatorContact,
+    this.riskLevel,
   });
+
+  final String? riskLevel; // NEW: AI-calculated risk level
 
   factory OjtRecord.fromJson(Map<String, dynamic> json) {
     return OjtRecord(
       recordId: json['record_id'] as int?,
       studentId: json['student_id'] as int,
       studentName: json['student_name'] as String?,
+      schoolId: json['school_id'] as String?,
       companyName: json['company_name'] as String?,
       coordinatorId: json['coordinator_id'] as int,
       coordinatorName: json['coordinator_name'] as String?,
@@ -58,6 +64,7 @@ class OjtRecord {
       companyContact: json['company_contact'] as String?,
       supervisorContact: json['supervisor_contact'] as String?,
       coordinatorContact: json['coordinator_contact'] as String?,
+      riskLevel: json['risk_level'] as String?,
     );
   }
 
@@ -77,7 +84,9 @@ class OjtRecord {
       if (companyContact != null) 'company_contact': companyContact,
       if (supervisorContact != null) 'supervisor_contact': supervisorContact,
       if (coordinatorContact != null) 'coordinator_contact': coordinatorContact,
+      if (riskLevel != null) 'risk_level': riskLevel,
     };
   }
 }
+
 

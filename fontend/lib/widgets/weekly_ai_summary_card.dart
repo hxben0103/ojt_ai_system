@@ -236,3 +236,4 @@ class WeeklyAiSummaryCard extends StatelessWidget {
     return null;
   }
 }
+

@@ -362,3 +362,4 @@ class IntegrityTimelineCard extends StatelessWidget {
     );
   }
 }
+

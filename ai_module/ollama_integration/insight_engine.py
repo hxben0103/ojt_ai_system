@@ -104,9 +104,12 @@ REQUIRED_SNAPSHOT_FIELDS = [
 ]
 
 
+from functools import lru_cache
+
 # =========================================================
 # Model Validation Helper
 # =========================================================
+@lru_cache(maxsize=1)
 def validate_models() -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     Validate that all required models and artifacts are loaded.
@@ -259,23 +262,32 @@ def calculate_forecasted_grade(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     has_ce = float(snapshot.get("has_coordinator_eval_grade", 0)) > 0
     has_se = float(snapshot.get("has_supervisor_eval_grade", 0)) > 0
     
-    # Base weights
+    # Official Unified weights (WPR 20%, Narrative 20%, Coordinator 20%, Supervisor 40%)
+    # WPR includes both Attendance and Daily Tasks/Competencies
     weights = {
-        "wpr": 0.20 if has_wpr else 0.0,
+        "wpr": 0.20 if (float(snapshot.get("attendance_rate", 0)) > 0 or float(snapshot.get("weekly_progress_grade", 0)) > 0) else 0.0,
         "nr": 0.20 if has_nr else 0.0,
         "ce": 0.20 if has_ce else 0.0,
         "se": 0.40 if has_se else 0.0
     }
     
     total_active_weight = sum(weights.values())
-    raw_total = (wpr * 0.20) + (nr * 0.20) + (ce * 0.20) + (se * 0.40)
+    
+    # Calc components
+    attendance_score = float(snapshot.get("attendance_rate", 0))
+    task_score = float(snapshot.get("weekly_progress_grade", 0))
+    # WPR is the average of attendance and tasks (as they are both part of WPR)
+    wpr_score = (attendance_score + task_score) / 2 if (attendance_score > 0 and task_score > 0) else (attendance_score if attendance_score > 0 else task_score)
+    
+    narrative_score = float(snapshot.get("narrative_report_grade", 0))
+    
+    raw_total = (wpr_score * 0.20) + (narrative_score * 0.20) + (ce * 0.20) + (se * 0.40)
     
     if total_active_weight == 0:
         forecasted_grade = 0.0
     else:
         # Forecasted grade normalizes the active weights to 100%
-        forecasted_grade = ((wpr * weights["wpr"]) + (nr * weights["nr"]) + 
-                           (ce * weights["ce"]) + (se * weights["se"])) / total_active_weight
+        forecasted_grade = raw_total / total_active_weight
                            
     return {
         "status": "partial" if total_active_weight < 1.0 else "complete",
@@ -881,10 +893,48 @@ def call_gemma(prompt: str, model: str = None, timeout: int = 600) -> str:
             "Please ensure Ollama is running and the model is available."
         )
     except requests.exceptions.Timeout:
-        logger.error(f"Ollama request timed out after {timeout} seconds. This usually means the model took too long to generate the response.")
-        raise TimeoutError(f"Ollama request timed out after {timeout} seconds.")
+        logger.error(f"Ollama request timed out. This usually means the model took too long to generate the response.")
+        raise TimeoutError(f"Ollama request timed out.")
     except requests.exceptions.RequestException as e:
         raise Exception(f"Ollama API error: {str(e)}")
+
+def call_gemma_stream(prompt, model=None, timeout=180):
+    """
+    Generator that calls local Ollama instance and yields tokens in real-time.
+    """
+    import os, requests, json
+    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+    if model is None:
+        model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
+
+    try:
+        response = requests.post(
+            ollama_url,
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": True
+            },
+            stream=True,
+            timeout=timeout
+        )
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line:
+                try:
+                    chunk = json.loads(line.decode('utf-8'))
+                    token = chunk.get("response", "")
+                    if token:
+                        yield token
+                    if chunk.get("done", False):
+                        break
+                except Exception:
+                    continue
+                    
+    except Exception as e:
+        logger.error(f"Ollama streaming failure: {e}")
+        yield f" [AI Service Error: {str(e)}] "
 
 
 def parse_gemma_response(response_text: str) -> Dict[str, str]:
@@ -1083,31 +1133,37 @@ def predict_with_explanation(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             return ml_result
         
         # Step 4: Build prompt for Gemma (optional, if Ollama is available)
-        # Format features for display
-        features_summary = "\n".join([
-            f"- {name}: {value:.1f}" 
-            for name, value in features_dict.items()
-        ])
+        # Format features for display, only keeping non-zero/important ones to reduce prompt size
+        features_summary_list = []
+        for name, value in features_dict.items():
+            if value > 0 or ("score" in name): # Keep scores even if 0, drop 0-count tasks
+                features_summary_list.append(f"- {name}: {value:.1f}")
+                
+        # Limit to top 15 features to save LLM context
+        features_summary = "\n".join(features_summary_list[:15])
         
         student_name = snapshot.get("student_name", "Student")
         
-        prompt = f"""You are an academic advisor for OJT (on-the-job training) students.
+        prompt = f"""You are an academic advisor for OJT students at JRMSU. Use the official grading weights:
+- Weekly Progress Report (Attendance & Tasks): 20%
+- Narrative Report (Documentation): 20%
+- Practicum Coordinator Evaluation: 20%
+- Practicum Partner Supervisor Evaluation: 40%
 
-Student performance summary for {student_name}:
+Student performance snapshot for {student_name}:
 - Risk level: {ml_result['risk_level']}
 - Predicted class: {ml_result['predicted_label']}
 - Confidence: {ml_result['probability']:.1%}
-- Key concerns: {', '.join(ml_result['top_reasons'][:3])}
+- Top Concerns: {', '.join(ml_result['top_reasons'])}
 
-Performance metrics (higher is better):
+Available Metrics (0-100 scale where applicable):
 {features_summary}
 
-Please provide:
-1) A brief explanation (2-3 sentences) in simple, encouraging language explaining why {student_name} is at this risk level. Be supportive and constructive. Start with a greeting using the student's name: "Hi {student_name}, ...".
+Instruction:
+1) Provide a concise (2-3 sentences) academic explanation for this risk level. Explicitly link how specific components are affecting their overall score based on the weighted 20/20/20/40 system.
+2) Give 3-5 high-priority recommendations to improve their grade in the next 2 weeks.
 
-2) Give 3-5 specific, practical recommendations {student_name} can follow in the next 1-2 weeks to improve their OJT performance. Focus on actionable steps related to attendance, evaluations, tasks, communication, etc.
-
-Keep your total response under 250 words. Format recommendations as numbered or bulleted items. Speak as if you are their mentor."""
+Start with: "Hi {student_name}, ..." Keep total response under 200 words. Format as professional mentor dialogue."""
 
         # Step 5: Call Gemma (optional, failures won't break the response)
         gemma_explanation = ""

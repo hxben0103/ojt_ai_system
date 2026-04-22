@@ -18,6 +18,7 @@ import 'providers/student_provider.dart';
 import 'providers/coordinator_provider.dart';
 import 'providers/supervisor_provider.dart';
 import 'services/notification_service.dart';
+import 'screens/coordinator/coordinator_evaluation_form_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +54,7 @@ class OjtAiApp extends StatelessWidget {
           '/register_student': (context) => const RegisterStudent(),
           '/register_coordinator': (context) => const RegisterCoordinator(),
           '/register_supervisor': (context) => const RegisterSupervisor(),
+          '/coordinator/evaluate': (context) => const CoordinatorEvaluationFormScreen(),
         },
       ),
     );

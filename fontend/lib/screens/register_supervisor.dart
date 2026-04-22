@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 
 class RegisterSupervisor extends StatefulWidget {
@@ -28,6 +32,9 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
   bool _showPassword = false;
   bool _isLoading = false;
   String? _selectedGender;
+  File? _profileImage;
+  Uint8List? _profileImageBytes; // Used for Flutter Web
+  final ImagePicker _picker = ImagePicker();
 
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -42,6 +49,24 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
       curve: Curves.easeInOut,
     );
     _animController.forward();
+  }
+
+  Future<void> _pickProfileImage() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      if (kIsWeb) {
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _profileImageBytes = bytes;
+          _profileImage = null;
+        });
+      } else {
+        setState(() {
+          _profileImage = File(image.path);
+          _profileImageBytes = null;
+        });
+      }
+    }
   }
 
   Future<void> _register() async {
@@ -79,6 +104,15 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
       final combinedAddress =
           addressParts.isNotEmpty ? addressParts.join('\n') : null;
 
+      // Convert profile image to base64
+      String? profilePhotoBase64;
+      if (_profileImageBytes != null) {
+        profilePhotoBase64 = base64Encode(_profileImageBytes!);
+      } else if (_profileImage != null) {
+        final imageBytes = await _profileImage!.readAsBytes();
+        profilePhotoBase64 = base64Encode(imageBytes);
+      }
+
       await AuthService.register(
         fullName: fullName,
         email: email,
@@ -88,6 +122,7 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
         gender: gender.isNotEmpty ? gender : null,
         contactNumber: phoneNumber.isNotEmpty ? phoneNumber : null,
         address: combinedAddress,
+        profilePhoto: profilePhotoBase64,
       );
 
       if (mounted) {
@@ -195,20 +230,55 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
                           key: _formKey,
                           child: Column(
                             children: [
-                              Image.network(
-                                'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
-                                height: 90,
-                              ),
-                              const SizedBox(height: 10),
-                              const Text(
-                                "Supervisor Registration",
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.indigo,
-                                ),
-                              ),
-                              const SizedBox(height: 20),
+                               const SizedBox(height: 10),
+
+                               // Profile Picture
+                               GestureDetector(
+                                 onTap: _pickProfileImage,
+                                 child: AnimatedContainer(
+                                   duration: const Duration(milliseconds: 400),
+                                   curve: Curves.easeInOut,
+                                   decoration: BoxDecoration(
+                                     shape: BoxShape.circle,
+                                     boxShadow: [
+                                       BoxShadow(
+                                         color: Colors.indigo.withOpacity(0.3),
+                                         blurRadius: 10,
+                                         spreadRadius: 2,
+                                       ),
+                                     ],
+                                   ),
+                                   child: Builder(
+                                     builder: (context) {
+                                       ImageProvider<Object>? avatarImage;
+                                       if (_profileImageBytes != null) {
+                                         avatarImage = MemoryImage(_profileImageBytes!);
+                                       } else if (_profileImage != null) {
+                                         avatarImage = FileImage(_profileImage!);
+                                       }
+
+                                       return CircleAvatar(
+                                         radius: 55,
+                                         backgroundColor: Colors.grey.shade300,
+                                         backgroundImage: avatarImage,
+                                         child: avatarImage == null
+                                             ? Image.network(
+                                                 'https://cdn-icons-png.flaticon.com/512/2921/2921222.png', // camera icon
+                                                 height: 40,
+                                                 color: Colors.indigo,
+                                               )
+                                             : null,
+                                       );
+                                     },
+                                   ),
+                                 ),
+                               ),
+                               const SizedBox(height: 10),
+                               const Text(
+                                 "Tap to upload 2x2 Profile Picture",
+                                 style: TextStyle(color: Colors.grey, fontSize: 14),
+                               ),
+                               const SizedBox(height: 20),
 
                               // ✅ Fields
                               animatedField(
@@ -478,3 +548,4 @@ class _RegisterSupervisorState extends State<RegisterSupervisor>
     );
   }
 }
+

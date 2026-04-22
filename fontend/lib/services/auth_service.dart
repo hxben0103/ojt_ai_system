@@ -263,5 +263,25 @@ class AuthService {
       throw Exception('Failed to reject user: $e');
     }
   }
+
+  // Batch approve/reject multiple users
+  static Future<Map<String, dynamic>> batchApprove(List<int> userIds, String action) async {
+    try {
+      final response = await ApiService.put(
+        '${ApiConfig.auth}/batch-approve',
+        {
+          'user_ids': userIds,
+          'action': action,
+        },
+      );
+      if (response.containsKey('error')) {
+        throw Exception(response['error']);
+      }
+      return response;
+    } catch (e) {
+      throw Exception('Batch $action failed: $e');
+    }
+  }
 }
+
 

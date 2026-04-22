@@ -84,11 +84,20 @@ router.post('/', authenticateToken, async (req, res) => {
       evaluation_period_start, evaluation_period_end 
     } = req.body;
 
+    const { role, user_id: loggedInUserId } = req.user;
+    const evaluationType = role === 'Coordinator' ? 'CE' : 'SE';
+
     const result = await query(
-      'SELECT create_evaluation($1, $2, $3, $4, $5, $6, $7) as result',
+      'SELECT create_evaluation($1, $2, $3, $4, $5, $6, $7, $8) as result',
       [
-        student_id, supervisor_id, JSON.stringify(criteria), total_score, feedback,
-        evaluation_period_start || null, evaluation_period_end || null
+        student_id, 
+        supervisor_id || loggedInUserId, 
+        JSON.stringify(criteria), 
+        total_score, 
+        feedback,
+        evaluation_period_start || null, 
+        evaluation_period_end || null,
+        evaluationType
       ]
     );
 

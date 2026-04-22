@@ -14,6 +14,10 @@ import '../widgets/insight_card.dart';
 import '../widgets/modern_table_card.dart';
 import '../screens/login_screen.dart';
 import '../screens/admin/admin_competency_management_screen.dart';
+import '../screens/admin/admin_reports_screen.dart';
+import '../screens/admin/admin_calendar_screen.dart';
+import '../screens/admin/admin_heatmap_screen.dart';
+import '../screens/coordinator/data_export_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -30,7 +34,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int _activeUsers = 0;
   int _pendingUsers = 0;
   int _coordinatorCount = 0;
-  int _bgisCount = 0;
+  int _bsisCount = 0;
   int _bscsCount = 0;
   final Set<int> _processing = {};
   final DateFormat _dateFormat = DateFormat('MMM d, yyyy');
@@ -61,8 +65,39 @@ class _AdminDashboardState extends State<AdminDashboard> {
             allUsers.where((user) => user.status == 'Pending').length;
         _coordinatorCount =
             allUsers.where((user) => user.role == 'Coordinator').length;
-        _bgisCount = allUsers.where((user) => user.status == 'Active' && user.role == 'Student' && (user.program == 'BSIS' || user.course == 'BSIS')).length;
-        _bscsCount = allUsers.where((user) => user.status == 'Active' && user.role == 'Student' && (user.program == 'BSCS' || user.course == 'BSCS')).length;
+        
+        // 🛡️ Robust counting logic for Students
+        _bsisCount = allUsers.where((user) {
+          // Check role (flexible case)
+          if (user.role.toLowerCase() != 'student') return false;
+          // Consider students "Active" if they are already approved OR Ongoing
+          if (user.status != 'Active' && user.status != 'Ongoing' && user.status != 'Approved') return false;
+          
+          final courseStr = (user.course ?? '').toUpperCase();
+          final programStr = (user.program ?? '').toUpperCase();
+          
+          // Match BSIS, IS, or Information Systems
+          return courseStr.contains('BSIS') || 
+                 courseStr.contains('IS') || 
+                 courseStr.contains('INFORMATION SYSTEMS') ||
+                 programStr.contains('BSIS') || 
+                 programStr.contains('IS');
+        }).length;
+        
+        _bscsCount = allUsers.where((user) {
+          if (user.role.toLowerCase() != 'student') return false;
+          if (user.status != 'Active' && user.status != 'Ongoing' && user.status != 'Approved') return false;
+          
+          final courseStr = (user.course ?? '').toUpperCase();
+          final programStr = (user.program ?? '').toUpperCase();
+          
+          // Match BSCS, CS, or Computer Science
+          return courseStr.contains('BSCS') || 
+                 courseStr.contains('CS') || 
+                 courseStr.contains('COMPUTER SCIENCE') ||
+                 programStr.contains('BSCS') || 
+                 programStr.contains('CS');
+        }).length;
       });
     } catch (e) {
       setState(() {
@@ -267,44 +302,58 @@ class _AdminDashboardState extends State<AdminDashboard> {
   // Removed _buildErrorCard — now using ErrorStateWidget
 
   Widget _buildStatsSection(BuildContext context) {
+    // Explicit string conversion for JS/Web stability
+    final bsisStr = _bsisCount.toString();
+    final bscsStr = _bscsCount.toString();
+    final pendingStr = _pendingUsers.toString();
+    final coordStr = _coordinatorCount.toString();
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: ModernStatCard(
-              label: 'Active BSIS',
-              value: '$_bgisCount',
-              icon: Icons.computer_rounded,
-              color: Colors.blue.shade700,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: ModernStatCard(
+                  label: 'Active BSIS',
+                  value: bsisStr,
+                  icon: Icons.computer_rounded,
+                  color: const Color(0xFF1976D2), // Blue 700
+                ),
+              ),
+              const SizedBox(width: AppTheme.spacing8),
+              Expanded(
+                child: ModernStatCard(
+                  label: 'Active BSCS',
+                  value: bscsStr,
+                  icon: Icons.code_rounded,
+                  color: const Color(0xFF303F9F), // Indigo 700
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: AppTheme.spacing8),
-          Expanded(
-            child: ModernStatCard(
-              label: 'Active BSCS',
-              value: '$_bscsCount',
-              icon: Icons.code_rounded,
-              color: Colors.indigo.shade700,
-            ),
-          ),
-          const SizedBox(width: AppTheme.spacing8),
-          Expanded(
-            child: ModernStatCard(
-              label: 'Pending',
-              value: '$_pendingUsers',
-              icon: Icons.pending_actions_rounded,
-              color: AppTheme.warningColor,
-            ),
-          ),
-          const SizedBox(width: AppTheme.spacing8),
-          Expanded(
-            child: ModernStatCard(
-              label: 'Coordinators',
-              value: '$_coordinatorCount',
-              icon: Icons.school_rounded,
-              color: AppTheme.coordinatorPrimary,
-            ),
+          const SizedBox(height: AppTheme.spacing8),
+          Row(
+            children: [
+              Expanded(
+                child: ModernStatCard(
+                  label: 'Pending',
+                  value: pendingStr,
+                  icon: Icons.pending_actions_rounded,
+                  color: const Color(0xFFEF6C00), // Warning Orange
+                ),
+              ),
+              const SizedBox(width: AppTheme.spacing8),
+              Expanded(
+                child: ModernStatCard(
+                  label: 'Coordinators',
+                  value: coordStr,
+                  icon: Icons.school_rounded,
+                  color: const Color(0xFF6A1B9A), // Purple 800
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -357,10 +406,111 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
             ),
           ),
+          const SizedBox(height: AppTheme.spacing12),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+              boxShadow: [AppTheme.cardShadow],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: ListTile(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AdminReportsScreen(),
+                    ),
+                  );
+                },
+                contentPadding: const EdgeInsets.all(AppTheme.spacing16),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+                  ),
+                  child: const Icon(Icons.analytics_rounded, color: Colors.indigo),
+                ),
+                title: const Text(
+                  'System-Wide Reports',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: const Text('View and print all coordinator summaries and system metrics.'),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppTheme.spacing12),
+          // Attendance Heatmap
+          _buildManagementTile(
+            context,
+            title: 'Attendance Heatmap',
+            subtitle: 'View system-wide student check-in locations on a live map.',
+            icon: Icons.map_rounded,
+            color: const Color(0xFF00897B),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminHeatmapScreen())),
+          ),
+          const SizedBox(height: AppTheme.spacing12),
+          // University Calendar
+          _buildManagementTile(
+            context,
+            title: 'University Calendar',
+            subtitle: 'Manage PH holidays, exam weeks, and class suspensions.',
+            icon: Icons.calendar_month_rounded,
+            color: const Color(0xFFE53935),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminCalendarScreen())),
+          ),
+          const SizedBox(height: AppTheme.spacing12),
+          // Data Export
+          _buildManagementTile(
+            context,
+            title: 'Data Export (CSV)',
+            subtitle: 'Download attendance, student lists, and performance data as CSV.',
+            icon: Icons.file_download_rounded,
+            color: const Color(0xFF2E7D32),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DataExportScreen())),
+          ),
         ],
       ),
     );
   }
+
+  Widget _buildManagementTile(BuildContext context, {
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+        boxShadow: const [AppTheme.cardShadow],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: ListTile(
+          onTap: onTap,
+          contentPadding: const EdgeInsets.all(AppTheme.spacing16),
+          leading: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
+            ),
+            child: Icon(icon, color: color),
+          ),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildSystemHealthInsight() {
     return InsightCard(
@@ -399,7 +549,60 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
 
     return Column(
-      children: _pendingCoordinators.map((user) {
+      children: [
+        if (_pendingCoordinators.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${_pendingCoordinators.length} Pending Approvals',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                TextButton.icon(
+                  onPressed: _processing.isNotEmpty ? null : () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Approve All'),
+                        content: Text('Approve all ${_pendingCoordinators.length} pending coordinators?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                            child: const Text('Approve All'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      setState(() {
+                        for (final u in _pendingCoordinators) {
+                          if (u.userId != null) _processing.add(u.userId!);
+                        }
+                      });
+                      try {
+                        final ids = _pendingCoordinators.map((u) => u.userId!).toList();
+                        await AuthService.batchApprove(ids, 'approve');
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All coordinators approved')));
+                        _loadDashboardData();
+                      } catch (e) {
+                         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Batch approval failed: $e')));
+                      } finally {
+                        if (mounted) setState(() => _processing.clear());
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.done_all, size: 18),
+                  label: const Text('Approve All'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.green),
+                ),
+              ],
+            ),
+          ),
+        ..._pendingCoordinators.map((user) {
         final processing = user.userId != null && _processing.contains(user.userId);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -453,6 +656,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
         );
       }).toList(),
+      ],
     );
   }
 
@@ -512,3 +716,4 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 }
+

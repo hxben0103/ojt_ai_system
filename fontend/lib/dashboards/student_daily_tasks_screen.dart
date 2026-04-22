@@ -61,8 +61,11 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
         return;
       }
 
+      // ✅ COORDINATOR BYPASS: Allow coordinators to view but not necessarily log
+      bool coordinatorBypass = user!.role.toLowerCase().contains('coordinator');
+
       final results = await Future.wait([
-        DailyTaskService.getDailyTasksForStudent(user!.userId!),
+        DailyTaskService.getDailyTasksForStudent(user.userId!),
         DailyTaskService.getCompetencies(program: user.program),
         OjtService.getStudentStatus(user.userId!),
       ]);
@@ -72,7 +75,7 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
       setState(() {
         _tasks = results[0] as List<DailyTask>;
         _competencies = results[1] as List<Competency>;
-        _canPerformOjtActions = statusMap?['can_perform_ojt_actions'] == true;
+        _canPerformOjtActions = coordinatorBypass || (statusMap?['can_perform_ojt_actions'] == true);
         _isLoading = false;
       });
     } catch (e) {
@@ -585,4 +588,5 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
     );
   }
 }
+
 

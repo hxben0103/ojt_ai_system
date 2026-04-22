@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
+const authenticateToken = require('../middleware/auth');
 
 // ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -334,7 +335,7 @@ router.get('/profile', async (req, res) => {
 router.get('/users', async (req, res) => {
   try {
     const result = await query(
-      'SELECT user_id, full_name, email, role, status, date_created FROM users ORDER BY date_created DESC'
+      'SELECT user_id, full_name, email, role, status, date_created, course, program FROM users ORDER BY date_created DESC'
     );
 
     res.json({ users: result.rows });
@@ -344,22 +345,7 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// Middleware to verify JWT token and extract user info
-const authenticateToken = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
 
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-};
 
 // Get Pending Users
 // Admin can see pending Coordinators
@@ -507,6 +493,80 @@ router.put('/reject/:userId', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Reject user error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Batch Approve/Reject Multiple Users
+router.put('/batch-approve', authenticateToken, async (req, res) => {
+  try {
+    const { role } = req.user;
+    const { user_ids, action } = req.body;
+
+    if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
+      return res.status(400).json({ error: 'user_ids array is required' });
+    }
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'action must be "approve" or "reject"' });
+    }
+
+    const newStatus = action === 'approve' ? 'Active' : 'Rejected';
+    const results = { processed: 0, failed: 0, errors: [] };
+
+    // Determine which roles this user can approve
+    let allowedTargetRoles = [];
+    if (role === 'Admin') {
+      allowedTargetRoles = ['Coordinator'];
+    } else if (role === 'Coordinator') {
+      allowedTargetRoles = ['Student', 'Supervisor'];
+    } else {
+      return res.status(403).json({ error: 'You do not have batch approval permissions' });
+    }
+
+    for (const userId of user_ids) {
+      try {
+        // Verify user exists and is pending
+        const userCheck = await query(
+          'SELECT role, status FROM users WHERE user_id = $1',
+          [userId]
+        );
+
+        if (userCheck.rows.length === 0) {
+          results.failed++;
+          results.errors.push(`User ${userId}: not found`);
+          continue;
+        }
+
+        const targetUser = userCheck.rows[0];
+        if (!allowedTargetRoles.includes(targetUser.role)) {
+          results.failed++;
+          results.errors.push(`User ${userId}: insufficient permissions for role ${targetUser.role}`);
+          continue;
+        }
+
+        if (targetUser.status !== 'Pending') {
+          results.failed++;
+          results.errors.push(`User ${userId}: status is ${targetUser.status}, not Pending`);
+          continue;
+        }
+
+        await query(
+          'UPDATE users SET status = $1 WHERE user_id = $2',
+          [newStatus, userId]
+        );
+        results.processed++;
+      } catch (innerErr) {
+        results.failed++;
+        results.errors.push(`User ${userId}: ${innerErr.message}`);
+      }
+    }
+
+    res.json({
+      message: `Batch ${action} complete: ${results.processed} processed, ${results.failed} failed`,
+      ...results
+    });
+  } catch (error) {
+    console.error('Batch approve error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

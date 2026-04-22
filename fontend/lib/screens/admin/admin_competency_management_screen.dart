@@ -254,3 +254,4 @@ class _AdminCompetencyManagementScreenState extends State<AdminCompetencyManagem
     );
   }
 }
+

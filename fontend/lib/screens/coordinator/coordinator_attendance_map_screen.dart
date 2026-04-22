@@ -592,3 +592,4 @@ class _EvidenceRow extends StatelessWidget {
     );
   }
 }
+

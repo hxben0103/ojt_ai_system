@@ -38,6 +38,8 @@ class Attendance {
   final String? trustFlags; // JSON array string
   final String? checkinPhotoPath;
   final String? checkoutPhotoPath;
+  final String? photoUrl;
+  final String? checkoutPhotoUrl;
   final bool? hasBase64Image;
 
   Attendance({
@@ -74,6 +76,8 @@ class Attendance {
     this.trustFlags,
     this.checkinPhotoPath,
     this.checkoutPhotoPath,
+    this.photoUrl,
+    this.checkoutPhotoUrl,
     this.hasBase64Image,
     this.coordinatorComment,
     this.coordinatorCommentAt,
@@ -126,6 +130,8 @@ class Attendance {
       trustFlags: json['trust_flags'] as String?,
       checkinPhotoPath: json['checkin_photo_path'] as String?,
       checkoutPhotoPath: json['checkout_photo_path'] as String?,
+      photoUrl: json['photo_url'] as String?,
+      checkoutPhotoUrl: json['checkout_photo_url'] as String?,
       hasBase64Image: json['has_base64_image'] as bool?,
       coordinatorComment: json['coordinator_comment'] as String?,
       coordinatorCommentAt: json['coordinator_comment_at'] != null 
@@ -168,6 +174,8 @@ class Attendance {
       if (verificationStatus != null) 'verification_status': verificationStatus,
       if (checkinPhotoPath != null) 'checkin_photo_path': checkinPhotoPath,
       if (checkoutPhotoPath != null) 'checkout_photo_path': checkoutPhotoPath,
+      if (photoUrl != null) 'photo_url': photoUrl,
+      if (checkoutPhotoUrl != null) 'checkout_photo_url': checkoutPhotoUrl,
       if (coordinatorComment != null) 'coordinator_comment': coordinatorComment,
       if (coordinatorCommentAt != null) 'coordinator_comment_at': coordinatorCommentAt!.toIso8601String(),
     };
@@ -207,6 +215,8 @@ class Attendance {
     String? trustFlags,
     String? checkinPhotoPath,
     String? checkoutPhotoPath,
+    String? photoUrl,
+    String? checkoutPhotoUrl,
     bool? hasBase64Image,
   }) {
     return Attendance(
@@ -243,8 +253,11 @@ class Attendance {
       trustFlags: trustFlags ?? this.trustFlags,
       checkinPhotoPath: checkinPhotoPath ?? this.checkinPhotoPath,
       checkoutPhotoPath: checkoutPhotoPath ?? this.checkoutPhotoPath,
+      photoUrl: photoUrl ?? this.photoUrl,
+      checkoutPhotoUrl: checkoutPhotoUrl ?? this.checkoutPhotoUrl,
       hasBase64Image: hasBase64Image ?? this.hasBase64Image,
     );
   }
 }
+
 

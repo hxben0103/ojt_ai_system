@@ -488,3 +488,4 @@ class _GeofenceStatusChip extends StatelessWidget {
     );
   }
 }
+

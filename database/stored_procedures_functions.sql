@@ -12,7 +12,7 @@
 CREATE OR REPLACE FUNCTION get_student_progress(p_student_id INT)
 RETURNS TABLE (
     student_id INT,
-    full_name VARCHAR(100),
+    full_name VARCHAR(255),
     required_hours NUMERIC,
     completed_hours NUMERIC,
     completion_percentage NUMERIC,
@@ -23,29 +23,29 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT 
-        u.user_id,
-        u.full_name,
-        COALESCE(o.required_hours, u.required_hours, 300)::NUMERIC AS req_hours,
-        COALESCE(SUM(a.total_hours), 0)::NUMERIC AS comp_hours,
+        u.user_id::INT AS student_id,
+        u.full_name::VARCHAR(255) AS full_name,
+        COALESCE(o.required_hours, u.required_hours, 300)::NUMERIC AS required_hours,
+        COALESCE(SUM(a.total_hours), 0)::NUMERIC AS completed_hours,
         ROUND(
             (COALESCE(SUM(a.total_hours), 0)::NUMERIC / 
              NULLIF(COALESCE(o.required_hours, u.required_hours, 300), 0) * 100), 
             2
-        ) AS completion_pct,
-        COUNT(DISTINCT a.date)::INT AS att_days,
+        )::NUMERIC AS completion_percentage,
+        COUNT(DISTINCT a.date)::INT AS attendance_days,
         GREATEST(
             (COALESCE(o.required_hours, u.required_hours, 300) - COALESCE(SUM(a.total_hours), 0))::NUMERIC,
             0
-        ) AS rem_hours,
-        CASE 
+        )::NUMERIC AS remaining_hours,
+        (CASE 
             WHEN AVG(a.total_hours) > 0 AND o.end_date IS NULL THEN
-                CURRENT_DATE + INTERVAL '1 day' * 
-                CEIL((COALESCE(o.required_hours, u.required_hours, 300) - COALESCE(SUM(a.total_hours), 0)) / AVG(a.total_hours))
-            ELSE o.end_date
-        END AS est_completion
+                (CURRENT_DATE + (INTERVAL '1 day' * 
+                CEIL((COALESCE(o.required_hours, u.required_hours, 300) - COALESCE(SUM(a.total_hours), 0)) / NULLIF(AVG(a.total_hours), 0))))::DATE
+            ELSE o.end_date::DATE
+        END)::DATE AS estimated_completion_date
     FROM users u
     LEFT JOIN ojt_records o ON u.user_id = o.student_id AND o.status = 'Ongoing'
-    LEFT JOIN attendance a ON u.user_id = a.student_id AND a.status = 'Approved'  -- CRITICAL: Only approved attendance
+    LEFT JOIN attendance a ON u.user_id = a.student_id AND a.status = 'Approved'
     WHERE u.user_id = p_student_id AND u.role = 'Student'
     GROUP BY u.user_id, u.full_name, o.required_hours, u.required_hours, o.end_date;
 END;

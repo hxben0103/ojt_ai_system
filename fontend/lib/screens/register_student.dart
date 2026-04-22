@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
+import '../services/attendance_service.dart';
 
 class RegisterStudent extends StatefulWidget {
   const RegisterStudent({super.key});
@@ -119,16 +120,32 @@ class _RegisterStudentState extends State<RegisterStudent>
         throw Exception('Please fill in all required fields');
       }
 
-      // Convert profile image to base64
-      String? profilePhotoBase64;
+      // ✅ NEW: Upload profile photo to cloud storage first
+      String? profilePhotoUrl;
+      List<int>? imageBytes;
       if (_profileImageBytes != null) {
-        // Web: we already have the bytes
-        profilePhotoBase64 = base64Encode(_profileImageBytes!);
+        imageBytes = _profileImageBytes;
       } else if (_profileImage != null) {
-        // Mobile/desktop: read bytes from File
-        final imageBytes = await _profileImage!.readAsBytes();
-        profilePhotoBase64 = base64Encode(imageBytes);
+        imageBytes = await _profileImage!.readAsBytes();
       }
+
+      if (imageBytes != null) {
+        try {
+          final uploadRes = await AttendanceService.uploadImageToStorage(
+            studentId: 0, // Placeholder ID for registration
+            photoType: 'profile',
+            imageBytes: imageBytes,
+            fileName: 'profile_${email.replaceAll('@', '_')}.jpg',
+          );
+          profilePhotoUrl = uploadRes['publicUrl'];
+          debugPrint("✅ Profile photo uploaded: $profilePhotoUrl");
+        } catch (e) {
+          debugPrint("⚠️ Photo upload failed, falling back to base64: $e");
+        }
+      }
+
+      // Convert profile image to base64 ONLY if cloud upload failed
+      String? finalProfilePhoto = profilePhotoUrl ?? (imageBytes != null ? base64Encode(imageBytes) : null);
 
       await AuthService.register(
         fullName: fullName,
@@ -142,7 +159,7 @@ class _RegisterStudentState extends State<RegisterStudent>
         contactNumber: contactNumber.isNotEmpty ? contactNumber : null,
         address: address.isNotEmpty ? address : null,
         requiredHours: requiredHours,
-        profilePhoto: profilePhotoBase64,
+        profilePhoto: finalProfilePhoto,
       );
 
       if (mounted) {
@@ -574,3 +591,4 @@ class _RegisterStudentState extends State<RegisterStudent>
     );
   }
 }
+

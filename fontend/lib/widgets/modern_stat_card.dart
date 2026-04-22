@@ -21,53 +21,64 @@ class ModernStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          vertical: AppTheme.spacing12,
-          horizontal: AppTheme.spacing8,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-          boxShadow: const [AppTheme.cardShadow],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.10),
-                shape: BoxShape.circle,
+    // Safety check for null properties that can crash JS runtime
+    final displayValue = value.isEmpty ? '0' : value;
+    final displayLabel = label.isEmpty ? 'Stat' : label;
+    final displayColor = color;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            vertical: AppTheme.spacing16,
+            horizontal: AppTheme.spacing12,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+            boxShadow: AppTheme.softShadow,
+            border: Border.all(color: displayColor.withOpacity(0.05), width: 1),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: displayColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 20, color: displayColor),
               ),
-              child: Icon(icon, size: 18, color: color),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: color,
-                height: 1.1,
+              const SizedBox(height: 12),
+              Text(
+                displayValue,
+                style: AppTheme.heading2.copyWith(
+                  color: displayColor,
+                  fontSize: 22,
+                  height: 1,
+                ),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: AppTheme.bodySmall.copyWith(
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
+              const SizedBox(height: 4),
+              Text(
+                displayLabel.toUpperCase(),
+                textAlign: TextAlign.center,
+                style: AppTheme.caption.copyWith(
+                  fontSize: 10,
+                  color: Colors.blueGrey.shade500,
+                  letterSpacing: 1.1,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
+

@@ -142,3 +142,4 @@ class LocationSecurityService {
     return s;
   }
 }
+

@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +21,7 @@ import '../widgets/explainable_ai_panel.dart';
 import '../widgets/weekly_ai_summary_card.dart';
 import '../widgets/integrity_timeline_card.dart';
 import 'coordinator_student_monitor.dart';
+import 'student_analytics_screen.dart';
 import '../screens/login_screen.dart';
 import '../services/auth_service.dart';
 import '../services/ojt_service.dart';
@@ -33,9 +37,11 @@ import '../screens/coordinator/coordinator_supervisor_feedback_screen.dart';
 import '../screens/coordinator/coordinator_performance_analysis_screen.dart';
 import '../screens/coordinator/coordinator_user_approvals_screen.dart';
 import '../screens/coordinator/coordinator_reports_screen.dart';
+import '../screens/coordinator/data_export_screen.dart';
 import '../screens/coordinator/coordinator_ojt_management_screen.dart';
 import '../screens/coordinator/coordinator_attendance_map_screen.dart';
 import '../screens/coordinator/coordinator_live_map_screen.dart';
+import '../screens/coordinator/coordinator_narrative_review_screen.dart';
 
 class CoordinatorDashboard extends StatefulWidget {
   const CoordinatorDashboard({super.key});
@@ -52,6 +58,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
   bool _isFromCache = false;
   String? _analyticsWarning;
   int _predictionFailures = 0;
+  Uint8List? _profileImageBytes;
 
   // Coordinator profile info - will be loaded from API
   String fullName = "Loading...";
@@ -91,16 +98,33 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
     }
   }
 
+  Uint8List? _decodeProfilePhoto(String? photoBase64) {
+    if (photoBase64 == null || photoBase64.isEmpty) return null;
+    try {
+      // Remove data:image/...;base64, prefix if it exists
+      String base64Data = photoBase64;
+      if (photoBase64.contains(',')) {
+        base64Data = photoBase64.split(',').last;
+      }
+      return base64Decode(base64Data);
+    } catch (e) {
+      debugPrint('Error decoding profile photo: $e');
+      return null;
+    }
+  }
+
   Future<void> _loadProfile() async {
     try {
       final user = await AuthService.getCurrentUser();
       if (!mounted) return;
       if (user != null) {
+        final imageBytes = _decodeProfilePhoto(user.profilePhoto);
         _safeSetState(() {
           fullName = user.fullName;
           idNumber = user.studentId ?? user.email;
           office = user.course ?? "OJT Office";
           position = user.role;
+          _profileImageBytes = imageBytes;
           _isLoadingProfile = false;
         });
       } else {
@@ -585,7 +609,6 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
     );
   }
 
-  // --- Statistics Row (compact 4-up) ---
   Widget _buildStatsRow() {
     if (_isLoadingStats) {
       return const Padding(
@@ -596,56 +619,53 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: ModernStatCard(
-              label: 'Students',
-              value: '$_totalStudents',
-              icon: Icons.people_rounded,
-              color: AppTheme.coordinatorPrimary,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const CoordinatorStudentMonitor(),
+          Row(
+            children: [
+              Expanded(
+                child: ModernStatCard(
+                  label: 'TOTAL STUDENTS',
+                  value: '$_totalStudents',
+                  icon: Icons.people_rounded,
+                  color: AppTheme.coordinatorPrimary,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CoordinatorOjtManagementScreen())),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: AppTheme.spacing8),
-          Expanded(
-            child: ModernStatCard(
-              label: 'Flags',
-              value: '$_highRiskStudents',
-              icon: Icons.warning_amber_rounded,
-              color: AppTheme.errorColor,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const CoordinatorPerformanceAnalysisScreen(),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ModernStatCard(
+                  label: 'HIGH RISK FLAGS',
+                  value: '$_highRiskStudents',
+                  icon: Icons.warning_rounded,
+                  color: AppTheme.errorColor,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CoordinatorStudentMonitor())),
                 ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(width: AppTheme.spacing8),
-          Expanded(
-            child: ModernStatCard(
-              label: 'Avg Grade',
-              value: _averageForecastedGrade > 0
-                  ? _averageForecastedGrade.toStringAsFixed(1)
-                  : 'N/A',
-              icon: Icons.analytics_rounded,
-              color: Colors.blue.shade700,
-            ),
-          ),
-          const SizedBox(width: AppTheme.spacing8),
-          Expanded(
-            child: ModernStatCard(
-              label: 'Active',
-              value: '$_activeOjt',
-              icon: Icons.work_history_rounded,
-              color: AppTheme.successColor,
-            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ModernStatCard(
+                  label: 'COMPLETED OJT',
+                  value: '$_completedOjt',
+                  icon: Icons.check_circle_rounded,
+                  color: AppTheme.successColor,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CoordinatorReportsScreen())),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ModernStatCard(
+                  label: 'AVG GRADE',
+                  value: _averageForecastedGrade > 0 ? _averageForecastedGrade.toStringAsFixed(1) : "N/A",
+                  icon: Icons.auto_graph_rounded,
+                  color: AppTheme.infoColor,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -681,13 +701,13 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
   Widget _buildStudentListSection() {
     if (_studentSnapshots.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing24),
+        padding: const EdgeInsets.all(AppTheme.spacing32),
         child: Center(
           child: Column(
             children: [
-              Icon(Icons.people_outline_rounded, size: 48, color: Colors.grey[300]),
-              const SizedBox(height: 12),
-              Text('No students assigned yet.', style: AppTheme.bodySmall),
+              Icon(Icons.people_outline_rounded, size: 48, color: Colors.blueGrey.shade200),
+              const SizedBox(height: 16),
+              Text('No students assigned currently.', style: AppTheme.bodySmall.copyWith(color: Colors.blueGrey.shade400)),
             ],
           ),
         ),
@@ -701,125 +721,164 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
           child: ConstrainedBox(
             constraints: BoxConstraints(minWidth: constraints.maxWidth),
             child: DataTable(
-              headingRowColor: MaterialStateProperty.all(Colors.grey.shade50),
-        columnSpacing: 24,
-        horizontalMargin: 16,
-        dataRowMaxHeight: 65,
-        dataRowMinHeight: 60,
-        columns: const [
-          DataColumn(label: Text('Student', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Compliance', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Integrity Flags', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Action', style: TextStyle(fontWeight: FontWeight.bold))),
-        ],
-        rows: _studentSnapshots.map((snapshot) {
-          final riskColor = snapshot.riskLevel == 'HIGH' ? AppTheme.errorColor : (snapshot.riskLevel == 'MEDIUM' ? AppTheme.warningColor : AppTheme.successColor);
-          
-          return DataRow(
-            cells: [
-              DataCell(
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: riskColor.withOpacity(0.1),
-                      child: Text(
-                        snapshot.studentName[0].toUpperCase(),
-                        style: TextStyle(color: riskColor, fontWeight: FontWeight.bold, fontSize: 12),
+              headingRowColor: MaterialStateProperty.all(Colors.blueGrey.shade50),
+              dividerThickness: 1,
+              horizontalMargin: 24,
+              columnSpacing: 24,
+              headingRowHeight: 56,
+              dataRowMaxHeight: 80,
+              dataRowMinHeight: 72,
+              columns: [
+                DataColumn(label: Text('STUDENT', style: AppTheme.caption.copyWith(fontWeight: FontWeight.w800, color: Colors.blueGrey.shade600, fontSize: 11, letterSpacing: 1.1))),
+                DataColumn(label: Text('COMPLIANCE', style: AppTheme.caption.copyWith(fontWeight: FontWeight.w800, color: Colors.blueGrey.shade600, fontSize: 11, letterSpacing: 1.1))),
+                DataColumn(label: Text('INTEGRITY', style: AppTheme.caption.copyWith(fontWeight: FontWeight.w800, color: Colors.blueGrey.shade600, fontSize: 11, letterSpacing: 1.1))),
+                DataColumn(label: Text('ACTION', style: AppTheme.caption.copyWith(fontWeight: FontWeight.w800, color: Colors.blueGrey.shade600, fontSize: 11, letterSpacing: 1.1))),
+              ],
+              rows: _studentSnapshots.map((snapshot) {
+                final riskColor = snapshot.riskLevel == 'HIGH' ? AppTheme.errorColor : (snapshot.riskLevel == 'MEDIUM' ? AppTheme.warningColor : AppTheme.successColor);
+                final completionPct = (snapshot.completionRatio * 100).toInt();
+                
+                return DataRow(
+                  cells: [
+                    DataCell(
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: riskColor.withOpacity(0.2), width: 1),
+                            ),
+                            child: CircleAvatar(
+                              radius: 18,
+                              backgroundColor: riskColor.withOpacity(0.1),
+                              child: Text(
+                                snapshot.studentName[0].toUpperCase(),
+                                style: TextStyle(color: riskColor, fontWeight: FontWeight.w800, fontSize: 14),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                snapshot.studentName,
+                                style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: Colors.blueGrey.shade900),
+                              ),
+                              Text(
+                                snapshot.course ?? "N/A",
+                                style: AppTheme.caption.copyWith(color: Colors.blueGrey.shade500, fontSize: 10),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      constraints: const BoxConstraints(maxWidth: 120),
-                      child: Text(
-                        snapshot.studentName,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                        overflow: TextOverflow.ellipsis,
+                    DataCell(
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text("$completionPct%", style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w800, color: Colors.blueGrey.shade800)),
+                              const SizedBox(width: 4),
+                              Text("HRS", style: AppTheme.caption.copyWith(fontSize: 9, color: Colors.blueGrey.shade400)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            width: 60,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: snapshot.completionRatio,
+                                minHeight: 4,
+                                backgroundColor: Colors.blueGrey.shade100,
+                                valueColor: AlwaysStoppedAnimation<Color>(riskColor),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    DataCell(
+                      snapshot.isFlagged
+                          ? IntegrityBadge.flagged(isOut: snapshot.isLatestOut, isCompact: true)
+                          : IntegrityBadge.trust(flaggedCount: snapshot.lateCount, isCompact: true),
+                    ),
+                    DataCell(
+                      IconButton(
+                        icon: Icon(Icons.arrow_forward_rounded, color: Colors.blueGrey.shade400, size: 20),
+                        onPressed: () => _showStudentDetail(snapshot),
+                        tooltip: 'View Detailed Analytics',
                       ),
                     ),
                   ],
-                ),
-              ),
-              DataCell(
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("${(snapshot.completionRatio * 100).toInt()}% Done", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    Text("${snapshot.approvedHours.toStringAsFixed(1)} hrs", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                  ],
-                ),
-              ),
-              DataCell(
-                snapshot.isFlagged
-                    ? IntegrityBadge.flagged(isOut: snapshot.isLatestOut, isCompact: true)
-                    : IntegrityBadge.trust(flaggedCount: snapshot.lateCount, isCompact: true),
-              ),
-              DataCell(
-                IconButton(
-                  icon: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
-                  onPressed: () => _showStudentDetail(snapshot),
-                ),
-              ),
-            ],
-          );
-        }).toList(),
-      ),
-    ),
-  );
-  },
-  );
-}
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildManagementGroup() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [AppTheme.cardShadow],
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: Colors.blueGrey.shade50, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
             child: Row(
               children: [
-                Icon(Icons.bolt_rounded, size: 20, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Text("Operational Controls", style: AppTheme.heading3.copyWith(fontSize: 16)),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.bolt_rounded, size: 20, color: Colors.blueGrey.shade600),
+                ),
+                const SizedBox(width: 16),
+                Text("Operational Controls", style: AppTheme.heading3.copyWith(fontSize: 16, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
-          const Divider(height: 1),
+          const Divider(height: 1, indent: 24, endIndent: 24),
           _actionTile(
-            Icon(Icons.insights_rounded, color: Colors.blue[400]),
+            Icon(Icons.insights_rounded, color: Colors.blue.shade600, size: 22),
             "Student Monitoring",
-            "Attendance & Task Validation",
+            "Real-time attendance & task validation",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorStudentMonitor())),
           ),
-          const Divider(height: 1, indent: 56),
           _actionTile(
-            Icon(Icons.verified_user_rounded, color: Colors.green[400]),
+            Icon(Icons.verified_user_rounded, color: Colors.teal.shade600, size: 22),
             "User Approvals",
-            "Approve Students & Supervisors",
+            "Onboard new students & supervisors",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorUserApprovalsScreen())),
           ),
-          const Divider(height: 1, indent: 56),
           _actionTile(
-            Icon(Icons.folder_shared_rounded, color: Colors.teal[400]),
+            Icon(Icons.folder_shared_rounded, color: Colors.indigo.shade600, size: 22),
             "OJT Management",
-            "Assign Records & Company Details",
+            "Assign student records & host companies",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorOjtManagementScreen())),
           ),
-          const Divider(height: 1, indent: 56),
           _actionTile(
-            Icon(Icons.map_rounded, color: Colors.deepPurple[400]),
+            Icon(Icons.map_rounded, color: Colors.deepPurple.shade600, size: 22),
             "Live Attendance Map",
-            "God View – GPS pins & integrity flags",
+            "Global GPS oversight & integrity mapping",
             () {
-              // coordinatorId stored in the user profile - use the loaded ID
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -830,44 +889,68 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
               );
             },
           ),
-          const Divider(height: 1, indent: 56),
           _actionTile(
-            Icon(Icons.picture_as_pdf_rounded, color: Colors.red[400]),
-            "System Reports",
-            "Generate Compliance PDF Exports",
+            Icon(Icons.picture_as_pdf_rounded, color: Colors.pink.shade600, size: 22),
+            "Performance Reports",
+            "Generate academic & industry reports",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorReportsScreen())),
+          ),
+          _actionTile(
+            Icon(Icons.file_download_rounded, color: Colors.amber.shade700, size: 22),
+            "System Data Export",
+            "Export raw data for external processing",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DataExportScreen())),
+          ),
+          _actionTile(
+            Icon(Icons.rate_review_rounded, color: Colors.orange.shade700, size: 22),
+            "Narrative Report Review",
+            "Evaluate and rate student narratives (20%)",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorNarrativeReviewScreen())),
             isLast: true,
           ),
+          const SizedBox(height: 12),
         ],
       ),
     );
   }
 
   Widget _actionTile(Widget icon, String title, String subtitle, VoidCallback onTap, {bool isLast = false}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: isLast ? const BorderRadius.vertical(bottom: Radius.circular(16)) : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(10)),
-              child: icon,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
-                  Text(subtitle, style: AppTheme.bodySmall.copyWith(color: Colors.grey[500])),
-                ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: (icon as Icon).color!.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: icon,
               ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: Colors.grey[300], size: 18),
-          ],
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.blueGrey.shade900),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: AppTheme.bodySmall.copyWith(color: Colors.blueGrey.shade500, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: Colors.blueGrey.shade300, size: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -912,6 +995,30 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                         ? 'Supervisor: ${snapshot.supervisorName}'
                         : 'Supervisor: Not assigned',
                     style: AppTheme.bodySmall,
+                  ),
+                  const SizedBox(height: AppTheme.spacing16),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => StudentAnalyticsScreen(
+                            studentName: snapshot.studentName,
+                            studentId: snapshot.studentId.toString(),
+                            course: snapshot.course ?? "N/A",
+                            userId: snapshot.studentId,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.insights_rounded, color: Colors.white),
+                    label: const Text("View Active Rhythm & Analytics"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 45),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
                   const SizedBox(height: AppTheme.spacing16),
                   _buildDetailAttendance(snapshot),
@@ -1149,68 +1256,125 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
     );
   }
 
-  // --- Profile Header with Gradient ---
+  // --- Professional Enterprise Hero Header ---
   Widget _buildProfileHeader() {
     return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
             AppTheme.coordinatorPrimary,
-            AppTheme.coordinatorPrimary.withOpacity(0.8),
+            const Color(0xFF3730A3), // Deeper indigo for depth
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
         boxShadow: [
           BoxShadow(
             color: AppTheme.coordinatorPrimary.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      padding: const EdgeInsets.all(AppTheme.spacing16),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 42,
-            backgroundColor: Colors.white,
-            child: Text(
-              fullName.split(" ").where((e) => e.isNotEmpty).map((e) => e[0]).take(2).join(),
-              style: TextStyle(
-                  color: AppTheme.coordinatorPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold),
-            ),
-          ).animate().scale(duration: 600.ms, curve: Curves.easeOutBack),
-          const SizedBox(width: AppTheme.spacing16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  fullName,
-                  style: AppTheme.heading2.copyWith(color: Colors.white),
-                ),
-                const SizedBox(height: AppTheme.spacing4),
-                Text(
-                  "ID: $idNumber",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
-                Text(
-                  "Office: $office",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
-                Text(
-                  "Position: $position",
-                  style: AppTheme.bodyMedium.copyWith(color: Colors.white70),
-                ),
-              ],
-            ),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
         ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withOpacity(0.5), width: 1.5),
+                ),
+                child: CircleAvatar(
+                  radius: 36,
+                  backgroundImage: _profileImageBytes != null ? MemoryImage(_profileImageBytes!) : null,
+                  backgroundColor: Colors.white.withOpacity(0.2),
+                  child: _profileImageBytes == null
+                      ? Text(
+                          fullName.isNotEmpty ? fullName[0].toUpperCase() : "C",
+                          style: AppTheme.heading1.copyWith(color: Colors.white, fontSize: 32),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fullName,
+                      style: AppTheme.heading2.copyWith(color: Colors.white, fontSize: 22),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.admin_panel_settings_rounded, size: 12, color: Colors.indigo.shade100),
+                          const SizedBox(width: 6),
+                          Text(
+                            position.toUpperCase(),
+                            style: AppTheme.caption.copyWith(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 10,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              _buildModernProfileStat("Admin ID", idNumber, Icons.badge_rounded),
+              const SizedBox(width: 16),
+              _buildModernProfileStat("Dept/Office", office, Icons.account_balance_rounded),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernProfileStat(String label, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: Colors.indigo.shade200),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 9, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                  Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1593,3 +1757,4 @@ _RiskDescriptor _describeRisk(String risk) {
       return _RiskDescriptor('LOW', AppTheme.successColor);
   }
 }
+

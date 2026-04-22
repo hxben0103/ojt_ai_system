@@ -11,23 +11,7 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-};
+const authenticateToken = require('../middleware/auth');
 
 /**
  * Count weekday (Mon–Fri) days between two Date objects (inclusive).
@@ -70,6 +54,60 @@ function scoreToEquivalentGrade(score) {
 }
 
 /**
+ * Anti-Fraud: Calculate Time Normalization Score.
+ * Analyzes the distribution of "seconds" in time logs. 
+ * Real human logs are stochastic; bot/manual logs often clump on specific seconds like :00 or the same exact second.
+ */
+function calculateIntegrityScore(secondDistribution, totalLogs) {
+  if (!totalLogs || totalLogs < 5) return { score: 100, status: 'INDETERMINATE', flags: [] };
+  
+  const flags = [];
+  let suspiciousInertia = 0;
+  
+  // Find the most frequent second
+  let maxFreq = 0;
+  let modeSecond = 0;
+  secondDistribution.forEach(d => {
+    if (d.frequency > maxFreq) {
+      maxFreq = d.frequency;
+      modeSecond = d.second;
+    }
+  });
+  
+  const modeRatio = maxFreq / totalLogs;
+  
+  // Rule 1: High clumping on a single second (e.g. 70% of logs end in :00)
+  if (modeRatio > 0.7) {
+    suspiciousInertia += 50;
+    flags.push(`Extremely high clumping on second :${modeSecond.toString().padStart(2, '0')} (${(modeRatio*100).toFixed(1)}%)`);
+  } else if (modeRatio > 0.4) {
+    suspiciousInertia += 20;
+    flags.push(`Moderate clumping on second :${modeSecond.toString().padStart(2, '0')}`);
+  }
+
+  // Rule 2: Low diversity of seconds
+  const uniqueSeconds = secondDistribution.length;
+  const diversityRatio = uniqueSeconds / totalLogs;
+  if (diversityRatio < 0.2) {
+    suspiciousInertia += 30;
+    flags.push('Very low timing diversity detected (bot-like behavior)');
+  }
+  
+  const finalScore = Math.max(0, 100 - suspiciousInertia);
+  let status = 'GOOD';
+  if (finalScore < 50) status = 'CRITICAL';
+  else if (finalScore < 80) status = 'SUSPICIOUS';
+  
+  return {
+    score: finalScore,
+    status: status,
+    flags: flags,
+    mode_second: modeSecond,
+    mode_ratio: modeRatio
+  };
+}
+
+/**
  * Shared logic to build the comprehensive student snapshot for AI prediction.
  */
 async function getStudentAIPayload(studentId) {
@@ -82,6 +120,7 @@ async function getStudentAIPayload(studentId) {
       JOIN users u ON o.student_id = u.user_id
       -- Treat both Ongoing and Active as current OJT records
       WHERE o.student_id = $1 AND o.status IN ('Ongoing', 'Active')
+      ORDER BY o.start_date DESC
       LIMIT 1
     ),
     -- Attendance stats (CRITICAL: Only approved attendance counts)
@@ -179,16 +218,11 @@ async function getStudentAIPayload(studentId) {
       ) daily_scores
     ),
     -- NR: Narrative Report (20%)
+    -- Now pulls from the student_progress_reports table's coordinator rating
     narrative_eval AS (
-      SELECT COALESCE(AVG(e.total_score), 0) AS avg_score
-      FROM evaluations e
-      WHERE e.student_id = $1
-        AND (
-          e.evaluation_type = 'NR'
-          OR (e.evaluation_type IS NULL AND e.supervisor_id NOT IN (
-            SELECT user_id FROM users WHERE role IN ('Coordinator', 'Supervisor')
-          ))
-        )
+      SELECT COALESCE(AVG(rating), 0) AS avg_score
+      FROM student_progress_reports
+      WHERE student_id = $1 AND status = 'Approved'
     ),
     -- CE: Coordinator Evaluation (20%)
     coordinator_eval AS (
@@ -303,13 +337,33 @@ async function getStudentAIPayload(studentId) {
         ), 0) AS current_absence_streak
       FROM streaks
     ),
-    -- Trend stats (hours in last 7 days vs prev 7 days)
+    -- Trend Analysis: Last 7 Days vs Previous 7 Days
     trend_stats AS (
       SELECT
         COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_last_7,
         COALESCE(SUM(CASE WHEN date >= CURRENT_DATE - INTERVAL '14 days' AND date < CURRENT_DATE - INTERVAL '7 days' THEN total_hours ELSE 0 END), 0) AS hours_prev_7
       FROM attendance
       WHERE student_id = $1 AND status IN ('Approved', 'Pending')
+    ),
+    -- Anti-Fraud: Time Normalization (Seconds Analysis)
+    time_normalization_stats AS (
+      WITH all_times AS (
+        SELECT morning_in AS t FROM attendance WHERE student_id = $1 AND morning_in IS NOT NULL
+        UNION ALL SELECT morning_out FROM attendance WHERE student_id = $1 AND morning_out IS NOT NULL
+        UNION ALL SELECT afternoon_in FROM attendance WHERE student_id = $1 AND afternoon_in IS NOT NULL
+        UNION ALL SELECT afternoon_out FROM attendance WHERE student_id = $1 AND afternoon_out IS NOT NULL
+        UNION ALL SELECT overtime_in FROM attendance WHERE student_id = $1 AND overtime_in IS NOT NULL
+        UNION ALL SELECT overtime_out FROM attendance WHERE student_id = $1 AND overtime_out IS NOT NULL
+      ),
+      second_counts AS (
+        SELECT EXTRACT(SECOND FROM t)::INT as sec, COUNT(*) as freq
+        FROM all_times
+        GROUP BY sec
+      )
+      SELECT 
+        JSON_AGG(JSON_BUILD_OBJECT('second', sec, 'frequency', freq)) as distribution,
+        (SELECT COUNT(*) FROM all_times) as total_time_logs
+      FROM second_counts
     )
     SELECT 
       (SELECT student_name FROM ojt_info) AS student_name,
@@ -336,6 +390,7 @@ async function getStudentAIPayload(studentId) {
       (SELECT max_consecutive_absences FROM consecutive_absence_stats) AS max_consecutive_absences,
       (SELECT current_absence_streak FROM consecutive_absence_stats) AS current_absence_streak,
       (SELECT row_to_json(t) FROM trend_stats t) AS trend_data,
+      (SELECT row_to_json(tn) FROM time_normalization_stats tn) AS normalization_data,
       (SELECT json_agg(json_build_object('title', title, 'points', total_points, 'point_value', point_value)) FROM competency_points) AS competency_points_json
   `, [studentId]);
 
@@ -392,6 +447,13 @@ async function getStudentAIPayload(studentId) {
 
   // Equivalent grade (1.0–5.0 PH scale) derived from the task score component
   const equivalentGrade = scoreToEquivalentGrade(totalTaskPoints);
+  const h7 = parseFloat(snap.trend_data?.hours_last_7) || 0;
+  const p7 = parseFloat(snap.trend_data?.hours_prev_7) || 0;
+  const trendStatus = h7 > p7 * 1.15 ? 'improving' : h7 < p7 * 0.85 ? 'declining' : 'stable';
+
+  // --- Integrity Analysis Calculation ---
+  const normData = snap.normalization_data || { distribution: [], total_time_logs: 0 };
+  const integrityAnalysis = calculateIntegrityScore(normData.distribution || [], parseInt(normData.total_time_logs) || 0);
 
   const payload = {
     student_name: snap.student_name,
@@ -455,19 +517,16 @@ async function getStudentAIPayload(studentId) {
     current_absence_streak: parseInt(snap.current_absence_streak) || 0,
     // Alert fires when student has been absent 3+ consecutive weekdays (academic risk, not integrity)
     consecutive_absence_alert: (parseInt(snap.max_consecutive_absences) || 0) >= 3,
+    // --- Integrity Layer (NEW) ---
+    integrity_analysis: integrityAnalysis
   };
 
-  const h7 = parseFloat(snap.trend_data?.hours_last_7) || 0;
-  const p7 = parseFloat(snap.trend_data?.hours_prev_7) || 0;
-
-  if (h7 > p7 * 1.15) {
-    payload.trend_status = 'improving';
+  payload.trend_status = trendStatus;
+  if (trendStatus === 'improving') {
     payload.trend_reason = `Hours logged increased by >15% compared to previous week (${h7} vs ${p7})`;
-  } else if (h7 < p7 * 0.85) {
-    payload.trend_status = 'declining';
+  } else if (trendStatus === 'declining') {
     payload.trend_reason = `Hours logged decreased by >15% compared to previous week (${h7} vs ${p7})`;
   } else {
-    payload.trend_status = 'stable';
     payload.trend_reason = `Consistent performance logic maintained (${h7} vs ${p7})`;
   }
 
@@ -531,9 +590,13 @@ router.get('/insights', authenticateToken, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    // Data Isolation: Coordinators only see their students
+    // Data Isolation: Coordinators/Supervisors only see their assigned students
     if (role === 'Coordinator') {
       sql += ` AND o.coordinator_id = $${paramCount}`;
+      params.push(user_id);
+      paramCount++;
+    } else if (role === 'Supervisor') {
+      sql += ` AND o.supervisor_id = $${paramCount}`;
       params.push(user_id);
       paramCount++;
     }
@@ -594,6 +657,14 @@ router.get('/performance', authenticateToken, async (req, res) => {
       );
       if (accessCheck.rows.length === 0) {
         return res.status(403).json({ error: 'Access Denied' });
+      }
+    } else if (role === 'Supervisor') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND supervisor_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [student_id, user_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view performance for students assigned to you.' });
       }
     }
 
@@ -663,6 +734,14 @@ router.get('/risk-assessment/:student_id', authenticateToken, async (req, res) =
       if (accessCheck.rows.length === 0) {
         return res.status(403).json({ error: 'Access Denied', message: 'You can only view risk assessment for students assigned to you.' });
       }
+    } else if (role === 'Supervisor') {
+      const accessCheck = await query(
+        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND supervisor_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        [student_id, user_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access Denied', message: 'You can only view risk assessment for students assigned to you.' });
+      }
     }
 
     const result = await query(
@@ -690,18 +769,20 @@ router.get('/at-risk', authenticateToken, async (req, res) => {
     const { level } = req.query; // 'High', 'Medium', or undefined for all
     const { role, user_id } = req.user;
 
-    // Data Isolation: Filter by coordinator if role is Coordinator
+    // Data Isolation: Filter by coordinator/supervisor
     let result;
-    if (role === 'Coordinator') {
-      // get_at_risk_students doesn't filter by coordinator, so we filter the results
+    if (role === 'Coordinator' || role === 'Supervisor') {
+      // get_at_risk_students doesn't filter by role, so we filter the results
       const allAtRisk = await query('SELECT * FROM get_at_risk_students($1)', [level || null]);
       
-      // Filter by coordinator_id in ojt_records
-      const coordinatorStudents = await query(
-        "SELECT student_id FROM ojt_records WHERE coordinator_id = $1 AND status IN ('Ongoing', 'Active')",
+      // Filter by assignment
+      const filteredByAssignment = await query(
+        `SELECT student_id FROM ojt_records 
+         WHERE status IN ('Ongoing', 'Active') 
+         AND (${role === 'Coordinator' ? 'coordinator_id' : 'supervisor_id'} = $1)`,
         [user_id]
       );
-      const allowedIds = new Set(coordinatorStudents.rows.map(r => r.student_id));
+      const allowedIds = new Set(filteredByAssignment.rows.map(r => r.student_id));
       
       const filteredResult = allAtRisk.rows.filter(r => allowedIds.has(r.student_id));
       
@@ -742,33 +823,78 @@ router.post('/batch', async (req, res) => {
     const results = [];
     const errors = [];
 
-    // 2) Process each student (Smart AI Prediction)
-    for (const row of activeStudents.rows) {
-      const studentId = row.user_id;
-      try {
-        const payload = await getStudentAIPayload(studentId);
-        if (!payload) continue;
+    // 2) Process each student (Smart AI Prediction) in chunks of 3
+    for (let i = 0; i < activeStudents.rows.length; i += 3) {
+      const chunk = activeStudents.rows.slice(i, i + 3);
+      await Promise.allSettled(chunk.map(async (row) => {
+        const studentId = row.user_id;
+        try {
+          const payload = await getStudentAIPayload(studentId);
+          if (!payload) return;
 
-        const prediction = await callFlaskAI(payload);
+          const prediction = await callFlaskAI(payload);
+
+          await query(
+            `INSERT INTO ai_insights (student_id, model_name, insight_type, result, confidence, input_data)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+              studentId,
+              'Performance Prediction Model (Batch)',
+              'performance_prediction',
+              JSON.stringify(prediction),
+              prediction.confidence || prediction.ml_prediction?.probability || 0,
+              JSON.stringify({ ...payload, batch_job: true })
+            ]
+          );
+
+          results.push({ studentId, status: 'Success' });
+        } catch (err) {
+          console.error(`Batch error for student ${studentId}:`, err.message);
+          errors.push({ studentId, error: err.message });
+        }
+      }));
+    }
+
+    // 📢 Post-Prediction: Auto-alert coordinators for low-performing students
+    const PERFORMANCE_ALERT_THRESHOLD = 70;
+    try {
+      const lowPerformers = await query(`
+        SELECT DISTINCT ON (ai.student_id)
+          ai.student_id, u.full_name AS student_name,
+          ai.result->>'predicted_performance' AS performance,
+          o.coordinator_id
+        FROM ai_insights ai
+        JOIN users u ON ai.student_id = u.user_id
+        JOIN ojt_records o ON ai.student_id = o.student_id AND o.status IN ('Ongoing', 'Active')
+        WHERE ai.insight_type = 'performance_prediction'
+          AND ai.created_at::date = CURRENT_DATE
+        ORDER BY ai.student_id, ai.created_at DESC
+      `);
+
+      for (const lp of lowPerformers.rows) {
+        const score = parseFloat(lp.performance) || 0;
+        if (score >= PERFORMANCE_ALERT_THRESHOLD || !lp.coordinator_id) continue;
+
+        // Deduplicate: check if alert already sent today
+        const existing = await query(
+          `SELECT id FROM notifications WHERE user_id = $1 AND title LIKE $2 AND created_at::date = CURRENT_DATE`,
+          [lp.coordinator_id, `%${lp.student_name}%performance%`]
+        );
+        if (existing.rows.length > 0) continue;
 
         await query(
-          `INSERT INTO ai_insights (student_id, model_name, insight_type, result, confidence, input_data)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
           [
-            studentId,
-            'Performance Prediction Model (Batch)',
-            'performance_prediction',
-            JSON.stringify(prediction),
-            prediction.confidence || prediction.ml_prediction?.probability || 0,
-            JSON.stringify({ ...payload, batch_job: true })
+            lp.coordinator_id,
+            `⚠️ ${lp.student_name}'s performance dropped`,
+            `${lp.student_name}'s AI-predicted performance is at ${score.toFixed(0)}%, which is below the ${PERFORMANCE_ALERT_THRESHOLD}% threshold. Please review their progress and consider intervention.`,
+            'performance_alert'
           ]
         );
-
-        results.push({ studentId, status: 'Success' });
-      } catch (err) {
-        console.error(`Batch error for student ${studentId}:`, err.message);
-        errors.push({ studentId, error: err.message });
       }
+      console.log(`✅ Performance alerts checked for ${lowPerformers.rows.length} students`);
+    } catch (alertErr) {
+      console.error('⚠️ Performance alert post-processing error (non-fatal):', alertErr.message);
     }
 
     res.json({
@@ -798,42 +924,91 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
     if (accessCheck.rows.length === 0) {
       return res.status(403).json({ error: 'Access Denied', message: 'You can only run predictions for students assigned to you.' });
     }
+  } else if (role === 'Supervisor') {
+    const accessCheck = await query(
+      "SELECT record_id FROM ojt_records WHERE student_id = $1 AND supervisor_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+      [studentId, user_id]
+    );
+    if (accessCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Access Denied', message: 'You can only run predictions for students assigned to you.' });
+    }
   }
 
   try {
-    // Check if we have a recent prediction (last 4 hours) to avoid overwhelming the LLM
-    // If cacheOnly is true, we fallback to the latest available prediction even if older than 4 hours
-    const recentPrediction = await query(
+    // ✅ Red Flag 3 Fix: Graceful Stale Caching
+    // 1. Check for ANY recent prediction
+    const recentResult = await query(
       `SELECT result, created_at 
        FROM ai_insights 
        WHERE student_id = $1 
          AND insight_type = 'daily_risk_prediction'
-         ${cacheOnly ? "" : "AND created_at >= NOW() - INTERVAL '4 hours'"}
        ORDER BY created_at DESC 
        LIMIT 1`,
       [studentId]
     );
 
-    if (recentPrediction.rows.length > 0) {
-      const cached = recentPrediction.rows[0];
-      return res.json({
-        student_id: parseInt(studentId),
-        cached: true,
-        ai_prediction: typeof cached.result === 'string' ? JSON.parse(cached.result) : cached.result,
-        generated_at: cached.created_at
-      });
+    let cachedValue = null;
+    let isStale = false;
+    let ageInHours = 999;
+
+    if (recentResult.rows.length > 0) {
+      const row = recentResult.rows[0];
+      cachedValue = typeof row.result === 'string' ? JSON.parse(row.result) : row.result;
+      const createdAt = new Date(row.created_at);
+      ageInHours = (new Date() - createdAt) / (1000 * 60 * 60);
+      
+      // FRESH: < 2 hours (Return immediately)
+      if (ageInHours < 2) {
+        return res.json({
+          student_id: parseInt(studentId),
+          cached: true,
+          ai_prediction: cachedValue,
+          generated_at: row.created_at,
+          status: 'FRESH'
+        });
+      }
+      
+      // STALE: < 12 hours (Return immediately but refresh in background)
+      if (ageInHours < 12 || cacheOnly) {
+        isStale = true;
+        // Proceed to background refresh after returning response
+      }
     }
 
-    if (cacheOnly) {
-       // If tracking from cache purely, and no cache exists, just return a pending state
-       // to avoid tying up the Flask LLM loop on simple dashboard views
-       return res.json({
-         student_id: parseInt(studentId),
-         cached: true,
-         ai_prediction: { risk_level: 'PENDING', score: 0, summary: 'AI Insight Pending Generation' },
-         generated_at: new Date().toISOString()
-       });
+    if (isStale) {
+      // Respond instantly with stale data
+      res.json({
+        student_id: parseInt(studentId),
+        cached: true,
+        ai_prediction: cachedValue,
+        generated_at: recentResult.rows[0].created_at,
+        status: 'STALE_REFRESHING'
+      });
+
+      // --- Background Refresh ---
+      // We wrap the rest in a non-blocking way
+      (async () => {
+        try {
+          const payload = await getStudentAIPayload(studentId);
+          if (payload) {
+            const prediction = await callFlaskAI(payload);
+            await query(
+              `INSERT INTO ai_insights (student_id, model_name, insight_type, result, confidence, input_data)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [studentId, 'Graceful-Refresh-Model', 'daily_risk_prediction', JSON.stringify(prediction), prediction.confidence || 0.8, JSON.stringify(payload)]
+            );
+            console.log(`[AI Cache] Refreshed stale data for student ${studentId}`);
+          }
+        } catch (e) {
+          console.error(`[AI Cache] Background refresh failed: ${e.message}`);
+        }
+      })();
+      
+      return; // End the request early
     }
+
+    // 2. FORCE REFRESH: If no cache or very old data
+    console.log(`[AI Cache] Force refresh required for student ${studentId} (Age: ${ageInHours.toFixed(1)}h)`);
 
     // 1) Build snapshot
     const payload = await getStudentAIPayload(studentId);
@@ -1013,10 +1188,13 @@ router.get('/chatbot/logs', authenticateToken, async (req, res) => {
     const { user_id: targetStudentId } = req.query;
     const { role, user_id: loggedInUserId } = req.user;
 
-    // Data Isolation: Coordinators can only see their students' logs
-    if (role === 'Coordinator' && targetStudentId) {
+    // Data Isolation: Coordinators/Supervisors can only see their students' logs
+    if ((role === 'Coordinator' || role === 'Supervisor') && targetStudentId) {
        const accessCheck = await query(
-        "SELECT record_id FROM ojt_records WHERE student_id = $1 AND coordinator_id = $2 AND status IN ('Ongoing', 'Active') LIMIT 1",
+        `SELECT record_id FROM ojt_records 
+         WHERE student_id = $1 
+         AND (${role === 'Coordinator' ? 'coordinator_id' : 'supervisor_id'} = $2) 
+         AND status IN ('Ongoing', 'Active') LIMIT 1`,
         [targetStudentId, loggedInUserId]
       );
       if (accessCheck.rows.length === 0) {
@@ -1032,9 +1210,9 @@ router.get('/chatbot/logs', authenticateToken, async (req, res) => {
     `;
     const params = [];
 
-    if (user_id) {
+    if (targetStudentId) {
       sql += ' AND c.user_id = $1';
-      params.push(user_id);
+      params.push(targetStudentId);
     }
 
     sql += ' ORDER BY c.timestamp DESC LIMIT 100';
@@ -1229,9 +1407,22 @@ router.get('/prediction/history/:studentId', authenticateToken, async (req, res)
     const { studentId } = req.params;
     const currentUser = req.user;
 
-    // Access check
+    // Access check: isolation for Students, Coordinators, and Supervisors
     if (currentUser.role === 'Student' && currentUser.user_id != studentId) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    if (currentUser.role === 'Coordinator' || currentUser.role === 'Supervisor') {
+      const accessCheck = await query(
+        `SELECT record_id FROM ojt_records 
+         WHERE student_id = $1 
+         AND (${currentUser.role === 'Coordinator' ? 'coordinator_id' : 'supervisor_id'} = $2) 
+         AND status IN ('Ongoing', 'Active') LIMIT 1`,
+        [studentId, currentUser.user_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access denied: student not assigned to you' });
+      }
     }
 
     const result = await query(
@@ -1262,6 +1453,48 @@ router.get('/prediction/history/:studentId', authenticateToken, async (req, res)
   } catch (error) {
     console.error('Get prediction history error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Streaming version of daily prediction for improved perceived latency
+router.get('/daily/stream/:studentId', async (req, res) => {
+  try {
+    const studentId = parseInt(req.params.studentId);
+    
+    // Step 1: Aggregate data (Reusable logic from standard predict)
+    const payload = await getStudentAIPayload(studentId);
+    
+    if (payload.error) {
+       return res.status(payload.status || 400).json(payload);
+    }
+
+    // Step 2: Set up streaming response headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Step 3: Proxy request to Python AI Service
+    const axios = require('axios');
+    const FLASK_AI_URL = process.env.FLASK_AI_URL || 'http://127.0.0.1:5000';
+    
+    const aiResponse = await axios({
+      method: 'post',
+      url: `${FLASK_AI_URL}/predict-stream`,
+      data: { student_data: payload },
+      responseType: 'stream'
+    });
+
+    aiResponse.data.pipe(res);
+
+    // Error handling on stream
+    aiResponse.data.on('error', (err) => {
+      console.error('[STREAM PROXY ERROR]', err);
+      res.end();
+    });
+
+  } catch (error) {
+    console.error('Streaming prediction error:', error);
+    res.status(500).json({ error: 'Internal server error during streaming' });
   }
 });
 

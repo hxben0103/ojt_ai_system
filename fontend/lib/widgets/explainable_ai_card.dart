@@ -1,37 +1,95 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/app_theme.dart';
+import '../services/prediction_service.dart';
 
-class ExplainableAiCard extends StatelessWidget {
+class ExplainableAiCard extends StatefulWidget {
   final Map<dynamic, dynamic> prediction;
   final bool isExpanded;
+  final int? studentId;
 
   const ExplainableAiCard({
     super.key,
     required this.prediction,
     this.isExpanded = false,
+    this.studentId,
   });
 
   @override
+  State<ExplainableAiCard> createState() => _ExplainableAiCardState();
+}
+
+class _ExplainableAiCardState extends State<ExplainableAiCard> {
+  String? _streamingSummary;
+  List<String> _streamingRecommendations = [];
+  bool _isStreaming = false;
+  StreamSubscription? _subscription;
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  void _startStreaming() {
+    if (widget.studentId == null || _isStreaming) return;
+
+    setState(() {
+      _isStreaming = true;
+      _streamingSummary = "";
+      _streamingRecommendations = [];
+    });
+
+    _subscription = PredictionService.getDailyPredictionStream(widget.studentId!).listen(
+      (chunk) {
+        if (chunk['type'] == 'token') {
+          setState(() {
+            _streamingSummary = (_streamingSummary ?? "") + (chunk['content'] as String);
+          });
+        }
+      },
+      onDone: () {
+        setState(() => _isStreaming = false);
+      },
+      onError: (e) {
+        setState(() {
+          _isStreaming = false;
+          _streamingSummary = "Error loading AI narrative: $e";
+        });
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (prediction['ai_prediction'] == null) return const SizedBox.shrink();
+    if (widget.prediction['ai_prediction'] == null) return const SizedBox.shrink();
     
-    final ai = Map<String, dynamic>.from(prediction['ai_prediction'] as Map);
-    final summary = ai['gemma_explanation'] as String? 
+    final ai = Map<String, dynamic>.from(widget.prediction['ai_prediction'] as Map);
+    
+    // Use streaming content if available, else fallback to static prediction
+    final summary = _streamingSummary 
+        ?? ai['gemma_explanation'] as String? 
         ?? ai['summary'] as String? 
-        ?? prediction['summary'] as String?
+        ?? widget.prediction['summary'] as String?
         ?? 'No summary available.';
 
-    final recommendations = (ai['gemma_recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
-        ?? (ai['recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
-        ?? (prediction['recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
-        ?? [];
+    final recommendations = _streamingRecommendations.isNotEmpty 
+        ? _streamingRecommendations
+        : (ai['gemma_recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
+            ?? (ai['recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
+            ?? (widget.prediction['recommendations'] as List<dynamic>?)?.map((e) => e.toString()).toList()
+            ?? [];
 
-    // Early-stage detection: show informational card ONLY when the backend explicitly
-    // flags early_stage:true AND we don't have a specific AI narrative yet.
-    final hasNarrative = (ai['gemma_explanation'] as String? ?? '').length > 10;
+    // Trigger stream if expanded and summary is the generic placeholder
+    final isPlaceholder = summary == 'No summary available.' || summary.isEmpty;
+    if (widget.isExpanded && isPlaceholder && !_isStreaming && widget.studentId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _startStreaming());
+    }
+
+    final hasNarrative = summary.length > 10;
     
-    final isEarlyStage = (prediction['early_stage'] == true || 
-                          prediction['is_context_gathering'] == true ||
+    final isEarlyStage = (widget.prediction['early_stage'] == true || 
+                          widget.prediction['is_context_gathering'] == true ||
                           ai['early_stage'] == true || 
                           ai['is_context_gathering'] == true) && !hasNarrative;
                           
@@ -71,24 +129,19 @@ class ExplainableAiCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: Risk & Confidence
           _buildHeader(context, riskLevel, probability, score),
           
-          if (isExpanded) ...[
+          if (widget.isExpanded) ...[
             const Divider(height: 1),
-            // Explainable Factors
             _buildFactorsSection(context, keyFactors),
             
             const Divider(height: 1),
-            // Grading Breakdown (The 20/20/20/40 logic)
             _buildGradingSection(context, grading),
             
             const Divider(height: 1),
-            // Integrity Insights
             _buildIntegritySection(context, integrity),
             
             const Divider(height: 1),
-            // Gemma AI Narrative
             _buildNarrativeSection(context, summary, recommendations),
           ],
         ],
@@ -151,7 +204,7 @@ class ExplainableAiCard extends StatelessWidget {
               ],
             ),
           ),
-          if (!isExpanded)
+          if (!widget.isExpanded)
             Icon(Icons.keyboard_arrow_down, color: Colors.grey.shade400),
         ],
       ),
@@ -366,6 +419,14 @@ class ExplainableAiCard extends StatelessWidget {
                   color: Colors.purple.shade800,
                 ),
               ),
+              if (_isStreaming) ...[
+                const SizedBox(width: 8),
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purple),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 8),
@@ -502,3 +563,4 @@ class ExplainableAiCard extends StatelessWidget {
     }
   }
 }
+

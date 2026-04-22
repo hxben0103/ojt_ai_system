@@ -66,3 +66,4 @@ class _LoadingSkeletonState extends State<LoadingSkeleton>
     );
   }
 }
+

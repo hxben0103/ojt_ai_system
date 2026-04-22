@@ -25,30 +25,38 @@ class ModernTableCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [AppTheme.cardShadow],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: AppTheme.softShadow,
+        border: Border.all(color: Colors.blueGrey.shade100, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
             child: Row(
               children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 20, color: Colors.grey[600]),
-                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(icon, size: 18, color: Colors.blueGrey.shade600),
+                  ),
+                  const SizedBox(width: 12),
                 ],
                 Text(
                   title,
-                  style: AppTheme.heading3.copyWith(fontSize: 16),
+                  style: AppTheme.heading3.copyWith(fontSize: 17, fontWeight: FontWeight.w700),
                 ),
                 const Spacer(),
                 if (headerAction != null) headerAction!,
               ],
             ),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: Colors.blueGrey.shade50),
           Padding(
             padding: padding ?? const EdgeInsets.all(0),
             child: table,
@@ -58,3 +66,4 @@ class ModernTableCard extends StatelessWidget {
     );
   }
 }
+

@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const dns = require('dns');
-require('dotenv').config({ path: './config/env/.env' });
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, 'env', '.env') });
 
 // Use IPv4 first (helps with Supabase ipv6 issues in some environments)
 dns.setDefaultResultOrder('ipv4first');
@@ -11,9 +12,10 @@ const pool = new Pool({
   max: 20, // Increased to 20 for batch AI predictions
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  // Automatically enable SSL for Supabase/Remote hosts, but allow fallback if server rejects it
+  ssl: process.env.DATABASE_URL.includes('localhost') || process.env.DATABASE_URL.includes('127.0.0.1') 
+    ? false 
+    : { rejectUnauthorized: false }
 });
 
 // Test connection and set default settings

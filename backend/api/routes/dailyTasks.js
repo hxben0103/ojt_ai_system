@@ -1,14 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../../config/db');
-const jwt = require('jsonwebtoken');
-
-// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
-  process.exit(1);
-}
 const authenticateToken = require('../middleware/auth');
 
 // =====================================================

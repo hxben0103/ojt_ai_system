@@ -20,6 +20,7 @@ import '../screens/login_screen.dart';
 import '../services/auth_service.dart';
 import '../models/attendance.dart';
 import '../screens/supervisor/supervisor_evaluation_form_screen.dart';
+import '../screens/supervisor/supervisor_overtime_requests_screen.dart';
 
 class SupervisorDashboard extends StatefulWidget {
   const SupervisorDashboard({super.key});
@@ -184,124 +185,131 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
           dataTextStyle: AppTheme.bodyMedium.copyWith(fontSize: 13),
         ),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          horizontalMargin: 20,
-          columnSpacing: 24,
-          dataRowMinHeight: 70,
-          dataRowMaxHeight: 75,
-          headingRowHeight: 56,
-          showCheckboxColumn: false,
-          columns: const [
-            DataColumn(label: Text('STUDENT')),
-            DataColumn(label: Text('INTEGRITY STATUS')),
-            DataColumn(label: Text('EVALUATION')),
-            DataColumn(label: Text('TIMELINE')),
-            DataColumn(label: Text('ACTION')),
-          ],
-          rows: provider.assignedStudents.map((record) {
-            final Attendance? todayRecord = provider.todayAttendanceMap[record.studentId];
-            final hasFlag = todayRecord?.verificationStatus == 'FLAGGED';
-            
-            return DataRow(
-              onSelectChanged: (_) => Navigator.push(
-                context, 
-                MaterialPageRoute(builder: (_) => StudentDetailScreen(record: record))
-              ),
-              cells: [
-                DataCell(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: AppTheme.supervisorPrimary.withOpacity(0.08),
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          (record.studentName ?? "S")[0].toUpperCase(),
-                          style: AppTheme.heading3.copyWith(color: AppTheme.supervisorPrimary, fontSize: 13),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: DataTable(
+                horizontalMargin: 20,
+                columnSpacing: 12,
+                dataRowMinHeight: 70,
+                dataRowMaxHeight: 75,
+                headingRowHeight: 56,
+                showCheckboxColumn: false,
+                columns: const [
+                  DataColumn(label: Text('STUDENT')),
+                  DataColumn(label: Text('INTEGRITY STATUS')),
+                  DataColumn(label: Text('EVALUATION')),
+                  DataColumn(label: Text('TIMELINE')),
+                  DataColumn(label: Text('ACTION')),
+                ],
+                rows: provider.assignedStudents.map((record) {
+                  final Attendance? todayRecord = provider.todayAttendanceMap[record.studentId];
+                  final hasFlag = todayRecord?.verificationStatus == 'FLAGGED';
+                  
+                  return DataRow(
+                    onSelectChanged: (_) => Navigator.push(
+                      context, 
+                      MaterialPageRoute(builder: (_) => StudentDetailScreen(record: record))
+                    ),
+                    cells: [
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: AppTheme.supervisorPrimary.withOpacity(0.08),
+                                shape: BoxShape.circle,
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                (record.studentName ?? "S")[0].toUpperCase(),
+                                style: AppTheme.heading3.copyWith(color: AppTheme.supervisorPrimary, fontSize: 13),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              record.studentName ?? 'Unknown Student',
+                              style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600, fontSize: 13),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Text(
-                        record.studentName ?? 'Unknown Student',
-                        style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600, fontSize: 13),
+                      DataCell(
+                        Builder(builder: (context) {
+                          final String risk = record.riskLevel ?? 'LOW';
+                          final bool missingToday = todayRecord == null;
+                          
+                          if (missingToday) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.blueGrey.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.blueGrey.shade100, width: 1),
+                              ),
+                              child: Text('NO SIGN-IN', 
+                                   style: AppTheme.caption.copyWith(fontSize: 8, color: Colors.blueGrey.shade500, fontWeight: FontWeight.w800)),
+                            );
+                          }
+
+                          Color statusColor = AppTheme.successColor;
+                          String statusText = 'CONSISTENT';
+
+                          if (risk == 'HIGH' || hasFlag) {
+                            statusColor = AppTheme.errorColor;
+                            statusText = hasFlag ? 'FLAGGED' : 'AT RISK';
+                          } else if (risk == 'MEDIUM') {
+                            statusColor = AppTheme.warningColor;
+                            statusText = 'IRREGULAR';
+                          }
+
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: statusColor.withOpacity(0.1), width: 1),
+                            ),
+                            child: Text(statusText, 
+                                 style: AppTheme.caption.copyWith(fontSize: 8, color: statusColor, fontWeight: FontWeight.w800)),
+                          );
+                        }),
+                      ),
+                      DataCell(
+                         Text(record.status == 'Evaluation Pending' ? '1 Pending' : 'None', 
+                             style: AppTheme.bodyMedium.copyWith(
+                               color: record.status == 'Evaluation Pending' ? AppTheme.warningColor : Colors.blueGrey.shade500,
+                               fontWeight: record.status == 'Evaluation Pending' ? FontWeight.w700 : FontWeight.w500,
+                               fontSize: 12,
+                             )),
+                      ),
+                      DataCell(
+                         Text(record.endDate != null ? DateFormat('MMM dd, yyyy').format(record.endDate!) : 'N/A', 
+                             style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w600, color: Colors.blueGrey.shade600, fontSize: 12)),
+                      ),
+                      DataCell(
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.supervisorPrimary.withOpacity(0.05),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.supervisorPrimary.withOpacity(0.4), size: 12),
+                        ),
                       ),
                     ],
-                  ),
-                ),
-                DataCell(
-                  Builder(builder: (context) {
-                    final String risk = record.riskLevel ?? 'LOW';
-                    final bool missingToday = todayRecord == null;
-                    
-                    if (missingToday) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.blueGrey.shade50,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.blueGrey.shade100, width: 1),
-                        ),
-                        child: Text('NO SIGN-IN', 
-                             style: AppTheme.caption.copyWith(fontSize: 8, color: Colors.blueGrey.shade500, fontWeight: FontWeight.w800)),
-                      );
-                    }
-
-                    Color statusColor = AppTheme.successColor;
-                    String statusText = 'CONSISTENT';
-
-                    if (risk == 'HIGH' || hasFlag) {
-                      statusColor = AppTheme.errorColor;
-                      statusText = hasFlag ? 'FLAGGED' : 'AT RISK';
-                    } else if (risk == 'MEDIUM') {
-                      statusColor = AppTheme.warningColor;
-                      statusText = 'IRREGULAR';
-                    }
-
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: statusColor.withOpacity(0.1), width: 1),
-                      ),
-                      child: Text(statusText, 
-                           style: AppTheme.caption.copyWith(fontSize: 8, color: statusColor, fontWeight: FontWeight.w800)),
-                    );
-                  }),
-                ),
-                DataCell(
-                   Text(record.status == 'Evaluation Pending' ? '1 Pending' : 'None', 
-                       style: AppTheme.bodyMedium.copyWith(
-                         color: record.status == 'Evaluation Pending' ? AppTheme.warningColor : Colors.blueGrey.shade500,
-                         fontWeight: record.status == 'Evaluation Pending' ? FontWeight.w700 : FontWeight.w500,
-                         fontSize: 12,
-                       )),
-                ),
-                DataCell(
-                   Text(record.endDate != null ? DateFormat('MMM dd, yyyy').format(record.endDate!) : 'N/A', 
-                       style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w600, color: Colors.blueGrey.shade600, fontSize: 12)),
-                ),
-                DataCell(
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: AppTheme.supervisorPrimary.withOpacity(0.05),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.supervisorPrimary.withOpacity(0.4), size: 12),
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
+                  );
+                }).toList(),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -353,6 +361,13 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             "Monitor & Evaluate Students",
             "Review progress and submit evaluations",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupervisorEvaluationFormScreen())),
+          ),
+          const SizedBox(height: 12),
+          _actionTile(
+            const Icon(Icons.more_time_rounded, color: Colors.purple, size: 20),
+            "Overtime Approvals",
+            "Review and approve student overtime requests",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupervisorOvertimeRequestsScreen())),
           ),
           const SizedBox(height: 12),
           _actionTile(

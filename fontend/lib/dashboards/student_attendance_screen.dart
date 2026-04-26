@@ -20,6 +20,7 @@ import '../services/geofence_service.dart';
 import '../services/location_security_service.dart';
 import '../core/attendance_constants.dart';
 import '../models/attendance.dart';
+import '../models/overtime_request.dart';
 import '../utils/web_image_picker.dart';
 import '../core/app_theme.dart';
 import '../widgets/geofence_verification_panel.dart';
@@ -61,6 +62,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   int? _lastTrustScore;
   double? _currentLat;
   double? _currentLng;
+  OvertimeRequest? _todayOvertimeRequest;
   
   // Map segment constants to display labels
   final Map<String, String> _segmentToLabel = {
@@ -270,10 +272,38 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       print('🔍 [Attendance] _loadTodayAttendance: fetching for student $_studentId, date $today');
       
       final attendance = await AttendanceService.getTodayAttendance(_studentId!, date: today);
-      print('🔍 [Attendance] _loadTodayAttendance: received attendance: ${attendance?.attendanceId}, morningIn: ${attendance?.morningIn}');
       
+      // Fetch overtime requests and find today's approved request
+      OvertimeRequest? otReqToday;
+      try {
+        final otRequests = await AttendanceService.getSupervisorOvertimeRequests();
+        final now = DateTime.now();
+        print('🔍 [OT] Fetched ${otRequests.length} overtime requests for student $_studentId');
+        for (final r in otRequests) {
+          print('🔍 [OT] Request #${r.requestId}: date=${r.date}, status=${r.status}, studentIds=${r.studentIds}, contains=${ r.studentIds.contains(_studentId)}');
+        }
+        otReqToday = otRequests.where((r) {
+          // CRITICAL: Convert OT date to local time before comparing!
+          // PostgreSQL DATE → JS Date (local midnight) → JSON (UTC) → Dart (UTC)
+          // Without .toLocal(), the day can shift back by 1 due to timezone offset
+          final otDateLocal = r.date.toLocal();
+          final dateMatch = otDateLocal.year == now.year && 
+                 otDateLocal.month == now.month && 
+                 otDateLocal.day == now.day;
+          final studentMatch = r.studentIds.contains(_studentId);
+          final statusMatch = r.status == 'Approved';
+          print('🔍 [OT] Filter: date=${r.date}→local=$otDateLocal, dateMatch=$dateMatch, studentMatch=$studentMatch, statusMatch=$statusMatch');
+          return dateMatch && studentMatch;
+        }).firstOrNull;
+        print('🔍 [OT] Result: ${otReqToday != null ? "FOUND (status=${otReqToday.status})" : "NOT FOUND"}');
+      } catch (e) {
+        print('⚠️ [OT] Failed to fetch overtime requests: $e');
+        // Non-fatal: don't block attendance loading
+      }
+
       if (mounted) {
         setState(() {
+          _todayOvertimeRequest = otReqToday;
           // Only set today's attendance if it exists and is from today
           if (attendance != null) {
             // Verify the attendance date matches today
@@ -683,7 +713,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         // Open camera/gallery to capture image on mobile
         final XFile? image = await picker.pickImage(
           source: imageSource,
-          imageQuality: 85, // Good quality for database storage
+          maxWidth: 600, // Aggressive resize to ensure it fits in DB (~50-100KB)
+          maxHeight: 600,
+          imageQuality: 50, // 50% quality is plenty for verification
           preferredCameraDevice: CameraDevice.front, // Use front camera for selfie
         );
 
@@ -742,16 +774,29 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           _attendanceImageBytes = imageBytes;
         });
       }
-
+                  
       try {
         // Encode image to base64 for database storage
         final base64Image = base64Encode(imageBytes);
         
-        // Get current date and time in local format
+        final otRequests = await AttendanceService.getSupervisorOvertimeRequests();
         final now = DateTime.now();
+        final otReqToday = otRequests.where((r) {
+          // CRITICAL: Use .toLocal() to prevent timezone date shift
+          final otDateLocal = r.date.toLocal();
+          return otDateLocal.year == now.year && 
+                 otDateLocal.month == now.month && 
+                 otDateLocal.day == now.day && 
+                 r.studentIds.contains(_studentId);
+        }).firstOrNull;
+        
+        // Get current date and time in local format
         final today = DateFormat('yyyy-MM-dd').format(now);
         final currentTime = DateFormat('HH:mm:ss').format(now);
         
+        // NOTE: Photos are stored as base64 text directly in the database.
+        // Supabase Storage bucket upload has been removed for simplicity.
+
         // Save the attendance date to SharedPreferences for daily reset check
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_attendance_date', today);
@@ -818,6 +863,17 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                           : attendance.overtimeOut),
             );
           });
+
+          // ── Persist attendance state to SharedPreferences for dashboard sync ──
+          final prefs = await SharedPreferences.getInstance();
+          final bool hasTimedIn = attendance.morningIn != null || 
+                                   attendance.afternoonIn != null || 
+                                   attendance.overtimeIn != null;
+          final bool isFullyComplete = attendance.afternoonOut != null || 
+                                       attendance.overtimeOut != null;
+          await prefs.setBool('is_timed_in', hasTimedIn && !isFullyComplete);
+          await prefs.setString('last_action_time', DateFormat('hh:mm a').format(DateTime.now()));
+          await prefs.setString('last_attendance_date', DateFormat('yyyy-MM-dd').format(DateTime.now()));
         }
 
         // Show success message
@@ -876,6 +932,15 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                 ],
               ),
             );
+          } else if (errorMsg.contains('already recorded') || errorMsg.contains('already exists')) {
+            // ── Segment already exists in DB — sync UI instead of showing error ──
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("ℹ️ $label was already recorded. Syncing your view..."),
+                duration: const Duration(seconds: 2),
+                backgroundColor: Colors.orange.shade700,
+              ),
+            );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -889,6 +954,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           setState(() {
             _attendanceImageBytes = null;
           });
+          
+          // ── CRITICAL: Always reload today's attendance to sync UI with DB ──
+          // This fixes the case where the record exists in DB but UI is stale
+          await _loadTodayAttendance();
         }
       } finally {
         if (mounted) {
@@ -1023,11 +1092,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            Image.network(
-              "https://cdn-icons-png.flaticon.com/512/1157/1157089.png",
-              width: 28,
-              height: 28,
-            ),
+            const Icon(Icons.draw_rounded, color: Colors.orange, size: 28),
             const SizedBox(width: 8),
             const Text("Certified By"),
           ],
@@ -1058,12 +1123,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            icon: Image.network(
-              "https://cdn-icons-png.flaticon.com/512/1828/1828640.png",
-              width: 20,
-              height: 20,
-              color: Colors.white,
-            ),
+            icon: const Icon(Icons.check_circle, color: Colors.white),
             label: const Text("Save Signature"),
           ),
         ],
@@ -1175,38 +1235,65 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   Widget _buildActionButtons() {
     final now = DateTime.now();
     final isAfternoonTime = now.hour > 12 || (now.hour == 12 && now.minute >= 30);
+    final isPastRegularHours = now.hour >= 17; // 5:00 PM — regular session ends
     String? nextInSegment;
     String? nextOutSegment;
 
     if (_todayAttendance == null) {
-      // If first punch of the day, suggest based on time
-      nextInSegment = isAfternoonTime ? AttendanceSegments.afternoonIn : AttendanceSegments.morningIn;
+      if (isPastRegularHours) {
+        // Past 5 PM with no attendance — regular sessions are over, no time-in available
+        nextInSegment = null;
+      } else {
+        // First punch of the day, suggest based on time
+        nextInSegment = isAfternoonTime ? AttendanceSegments.afternoonIn : AttendanceSegments.morningIn;
+      }
     } else {
       final att = _todayAttendance!;
       
-      // Check current state based on what's already logged, progressing linearly
-      // If afternoon is active or completed, we completely ignore missing morning logs
-      if (att.afternoonIn != null) {
+      // ── OVERTIME FLOW (after regular hours) ──
+      if (att.overtimeIn != null && att.overtimeOut == null) {
+        // Currently in overtime — only allow time out
+        nextOutSegment = AttendanceSegments.overtimeOut;
+      }
+      // ── AFTERNOON FLOW ──
+      else if (att.afternoonIn != null) {
         if (att.afternoonOut == null) {
           nextOutSegment = AttendanceSegments.afternoonOut;
-        } else if (att.overtimeIn == null && (now.hour >= 17)) { // Only suggest OT if it's past 5 PM
-          nextInSegment = AttendanceSegments.overtimeIn;
-        } else if (att.overtimeIn != null && att.overtimeOut == null) {
-          nextOutSegment = AttendanceSegments.overtimeOut;
+        } else if (att.overtimeIn == null && isPastRegularHours) {
+          // Afternoon completed + past 5 PM → suggest overtime
+          // Backend enforces approval check, so we show the button
+          final hasApprovedOT = _todayOvertimeRequest?.status == 'Approved';
+          if (hasApprovedOT) {
+            nextInSegment = AttendanceSegments.overtimeIn;
+          }
+          // If no approved OT, both buttons stay null (completed for the day)
         }
-      } 
-      // If nothing logged yet but it's afternoon, allow skipping morning
-      else if (att.morningIn == null && isAfternoonTime) {
+      }
+      // ── No afternoon yet ──
+      else if (att.morningIn == null && isAfternoonTime && !isPastRegularHours) {
+        // Afternoon time but before 5 PM — allow skipping morning
         nextInSegment = AttendanceSegments.afternoonIn;
       }
-      // Normal morning flow
-      else if (att.morningIn == null) {
+      else if (att.morningIn == null && !isPastRegularHours) {
         nextInSegment = AttendanceSegments.morningIn;
       } else if (att.morningOut == null) {
         nextOutSegment = AttendanceSegments.morningOut;
-      } else {
-        // Morning completed, prompt for afternoon
+      } else if (!isPastRegularHours) {
+        // Morning completed, before 5 PM → prompt for afternoon
         nextInSegment = AttendanceSegments.afternoonIn;
+      }
+      // Past 5 PM with morning done but no afternoon → regular hours are over
+    }
+
+    // Determine status message for after-hours
+    String? afterHoursMessage;
+    if (isPastRegularHours && nextInSegment == null && nextOutSegment == null) {
+      if (_todayAttendance?.afternoonOut != null && _todayOvertimeRequest == null) {
+        afterHoursMessage = "Regular hours completed. Submit an overtime request through your supervisor to log overtime.";
+      } else if (_todayAttendance?.afternoonOut != null && _todayOvertimeRequest?.status != 'Approved') {
+        afterHoursMessage = "Overtime request pending coordinator approval.";
+      } else if (_todayAttendance == null || _todayAttendance?.afternoonOut == null) {
+        afterHoursMessage = "Regular hours (8 AM - 5 PM) have ended for today.";
       }
     }
 
@@ -1238,6 +1325,30 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                 "Time In/Out disabled because you are outside geofence.",
                 style: TextStyle(color: AppTheme.errorColor, fontSize: 12),
                 textAlign: TextAlign.center,
+              ),
+            ),
+          if (afterHoursMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        afterHoursMessage,
+                        style: TextStyle(color: Colors.blue.shade700, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],

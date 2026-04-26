@@ -1,5 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config({ path: './config/env/.env' });
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../config/env/.env') });
 
 const BUCKET = 'attendance-photos';
 

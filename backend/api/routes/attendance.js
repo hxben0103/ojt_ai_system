@@ -1,24 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const path = require('path');
-const multer = require('multer');
 const { query } = require('../../config/db');
-const { uploadAttendancePhoto } = require('../../config/supabaseClient');
-const jwt = require('jsonwebtoken');
 const axios = require('axios');
 
-// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
-  process.exit(1);
-}
-
-// Photo upload: use memory storage (no local disk writes)
-const uploadPhoto = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-}).single('photo');
+// NOTE: Photo storage now uses base64 text in the database (attendance_image column).
+// The Supabase Storage bucket upload and multer middleware have been removed.
 
 // Helper: compute verification_status from optional geo/trust (default threshold 60)
 function computeVerificationStatus(insideGeofence, trustScore, threshold = 60) {
@@ -68,12 +54,15 @@ router.get('/', authenticateToken, async (req, res) => {
       SELECT 
         a.attendance_id, a.student_id, a.date, 
         a.morning_in, a.morning_out, a.afternoon_in, a.afternoon_out,
+        a.overtime_in, a.overtime_out,
         a.overtime_hours, a.regular_hours, 
         a.total_hours, a.deduction_minutes,
         a.status, a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng, 
         a.inside_geofence, a.accuracy_m, a.distance_m,
         a.verification_status, a.trust_score, a.trust_flags,
-        a.checkin_photo_path, a.photo_url, (a.attendance_image IS NOT NULL) AS has_base64_image,
+        a.checkin_photo_path, a.checkout_photo_path, a.photo_url, a.checkout_photo_url,
+        (a.attendance_image IS NOT NULL) AS has_base64_image,
+        (a.checkout_image IS NOT NULL) AS has_checkout_image,
         a.coordinator_comment, a.coordinator_comment_at,
         u.full_name
       FROM attendance a
@@ -93,6 +82,7 @@ router.get('/', authenticateToken, async (req, res) => {
         SELECT 1 FROM ojt_records o 
         WHERE o.student_id = a.student_id 
         AND o.coordinator_id = $${paramCount}
+        AND o.status IN ('Active', 'Ongoing')
       )`;
       params.push(user_id);
       paramCount++;
@@ -128,10 +118,13 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const result = await query(sql, params);
     
-    // Format all dates to YYYY-MM-DD string
+    // Format all dates and add photo flags
     const formattedRows = result.rows.map(row => ({
       ...row,
-      date: formatDate(row.date)
+      date: formatDate(row.date),
+      photo_url: row.photo_url || row.checkin_photo_path,
+      has_base64_image: !!row.has_base64_image,
+      has_checkout_image: !!row.has_checkout_image
     }));
     
     res.json({ attendance: formattedRows });
@@ -148,7 +141,7 @@ router.get('/:id/image', authenticateToken, async (req, res) => {
     const { role, user_id: loggedInUserId } = req.user;
 
     const sql = `
-      SELECT a.attendance_image, a.student_id 
+      SELECT a.attendance_image, a.checkout_image, a.student_id 
       FROM attendance a 
       WHERE a.attendance_id = $1
     `;
@@ -173,7 +166,10 @@ router.get('/:id/image', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access Denied', message: 'You can only view your own attendance images.' });
     }
 
-    res.json({ attendance_image: attendance.attendance_image });
+    res.json({ 
+      attendance_image: attendance.attendance_image,
+      checkout_image: attendance.checkout_image
+    });
   } catch (error) {
     console.error('Get attendance image error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -203,7 +199,21 @@ router.get('/today/:studentId', authenticateToken, async (req, res) => {
       }
     }
 
-    const sql = `SELECT a.*, u.full_name
+    // Explicit columns — exclude heavy base64 blobs (attendance_image, checkout_image)
+    // Those are loaded lazily via GET /:id/image
+    const sql = `SELECT a.attendance_id, a.student_id, a.date,
+                   a.morning_in, a.morning_out, a.afternoon_in, a.afternoon_out,
+                   a.overtime_in, a.overtime_out,
+                   a.total_hours, a.regular_hours, a.overtime_hours, a.deduction_minutes,
+                   a.verified, a.verified_by, a.verified_at, a.status,
+                   a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng,
+                   a.inside_geofence, a.accuracy_m, a.distance_m,
+                   a.verification_status, a.trust_score, a.trust_flags,
+                   a.checkin_photo_path, a.checkout_photo_path, a.photo_url, a.checkout_photo_url,
+                   (a.attendance_image IS NOT NULL) AS has_base64_image,
+                   (a.checkout_image IS NOT NULL) AS has_checkout_image,
+                   a.coordinator_comment, a.coordinator_comment_at, a.signature,
+                   u.full_name
                  FROM attendance a
                  JOIN users u ON a.student_id = u.user_id
                  WHERE a.student_id = $1 AND a.date = $2`;
@@ -211,11 +221,17 @@ router.get('/today/:studentId', authenticateToken, async (req, res) => {
     const params = [studentId, calculatedDate];
 
     const result = await query(sql, params);
-
-    if (result.rows.length > 0) {
-      const attendance = result.rows[0];
-      attendance.date = formatDate(attendance.date);
-      res.json({ attendance });
+    
+    const attendanceList = result.rows.map(row => ({
+      ...row,
+      date: formatDate(row.date),
+      photo_url: row.photo_url || row.checkin_photo_path,
+      has_base64_image: !!row.has_base64_image,
+      has_checkout_image: !!row.has_checkout_image
+    }));
+    
+    if (attendanceList.length > 0) {
+      res.json({ attendance: attendanceList[0] });
     } else {
       res.json({ attendance: null });
     }
@@ -225,58 +241,12 @@ router.get('/today/:studentId', authenticateToken, async (req, res) => {
   }
 });
 
-// Get specific attendance image (lazy loading)
-router.get('/:id/image', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await query(
-      'SELECT attendance_image FROM attendance WHERE attendance_id = $1',
-      [id]
-    );
+// NOTE: Duplicate unauthenticated /:id/image route removed.
+// The authenticated version above (line 148) is the canonical one.
 
-    if (result.rows.length > 0) {
-      res.json({ attendance_image: result.rows[0].attendance_image });
-    } else {
-      res.status(404).json({ error: 'Attendance record not found' });
-    }
-  } catch (error) {
-    console.error('Get attendance image error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Upload attendance photo to Supabase Storage
-router.post('/upload-photo', uploadPhoto, async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No photo file provided' });
-    }
-
-    // Build unique filename
-    const studentId = (req.body && req.body.student_id) || '0';
-    const type = (req.body && req.body.photo_type) || 'checkin';
-    const ts = Date.now();
-    const ext = (req.file.originalname && path.extname(req.file.originalname)) || '.jpg';
-    const fileName = `attendance_${studentId}_${ts}_${type}${ext} `;
-
-    // Upload to Supabase Storage
-    const result = await uploadAttendancePhoto(req.file.buffer, fileName, req.file.mimetype);
-
-    if (result.error) {
-      console.error('Photo upload failed:', result.error);
-      return res.status(500).json({ error: result.error });
-    }
-
-    res.status(201).json({
-      path: result.path,
-      publicUrl: result.publicUrl,
-      filename: fileName,
-    });
-  } catch (error) {
-    console.error('Upload photo error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// NOTE: /upload-photo endpoint removed.
+// Photos are now stored as base64 text in the attendance_image column.
+// This eliminates the Supabase Storage dependency and the unauthenticated upload vulnerability.
 
 // Create attendance record (Time In) - Using stored procedure
 // Supports both legacy time_in and segment-based logging
@@ -293,7 +263,7 @@ router.post('/time-in', authenticateToken, async (req, res) => {
       student_id, attendance_id, segment, date, time_out, attendance_image,
       checkout_lat, checkout_lng, accuracy_m, distance_m, inside_geofence, trust_score, trust_flags,
       checkout_photo_path, checkout_photo_url, checkout_photo_captured_at, verification_status: bodyVerificationStatus,
-      checkin_lat, checkin_lng // Legacy support for passing both at once
+      checkin_lat, checkin_lng, photo_url, checkin_photo_path, checkin_photo_captured_at // Include all photo fields
     } = req.body;
 
     if (!student_id) {
@@ -355,6 +325,29 @@ router.post('/time-in', authenticateToken, async (req, res) => {
       }
     } else {
       return res.status(400).json({ error: 'segment is required' });
+    }
+
+    // I2 FIX: Validate overtime approval before allowing OVERTIME_IN
+    if (overtimeIn !== null) {
+      try {
+        const otApprovalCheck = await query(
+          `SELECT request_id FROM supervisor_overtime_requests
+           WHERE $1 = ANY(student_ids)
+             AND date = $2
+             AND status = 'Approved'
+           LIMIT 1`,
+          [student_id, currentDate]
+        );
+        if (otApprovalCheck.rows.length === 0) {
+          return res.status(403).json({
+            error: 'Overtime not approved. A supervisor must submit an overtime request and the coordinator must approve it before you can log overtime.'
+          });
+        }
+        console.log(`[Attendance] Overtime approved (request ${otApprovalCheck.rows[0].request_id}) for student ${student_id} on ${currentDate}`);
+      } catch (otErr) {
+        console.error('[Attendance] Overtime approval check failed:', otErr.message);
+        // If the table doesn't exist yet, allow overtime (backward compatible)
+      }
     }
 
     // --- ATOMIC TRANSACTION BLOCK ---
@@ -448,15 +441,11 @@ router.post('/time-in', authenticateToken, async (req, res) => {
         updateValues.push(overtimeIn);
       }
 
-      // Update attendance_image ONLY if it is small (e.g. signature or thumbnail)
-      // Large selfies should use checkin_photo_path or photo_url instead
+      // Store attendance photo as base64 text in DB (no size limit)
       if (attendance_image) {
-        if (String(attendance_image).length < 50000) { // < 50KB limit for DB storage
-          updateFields.push(`attendance_image = $${paramCount++} `);
-          updateValues.push(attendance_image);
-        } else {
-          console.log(`[Attendance] Image too large for DB storage (${Math.round(attendance_image.length/1024)}KB). Use storage bucket instead.`);
-        }
+        updateFields.push(`attendance_image = $${paramCount++} `);
+        updateValues.push(attendance_image);
+        console.log(`[Attendance] Storing base64 image (${Math.round(String(attendance_image).length/1024)}KB) in DB`);
       }
 
       // Ensure status is 'Approved' for auto-logging
@@ -566,21 +555,53 @@ router.post('/time-in', authenticateToken, async (req, res) => {
 
     geoVals.push(attendanceId);
     try {
-      await query(
-        `UPDATE attendance SET ${geoParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${p} `,
+      console.log(`[Attendance POST /time-in] Updating optional columns for ID ${attendanceId}:`, {
+        lat: clat, lng: clng, dist, inside: inside_geofence, photo: checkin_photo_path ? 'YES' : 'NO'
+      });
+      const geoResult = await query(
+        `UPDATE attendance SET ${geoParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE attendance_id = $${p} RETURNING *`,
         geoVals
       );
+      if (geoResult.rows.length > 0) {
+        console.log(`[Attendance POST /time-in] Successfully updated geo columns for record ${attendanceId}`);
+      } else {
+        console.warn(`[Attendance POST /time-in] No rows updated for geo columns for ID ${attendanceId}`);
+      }
     } catch (err) {
-      console.warn('Optional attendance columns may not exist:', err.message);
+      console.error('[Attendance POST /time-in] Optional attendance columns update FAILED:', err.message);
     }
 
-    // Get the updated/created attendance record
+    // Get the updated/created attendance record (direct query to return ALL fields the Flutter model needs)
     const attendanceResult = await query(
-      'SELECT get_attendance($1) as attendance',
+      `SELECT a.attendance_id, a.student_id, a.date,
+              a.morning_in, a.morning_out, a.afternoon_in, a.afternoon_out,
+              a.overtime_in, a.overtime_out,
+              a.total_hours, a.regular_hours, a.overtime_hours, a.deduction_minutes,
+              a.verified, a.verified_by, a.verified_at, a.status,
+              a.checkin_lat, a.checkin_lng, a.checkout_lat, a.checkout_lng,
+              a.inside_geofence, a.accuracy_m, a.distance_m,
+              a.verification_status, a.trust_score, a.trust_flags,
+              a.checkin_photo_path, a.checkout_photo_path, a.photo_url, a.checkout_photo_url,
+              (a.attendance_image IS NOT NULL) AS has_base64_image,
+              (a.checkout_image IS NOT NULL) AS has_checkout_image,
+              a.coordinator_comment, a.coordinator_comment_at, a.signature,
+              u.full_name
+       FROM attendance a
+       JOIN users u ON a.student_id = u.user_id
+       WHERE a.attendance_id = $1`,
       [attendanceId]
     );
 
-    const savedAttendance = attendanceResult.rows[0].attendance;
+    if (attendanceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Attendance record not found after save' });
+    }
+
+    const savedAttendance = {
+      ...attendanceResult.rows[0],
+      date: formatDate(attendanceResult.rows[0].date),
+      has_base64_image: !!attendanceResult.rows[0].has_base64_image,
+      has_checkout_image: !!attendanceResult.rows[0].has_checkout_image
+    };
     console.log("✅ [Attendance POST /time-in] Attendance saved:", {
       attendance_id: savedAttendance?.attendance_id,
       student_id: savedAttendance?.student_id,
@@ -755,14 +776,11 @@ router.put('/time-out', authenticateToken, async (req, res) => {
       console.log("[Attendance PUT /time-out] Meta-only update requested (no new segment logged)");
     }
 
-    // Always update attendance_image if provided AND small
+    // Store checkout photo in separate column (preserves time-in photo in attendance_image)
     if (attendance_image) {
-      if (String(attendance_image).length < 50000) {
-        updateFields.push(`attendance_image = $${paramCount++}`);
-        updateValues.push(attendance_image);
-      } else {
-        console.log(`[Attendance] Timeout image too large for DB storage. Use storage bucket instead.`);
-      }
+      updateFields.push(`checkout_image = $${paramCount++}`);
+      updateValues.push(attendance_image);
+      console.log(`[Attendance] Storing checkout base64 image (${Math.round(String(attendance_image).length/1024)}KB) in checkout_image column`);
     }
 
     // Optional geofence/trust/checkout/photo/verification (time-out)
@@ -797,6 +815,7 @@ router.put('/time-out', authenticateToken, async (req, res) => {
         RETURNING *
       `;
 
+    console.log(`[Attendance PUT /time-out] Updating record ${attendanceId} with fields:`, updateFields);
     const updateResult = await query(updateSql, updateValues);
     if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: 'Failed to update attendance record' });
@@ -1174,6 +1193,150 @@ router.get('/heatmap', authenticateToken, async (req, res) => {
     res.json({ records: result.rows });
   } catch (error) {
     console.error('Heatmap error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+// --- SUPERVISOR BATCH OVERTIME REQUESTS (Formal Letter to Coordinator) ---
+
+// 1. Supervisor submits a batch overtime request with formal letter
+router.post('/supervisor-overtime-request', authenticateToken, async (req, res) => {
+  try {
+    const { date, student_ids, formal_letter } = req.body;
+    const supervisorId = req.user.user_id;
+    const role = req.user.role;
+
+    if (role !== 'Supervisor' && role !== 'Industry Supervisor' && role !== 'Admin') {
+      return res.status(403).json({ error: 'Only supervisors can submit overtime requests.' });
+    }
+
+    if (!student_ids || !Array.isArray(student_ids) || student_ids.length === 0) {
+      return res.status(400).json({ error: 'Please select at least one student.' });
+    }
+    if (!formal_letter || formal_letter.trim().length === 0) {
+      return res.status(400).json({ error: 'A formal letter is required.' });
+    }
+    if (!date) {
+      return res.status(400).json({ error: 'Date is required.' });
+    }
+
+    // Find the coordinator for these students (use the first student's coordinator)
+    const coordCheck = await query(
+      `SELECT DISTINCT coordinator_id FROM ojt_records
+       WHERE student_id = ANY($1) AND status IN ('Active','Ongoing') AND coordinator_id IS NOT NULL
+       LIMIT 1`,
+      [student_ids]
+    );
+    const coordinatorId = coordCheck.rows.length > 0 ? coordCheck.rows[0].coordinator_id : null;
+
+    const result = await query(
+      `INSERT INTO supervisor_overtime_requests (supervisor_id, coordinator_id, date, student_ids, formal_letter, status)
+       VALUES ($1, $2, $3, $4, $5, 'Pending')
+       RETURNING *`,
+      [supervisorId, coordinatorId, date, student_ids, formal_letter.trim()]
+    );
+
+    res.json({ success: true, request: result.rows[0] });
+  } catch (err) {
+    console.error('Submit supervisor overtime request error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 2. Get overtime requests (role-aware)
+router.get('/supervisor-overtime-requests', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const role = req.user.role;
+    let result;
+
+    if (role === 'Student') {
+      // Students see requests that include them
+      result = await query(
+        `SELECT r.*, sup.full_name as supervisor_name
+         FROM supervisor_overtime_requests r
+         LEFT JOIN users sup ON r.supervisor_id = sup.user_id
+         WHERE $1 = ANY(r.student_ids)
+         ORDER BY r.date DESC`,
+        [userId]
+      );
+    } else if (role === 'Supervisor' || role === 'Industry Supervisor') {
+      result = await query(
+        `SELECT r.*, c.full_name as coordinator_name
+         FROM supervisor_overtime_requests r
+         LEFT JOIN users c ON r.coordinator_id = c.user_id
+         WHERE r.supervisor_id = $1
+         ORDER BY r.created_at DESC`,
+        [userId]
+      );
+    } else if (role === 'Coordinator' || role === 'Admin') {
+      const otParams = role === 'Coordinator' ? [userId] : [];
+      const otFilter = role === 'Coordinator' ? 'WHERE r.coordinator_id = $1' : '';
+      result = await query(
+        `SELECT r.*, sup.full_name as supervisor_name
+         FROM supervisor_overtime_requests r
+         LEFT JOIN users sup ON r.supervisor_id = sup.user_id
+         ${otFilter}
+         ORDER BY r.created_at DESC`,
+        otParams
+      );
+    }
+
+    // Resolve student names for each request
+    const requests = result ? result.rows : [];
+    for (const req_item of requests) {
+      // Normalize date to prevent timezone shift (DATE → JS Date → UTC ISO → wrong day)
+      if (req_item.date) {
+        req_item.date = formatDate(req_item.date);
+      }
+      if (req_item.student_ids && req_item.student_ids.length > 0) {
+        const namesResult = await query(
+          `SELECT user_id, full_name FROM users WHERE user_id = ANY($1)`,
+          [req_item.student_ids]
+        );
+        req_item.student_names = namesResult.rows;
+      } else {
+        req_item.student_names = [];
+      }
+    }
+
+    res.json({ requests });
+  } catch (err) {
+    console.error('Get supervisor overtime requests error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 3. Coordinator approves/rejects a batch overtime request
+router.put('/supervisor-overtime-request/:id/status', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, coordinator_remarks } = req.body;
+    const userId = req.user.user_id;
+    const role = req.user.role;
+
+    if (role !== 'Coordinator' && role !== 'Admin') {
+      return res.status(403).json({ error: 'Only coordinators can approve overtime requests.' });
+    }
+
+    if (!['Approved', 'Rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be Approved or Rejected.' });
+    }
+
+    const check = await query(`SELECT * FROM supervisor_overtime_requests WHERE request_id = $1`, [id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Request not found.' });
+
+    const result = await query(
+      `UPDATE supervisor_overtime_requests
+       SET status = $1, coordinator_remarks = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE request_id = $3 RETURNING *`,
+      [status, coordinator_remarks || null, id]
+    );
+
+    res.json({ success: true, request: result.rows[0] });
+  } catch (err) {
+    console.error('Coordinator overtime status update error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

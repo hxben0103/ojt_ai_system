@@ -287,19 +287,13 @@ router.post('/login', async (req, res) => {
 });
 
 // Get User Profile
-router.get('/profile', async (req, res) => {
+// E10 FIX: Use shared authenticateToken middleware instead of manual JWT verification
+// This ensures query-param token fallback works and error messages are consistent
+router.get('/profile', authenticateToken, async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-
     const result = await query(
       'SELECT * FROM users WHERE user_id = $1',
-      [decoded.user_id]
+      [req.user.user_id]
     );
 
     if (result.rows.length === 0) {
@@ -327,13 +321,18 @@ router.get('/profile', async (req, res) => {
     });
   } catch (error) {
     console.error('Profile error:', error);
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Get All Users (Admin only)
-router.get('/users', async (req, res) => {
+router.get('/users', authenticateToken, async (req, res) => {
   try {
+    // Only Admin and Coordinator can list users
+    if (req.user.role !== 'Admin' && req.user.role !== 'Coordinator') {
+      return res.status(403).json({ error: 'Access denied: insufficient permissions' });
+    }
+
     const result = await query(
       'SELECT user_id, full_name, email, role, status, date_created, course, program FROM users ORDER BY date_created DESC'
     );
@@ -365,14 +364,39 @@ router.get('/pending', authenticateToken, async (req, res) => {
          ORDER BY date_created DESC`
       );
     } else if (role === 'Coordinator') {
-      // Coordinator can see pending Students and Supervisors
-      result = await query(
-        `SELECT user_id, full_name, email, role, status, student_id, course, 
-         age, gender, contact_number, address, date_created 
-         FROM users 
-         WHERE role IN ('Student', 'Supervisor') AND status = 'Pending' 
-         ORDER BY date_created DESC`
+      // Program-Bound Approval: Coordinator only sees pending Students
+      // whose course matches the coordinator's own course/program.
+      // Supervisors are not program-bound, so all coordinators can see them.
+      const coordResult = await query(
+        'SELECT course FROM users WHERE user_id = $1',
+        [user_id]
       );
+      const coordCourse = coordResult.rows[0]?.course || null;
+
+      if (coordCourse) {
+        // Coordinator has a program set — show matching students + all supervisors
+        result = await query(
+          `SELECT user_id, full_name, email, role, status, student_id, course, 
+           age, gender, contact_number, address, date_created 
+           FROM users 
+           WHERE status = 'Pending' 
+             AND (
+               (role = 'Student' AND course = $1)
+               OR role = 'Supervisor'
+             )
+           ORDER BY date_created DESC`,
+          [coordCourse]
+        );
+      } else {
+        // Coordinator has no program set — fallback: show all pending (backward compat)
+        result = await query(
+          `SELECT user_id, full_name, email, role, status, student_id, course, 
+           age, gender, contact_number, address, date_created 
+           FROM users 
+           WHERE role IN ('Student', 'Supervisor') AND status = 'Pending' 
+           ORDER BY date_created DESC`
+        );
+      }
     } else {
       return res.status(403).json({ error: 'You do not have permission to view pending users' });
     }
@@ -408,7 +432,20 @@ router.put('/approve/:userId', authenticateToken, async (req, res) => {
     if (role === 'Admin' && userToApprove.role === 'Coordinator') {
       // Admin approving Coordinator - allowed
     } else if (role === 'Coordinator' && (userToApprove.role === 'Student' || userToApprove.role === 'Supervisor')) {
-      // Coordinator approving Student/Supervisor - allowed
+      // Program-Bound Check: Coordinator can only approve Students from their own program
+      if (userToApprove.role === 'Student') {
+        const coordResult = await query(
+          'SELECT course FROM users WHERE user_id = $1',
+          [req.user.user_id]
+        );
+        const coordCourse = coordResult.rows[0]?.course || null;
+        if (coordCourse && userToApprove.course && coordCourse !== userToApprove.course) {
+          return res.status(403).json({
+            error: `You can only approve students from your program (${coordCourse}). This student belongs to ${userToApprove.course}.`
+          });
+        }
+      }
+      // Supervisor approval — no program restriction
     } else {
       return res.status(403).json({
         error: 'You do not have permission to approve this user'
@@ -466,7 +503,20 @@ router.put('/reject/:userId', authenticateToken, async (req, res) => {
     if (role === 'Admin' && userToReject.role === 'Coordinator') {
       // Admin rejecting Coordinator - allowed
     } else if (role === 'Coordinator' && (userToReject.role === 'Student' || userToReject.role === 'Supervisor')) {
-      // Coordinator rejecting Student/Supervisor - allowed
+      // Program-Bound Check: Coordinator can only reject Students from their own program
+      if (userToReject.role === 'Student') {
+        const coordResult = await query(
+          'SELECT course FROM users WHERE user_id = $1',
+          [req.user.user_id]
+        );
+        const coordCourse = coordResult.rows[0]?.course || null;
+        if (coordCourse && userToReject.course && coordCourse !== userToReject.course) {
+          return res.status(403).json({
+            error: `You can only reject students from your program (${coordCourse}). This student belongs to ${userToReject.course}.`
+          });
+        }
+      }
+      // Supervisor rejection — no program restriction
     } else {
       return res.status(403).json({
         error: 'You do not have permission to reject this user'
@@ -515,10 +565,17 @@ router.put('/batch-approve', authenticateToken, async (req, res) => {
 
     // Determine which roles this user can approve
     let allowedTargetRoles = [];
+    let coordCourse = null;
     if (role === 'Admin') {
       allowedTargetRoles = ['Coordinator'];
     } else if (role === 'Coordinator') {
       allowedTargetRoles = ['Student', 'Supervisor'];
+      // Fetch coordinator's program for course-binding
+      const coordResult = await query(
+        'SELECT course FROM users WHERE user_id = $1',
+        [req.user.user_id]
+      );
+      coordCourse = coordResult.rows[0]?.course || null;
     } else {
       return res.status(403).json({ error: 'You do not have batch approval permissions' });
     }
@@ -527,7 +584,7 @@ router.put('/batch-approve', authenticateToken, async (req, res) => {
       try {
         // Verify user exists and is pending
         const userCheck = await query(
-          'SELECT role, status FROM users WHERE user_id = $1',
+          'SELECT role, status, course FROM users WHERE user_id = $1',
           [userId]
         );
 
@@ -541,6 +598,13 @@ router.put('/batch-approve', authenticateToken, async (req, res) => {
         if (!allowedTargetRoles.includes(targetUser.role)) {
           results.failed++;
           results.errors.push(`User ${userId}: insufficient permissions for role ${targetUser.role}`);
+          continue;
+        }
+
+        // Program-Bound Check: Skip students from a different program
+        if (role === 'Coordinator' && targetUser.role === 'Student' && coordCourse && targetUser.course && coordCourse !== targetUser.course) {
+          results.failed++;
+          results.errors.push(`User ${userId}: belongs to ${targetUser.course}, your program is ${coordCourse}`);
           continue;
         }
 

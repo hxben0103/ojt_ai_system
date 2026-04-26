@@ -97,6 +97,7 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
         content['student_id'] = student.studentId;
         content['student_name'] = student.studentName;
         content['company'] = student.companyName;
+        content['supervisor_name'] = student.supervisorName;
 
         // If it's an OJT Summary, fetch detailed requirement compliance
         if (reportType == 'OJT Summary' && student.studentId != null) {
@@ -618,9 +619,13 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
     return RepaintBoundary(
       child: Material(
         color: Colors.transparent,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: DataTable(
             columnSpacing: 15,
             headingRowHeight: 40,
             dataRowHeight: 40,
@@ -686,9 +691,12 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
             }).toList(),
           ),
         ),
-      ),
-    );
-  }
+      );
+    },
+  ),
+),
+);
+}
 }
 
 

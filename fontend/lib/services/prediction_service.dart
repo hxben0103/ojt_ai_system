@@ -59,17 +59,25 @@ class PredictionService {
       }
 
       final response = await ApiService.get(endpoint);
-      final List<dynamic> data = response['performance'] ?? [];
-      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final perfData = response['performance'];
+
+      // Backend returns a single object, not an array — wrap it
+      if (perfData == null) return [];
+      if (perfData is List) {
+        return perfData.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      // Single object response
+      return [Map<String, dynamic>.from(perfData as Map)];
     } catch (e) {
       throw Exception('Failed to fetch performance predictions: $e');
     }
   }
 
   // Get chatbot logs
+  // E2 FIX: Use canonical chatbot.js routes (previous prediction.js duplicates were removed)
   static Future<List<ChatbotLog>> getChatbotLogs({int? userId}) async {
     try {
-      String endpoint = '${ApiConfig.prediction}/chatbot/logs';
+      String endpoint = '/chatbot/history';
       if (userId != null) {
         endpoint += '?user_id=$userId';
       }
@@ -90,8 +98,9 @@ class PredictionService {
     required String modelUsed,
   }) async {
     try {
+      // E2 FIX: Use canonical POST /api/chatbot/log (was deleted from prediction.js)
       final apiResponse = await ApiService.post(
-        '${ApiConfig.prediction}/chatbot/logs',
+        '/chatbot/log',
         {
           'user_id': userId,
           'query': query,

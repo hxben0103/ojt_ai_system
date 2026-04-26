@@ -24,8 +24,9 @@ class DailyTaskService {
   // Update competency point value (Admin only)
   static Future<Competency> updateCompetencyPointValue(int id, int newValue) async {
     try {
+      // E3 FIX: Backend route is /api/daily-tasks/competencies/:id (not /api/competencies/:id)
       final response = await ApiService.put(
-        '/competencies/$id',
+        '/daily-tasks/competencies/$id',
         {
           'pointValue': newValue,
         },

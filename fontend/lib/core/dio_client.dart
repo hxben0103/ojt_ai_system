@@ -34,8 +34,8 @@ class DioClient {
           // Always use the latest ApiConfig.baseUrl so dynamic IP changes apply immediately
           _dio.options.baseUrl = ApiConfig.baseUrl;
 
-          // Dynamically adjust timeouts for AI endpoints
-          if (options.path.contains('/prediction') || options.path.contains('/ai') || options.path.contains('/chat')) {
+          // Dynamically adjust timeouts for AI and image endpoints
+          if (options.path.contains('/prediction') || options.path.contains('/ai') || options.path.contains('/chat') || options.path.contains('/image')) {
             options.receiveTimeout = ApiConfig.aiTimeout;
             options.connectTimeout = ApiConfig.aiTimeout;
           }

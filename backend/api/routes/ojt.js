@@ -1,31 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
-
-// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
-  process.exit(1);
-}
-
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-};
+const authenticateToken = require('../middleware/auth');
 
 // Get OJT records - Requires authentication
 router.get('/records', authenticateToken, async (req, res) => {
@@ -234,6 +210,12 @@ router.post('/records', authenticateToken, async (req, res) => {
 
     let student_id = raw_student_id;
 
+    // Log incoming payload for debugging
+    console.log('[OJT CREATE] Request body:', {
+      school_id, student_id: raw_student_id, company_name,
+      coordinator_id, supervisor_id, start_date, end_date, required_hours
+    });
+
     // If alphanumeric school_id was provided, resolve it to integer user_id
     if (school_id && !raw_student_id) {
       const lookupResult = await query(
@@ -250,14 +232,100 @@ router.post('/records', authenticateToken, async (req, res) => {
       }
 
       student_id = lookupResult.rows[0].user_id;
+      console.log(`[OJT CREATE] Resolved school_id "${school_id}" → user_id ${student_id}`);
     }
 
     if (!student_id || !coordinator_id || !supervisor_id) {
+      console.log('[OJT CREATE] Missing required IDs:', { student_id, coordinator_id, supervisor_id });
       return res.status(400).json({
         error: 'Either school_id or student_id, plus coordinator_id and supervisor_id, are required'
       });
     }
 
+    // Check if student already has an ongoing OJT record
+    const existingCheck = await query(
+      `SELECT record_id, company_name, start_date, end_date 
+       FROM ojt_records 
+       WHERE student_id = $1 AND status = 'Ongoing' 
+       ORDER BY start_date DESC LIMIT 1`,
+      [student_id]
+    );
+
+    const update_existing = req.body.update_existing || false;
+
+    if (existingCheck.rows.length > 0 && !update_existing) {
+      // Student has existing record — ask frontend to confirm update
+      const existing = existingCheck.rows[0];
+      console.log(`[OJT CREATE] Student ${student_id} already has ongoing record #${existing.record_id}`);
+      return res.status(409).json({
+        error: `Student already has an active OJT record at "${existing.company_name}" (${existing.start_date?.toISOString?.()?.split('T')[0] || existing.start_date} – ${existing.end_date?.toISOString?.()?.split('T')[0] || existing.end_date || 'no end date'}). Would you like to update it?`,
+        existing_record_id: existing.record_id,
+        existing_company: existing.company_name,
+        can_update: true
+      });
+    }
+
+    if (existingCheck.rows.length > 0 && update_existing) {
+      // Update the existing record
+      const existingId = existingCheck.rows[0].record_id;
+      console.log(`[OJT CREATE] Updating existing record #${existingId} for student ${student_id}`);
+
+      const updateResult = await query(
+        `UPDATE ojt_records SET 
+           company_name = COALESCE($1, company_name),
+           coordinator_id = $2,
+           supervisor_id = $3,
+           start_date = COALESCE($4, start_date),
+           end_date = COALESCE($5, end_date),
+           required_hours = COALESCE($6, required_hours),
+           company_address = COALESCE($7, company_address),
+           company_contact = COALESCE($8, company_contact),
+           updated_at = CURRENT_TIMESTAMP
+         WHERE record_id = $9
+         RETURNING record_id`,
+        [
+          company_name || null, coordinator_id, supervisor_id,
+          start_date || null, end_date || null, required_hours || null,
+          company_address || null, company_contact || null, existingId
+        ]
+      );
+
+      // Upsert geofence if provided
+      if (latitude !== undefined && longitude !== undefined) {
+        try {
+          const siteCheck = await query(
+            'SELECT id FROM ojt_sites WHERE company_name = $1 LIMIT 1',
+            [company_name]
+          );
+          if (siteCheck.rows.length > 0) {
+            await query(
+              `UPDATE ojt_sites SET latitude = $1, longitude = $2, radius_meters = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4`,
+              [latitude, longitude, radius_meters || 100, siteCheck.rows[0].id]
+            );
+          } else {
+            await query(
+              `INSERT INTO ojt_sites (name, latitude, longitude, radius_meters, company_name) VALUES ($1, $2, $3, $4, $5)`,
+              [company_name, latitude, longitude, radius_meters || 100, company_name]
+            );
+          }
+        } catch (siteError) {
+          console.error('Failed to upsert ojt_site:', siteError);
+        }
+      }
+
+      const recordResult = await query(
+        'SELECT get_ojt_record($1) as record',
+        [existingId]
+      );
+
+      return res.status(200).json({
+        message: 'OJT record updated successfully',
+        record: recordResult.rows[0].record,
+        updated: true
+      });
+    }
+
+    // No existing record — create new via stored procedure
     const result = await query(
       'SELECT create_ojt_record($1, $2, $3, $4, $5, $6, $7, $8, $9) as result',
       [
@@ -268,6 +336,7 @@ router.post('/records', authenticateToken, async (req, res) => {
     );
 
     const response = result.rows[0].result;
+    console.log('[OJT CREATE] Stored procedure response:', JSON.stringify(response));
 
     if (response.success) {
       // If geofence coordinates are provided, upsert into ojt_sites
@@ -311,9 +380,11 @@ router.post('/records', authenticateToken, async (req, res) => {
         record: recordResult.rows[0].record
       });
     } else {
+      const errorMessages = Array.isArray(response.errors) ? response.errors : ['Unknown validation error'];
+      console.log('[OJT CREATE] Validation failed:', errorMessages);
       res.status(400).json({
-        error: 'Validation failed',
-        errors: response.errors
+        error: errorMessages.join('; '),
+        errors: errorMessages
       });
     }
   } catch (error) {

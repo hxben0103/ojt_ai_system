@@ -67,22 +67,30 @@ def clean_llm_output(text: str) -> str:
     return text.strip()
 
 
-def format_response(text: str, width: int = 95) -> str:
+def format_response(text: str) -> str:
     """
     Clean response for terminal or mobile display while preserving markdown:
     - Collapse excessive whitespace
-    - Wrap for terminal if needed (optional)
+    - Normalize paragraph spacing
+    - Ensure bullet points and headers are well-defined
     """
     if not text:
         return ""
         
-    # Strip out the injected [Topic: X] headers in case they leaked into final text (LLM parroting or direct chunk fallback)
+    # 1. Strip out the injected [Topic: X] headers in case they leaked
     text = re.sub(r'\[Topic:\s*[^\]]+\]\s*', '', text, flags=re.IGNORECASE)
     
-    # Collapse multiple spaces but preserve single newlines
+    # 2. Normalize whitespace (collapse multiple spaces but keep single spaces)
     text = re.sub(r'[ \t]+', ' ', text)
-    # Collapse 3+ newlines to 2
+    
+    # 3. Collapse 3+ newlines to 2 (consistent paragraph breaks)
     text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # 4. Ensure spacing around bullet points for better UI rendering
+    text = re.sub(r'([^\n])\n([-•*])\s', r'\1\n\n\2 ', text)
+    
+    # 5. Ensure spacing around headers
+    text = re.sub(r'([^\n])\n([#]+)', r'\1\n\n\2', text)
     
     return text.strip()
 
@@ -136,7 +144,9 @@ def try_exact_university_answer(user_query: str) -> str | None:
             return text
 
     # Vision
-    if "vision" in q or "vission" in q and ("jrmsu" in q or "university" in q):
+    # E6 FIX: Added parentheses — Python evaluates 'and' before 'or'
+    # Without parens, 'vision' alone would trigger JRMSU vision file
+    if ("vision" in q or "vission" in q) and ("jrmsu" in q or "university" in q):
         text = load_text_file("jrmsu_vision.txt")
         if text:
             logger.info(f"[EXACT_ANSWER] Found vision file: {len(text)} chars")
@@ -150,7 +160,9 @@ def try_exact_university_answer(user_query: str) -> str | None:
             return text
 
     # Core values / values
-    if "core values" in q or "core" in q or ("values" in q and "jrmsu" in q):
+    # E7 FIX: Removed overly broad '"core" in q' clause
+    # Previously, any query with 'core' (e.g. 'core competency') would return JRMSU core values
+    if "core values" in q or ("values" in q and "jrmsu" in q):
         text = load_text_file("jrmsu_core_values.txt")
         if text:
             logger.info(f"[EXACT_ANSWER] Found core values file: {len(text)} chars")

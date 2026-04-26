@@ -455,6 +455,81 @@ class _CoordinatorOjtManagementScreenState
                         );
                         _loadOjtRecords();
                       }
+                    } on OjtExistsException catch (existsError) {
+                      // Student already has an existing OJT record — ask to update
+                      if (!mounted) return;
+                      final shouldUpdate = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Row(
+                            children: [
+                              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                              SizedBox(width: 8),
+                              Expanded(child: Text('Existing Record Found')),
+                            ],
+                          ),
+                          content: Text(
+                            '${existsError.message}\n\nDo you want to update the existing record with the new details?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel'),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              icon: const Icon(Icons.update),
+                              label: const Text('Update Existing'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (shouldUpdate == true && mounted) {
+                        try {
+                          final currentUser = await AuthService.getCurrentUser();
+                          await OjtService.createOjtRecord(
+                            schoolId: schoolIdController.text.trim(),
+                            companyName: companyNameController.text,
+                            coordinatorId: currentUser!.userId!,
+                            supervisorId: int.parse(supervisorIdController.text),
+                            startDate: startDate,
+                            endDate: endDate,
+                            requiredHours: int.parse(requiredHoursController.text),
+                            companyAddress: companyAddressController.text.isNotEmpty
+                                ? companyAddressController.text
+                                : null,
+                            companyContact: companyContactController.text.isNotEmpty
+                                ? companyContactController.text
+                                : null,
+                            latitude: double.tryParse(latController.text),
+                            longitude: double.tryParse(lngController.text),
+                            radiusMeters: double.tryParse(radiusController.text),
+                            updateExisting: true,
+                          );
+
+                          if (mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('OJT record updated successfully'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            _loadOjtRecords();
+                          }
+                        } catch (updateError) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Update failed: $updateError')),
+                            );
+                          }
+                        }
+                      }
                     } catch (e) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(

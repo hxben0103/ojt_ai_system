@@ -22,6 +22,7 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
+  String? _selectedProgram;
   bool _showPassword = false;
   bool _isLoading = false;
   File? _profileImage;
@@ -90,7 +91,7 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
       final password = _passwordController.text;
       final coordinatorId = _idController.text.trim();
 
-      if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
+      if (fullName.isEmpty || email.isEmpty || password.isEmpty || _selectedProgram == null) {
         throw Exception('Please fill in all required fields');
       }
 
@@ -104,12 +105,14 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
       }
 
       // Store coordinator ID in student_id field (reusing existing field)
+      // Store selected program in course field for program-bound approval
       await AuthService.register(
         fullName: fullName,
         email: email,
         password: password,
         role: 'Coordinator',
         studentId: coordinatorId.isNotEmpty ? coordinatorId : null,
+        course: _selectedProgram,
         profilePhoto: profilePhotoBase64,
       );
 
@@ -307,6 +310,37 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                                     : null,
                               ),
                               3,
+                            ),
+
+                            // 🎓 Assigned Program
+                            animatedField(
+                              DropdownButtonFormField<String>(
+                                value: _selectedProgram,
+                                decoration: const InputDecoration(
+                                  labelText: 'Assigned Program',
+                                  border: OutlineInputBorder(),
+                                  hintText: 'Select program to coordinate',
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'CS',
+                                    child: Text('Computer Science (CS)'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'IS',
+                                    child: Text('Information Systems (IS)'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'IT',
+                                    child: Text('Information Technology (IT)'),
+                                  ),
+                                ],
+                                onChanged: (value) =>
+                                    setState(() => _selectedProgram = value),
+                                validator: (v) =>
+                                    v == null ? 'Please select your assigned program' : null,
+                              ),
+                              4,
                             ),
 
                             // 🔐 Password

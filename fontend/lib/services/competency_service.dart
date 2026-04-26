@@ -1,12 +1,14 @@
 import '../models/competency.dart';
 import 'api_service.dart';
-import '../core/config.dart';
 
+/// E9 FIX: Removed reference to non-existent ApiConfig.dailyTasks
+/// Backend mounts dailyTasks at /api, so competency routes are at /competencies
+/// and /daily-tasks/competencies/:id
 class CompetencyService {
   // Get all competencies
   static Future<List<Competency>> getAllCompetencies({String? program}) async {
     try {
-      String endpoint = '${ApiConfig.dailyTasks}/competencies';
+      String endpoint = '/competencies';
       if (program != null) {
         endpoint += '?program=$program';
       }
@@ -28,7 +30,7 @@ class CompetencyService {
   static Future<Competency> updatePointValue(int id, int newValue) async {
     try {
       final response = await ApiService.put(
-        '${ApiConfig.dailyTasks}/competencies/$id',
+        '/daily-tasks/competencies/$id',
         {
           'pointValue': newValue,
         },
@@ -44,4 +46,3 @@ class CompetencyService {
     }
   }
 }
-

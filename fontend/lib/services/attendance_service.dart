@@ -1,34 +1,14 @@
 import '../models/attendance.dart';
+import '../models/overtime_request.dart';
 import 'api_service.dart';
 import '../core/config.dart';
 import '../core/attendance_constants.dart';
 import 'ojt_service.dart';
 
 class AttendanceService {
-  // Get all attendance records (optional filter: verificationStatus = FLAGGED, etc.)
-  // Upload an image to Supabase Storage via the backend
-  static Future<Map<String, dynamic>> uploadImageToStorage({
-    required int studentId,
-    required String photoType,
-    required List<int> imageBytes,
-    String? fileName,
-  }) async {
-    try {
-      final response = await ApiService.uploadFile(
-        '${ApiConfig.attendance}/upload-photo',
-        imageBytes,
-        fileName ?? 'attendance_${studentId}_${DateTime.now().millisecondsSinceEpoch}.jpg',
-        fieldName: 'photo',
-        additionalData: {
-          'student_id': studentId.toString(),
-          'photo_type': photoType,
-        },
-      );
-      return response;
-    } catch (e) {
-      throw Exception('Failed to upload photo: $e');
-    }
-  }
+  // NOTE: uploadImageToStorage has been removed.
+  // Photos are now stored as base64 text directly in the database (attendance_image column).
+  // This eliminates the Supabase Storage bucket dependency.
 
   static Future<List<Attendance>> getAttendance({
     int? studentId,
@@ -125,15 +105,15 @@ class AttendanceService {
     }
   }
 
-  // Log time in with segment (new method).
-  // Optional geofence/trust/photo path fields: sent only when provided; backend stores if columns exist.
+  // Log time in with segment.
+  // Photo (attendanceImage) is REQUIRED — students must provide photo evidence for every attendance.
   static Future<Attendance> logTimeIn({
     required int studentId,
     int? ojtRecordId,
     required String segment,
+    required String attendanceImage, // Base64 encoded photo — REQUIRED
     String? date,
-    String? timeIn,  // Add explicit time_in parameter
-    String? attendanceImage, // Base64 encoded image (legacy)
+    String? timeIn,
     // Optional location/trust fields (geofencing + anti-fake GPS)
     double? checkinLat,
     double? checkinLng,
@@ -151,9 +131,9 @@ class AttendanceService {
         'student_id': studentId,
         if (ojtRecordId != null) 'ojt_record_id': ojtRecordId,
         'segment': segment,
+        'attendance_image': attendanceImage,
         if (date != null) 'date': date,
         if (timeIn != null) 'time_in': timeIn,
-        if (attendanceImage != null) 'attendance_image': attendanceImage,
       };
       if (checkinLat != null) body['checkin_lat'] = checkinLat;
       if (checkinLng != null) body['checkin_lng'] = checkinLng;
@@ -185,15 +165,15 @@ class AttendanceService {
     }
   }
 
-  // Log time out with segment (new method).
-  // Optional geofence/trust/checkout/photo path fields: sent only when provided.
+  // Log time out with segment.
+  // Photo (attendanceImage) is REQUIRED — students must provide photo evidence for every attendance.
   static Future<Attendance> logTimeOut({
     required int studentId,
     required String segment,
+    required String attendanceImage, // Base64 encoded photo — REQUIRED
     String? date,
-    String? timeOut, // Add explicit time_out parameter
+    String? timeOut,
     int? attendanceId,
-    String? attendanceImage, // Base64 encoded image (legacy)
     // Optional location/trust (checkout for time-out)
     double? checkinLat,
     double? checkinLng,
@@ -213,9 +193,9 @@ class AttendanceService {
         if (attendanceId != null) 'attendance_id': attendanceId,
         'student_id': studentId,
         'segment': segment,
+        'attendance_image': attendanceImage,
         if (date != null) 'date': date,
         if (timeOut != null) 'time_out': timeOut,
-        if (attendanceImage != null) 'attendance_image': attendanceImage,
       };
       if (checkinLat != null) body['checkin_lat'] = checkinLat;
       if (checkinLng != null) body['checkin_lng'] = checkinLng;
@@ -352,7 +332,7 @@ class AttendanceService {
     }
   }
 
-  // Get specific attendance image (lazy loading)
+  // Get specific attendance image (lazy loading) — time-in photo
   static Future<String?> getAttendanceImage(int attendanceId) async {
     try {
       final response = await ApiService.get(
@@ -364,6 +344,70 @@ class AttendanceService {
       return null;
     }
   }
+
+  // Get specific checkout image (lazy loading) — time-out photo
+  static Future<String?> getCheckoutImage(int attendanceId) async {
+    try {
+      final response = await ApiService.get(
+        '${ApiConfig.attendance}/$attendanceId/image',
+      );
+      return response['checkout_image'] as String?;
+    } catch (e) {
+      print('Error fetching checkout image: $e');
+      return null;
+    }
+  }
+
+  // --- SUPERVISOR BATCH OVERTIME REQUESTS ---
+
+  static Future<OvertimeRequest> submitSupervisorOvertimeRequest({
+    required String date,
+    required List<int> studentIds,
+    required String formalLetter,
+  }) async {
+    try {
+      final response = await ApiService.post(
+        '${ApiConfig.attendance}/supervisor-overtime-request',
+        {'date': date, 'student_ids': studentIds, 'formal_letter': formalLetter},
+      );
+      if (response.containsKey('error')) {
+        throw Exception(response['error']);
+      }
+      return OvertimeRequest.fromJson(response['request']);
+    } catch (e) {
+      throw Exception('Failed to submit overtime request: $e');
+    }
+  }
+
+  static Future<List<OvertimeRequest>> getSupervisorOvertimeRequests() async {
+    try {
+      final response = await ApiService.get('${ApiConfig.attendance}/supervisor-overtime-requests');
+      if (response.containsKey('error')) {
+        throw Exception(response['error']);
+      }
+      final List<dynamic> data = response['requests'] ?? [];
+      return data.map((json) => OvertimeRequest.fromJson(json)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch overtime requests: $e');
+    }
+  }
+
+  static Future<OvertimeRequest> updateSupervisorOvertimeRequestStatus(
+    int requestId, String status, {String? coordinatorRemarks}
+  ) async {
+    try {
+      final body = <String, dynamic>{'status': status};
+      if (coordinatorRemarks != null) body['coordinator_remarks'] = coordinatorRemarks;
+      final response = await ApiService.put(
+        '${ApiConfig.attendance}/supervisor-overtime-request/$requestId/status',
+        body,
+      );
+      if (response.containsKey('error')) {
+        throw Exception(response['error']);
+      }
+      return OvertimeRequest.fromJson(response['request']);
+    } catch (e) {
+      throw Exception('Failed to update overtime request status: $e');
+    }
+  }
 }
-
-

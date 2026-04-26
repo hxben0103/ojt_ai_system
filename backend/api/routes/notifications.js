@@ -1,28 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
-
-// Security: Enforce JWT_SECRET from environment
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET environment variable is not set.');
-  process.exit(1);
-}
-
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) return res.status(401).json({ error: 'Access token required' });
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid or expired token' });
-    req.user = user;
-    next();
-  });
-};
+const authenticateToken = require('../middleware/auth');
 
 // Auto-initialize notifications table
 (async () => {
@@ -87,6 +66,24 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
   }
 });
 
+// ⚠️ L2 FIX: Mark all as read MUST come BEFORE /:id/read
+// Express matches routes top-to-bottom; /:id would catch "read-all" as an id otherwise.
+router.put('/read-all', authenticateToken, async (req, res) => {
+  try {
+    const { user_id } = req.user;
+    
+    await query(
+      'UPDATE notifications SET is_read = true WHERE user_id = $1',
+      [user_id]
+    );
+    
+    res.json({ success: true, message: 'All notifications marked as read' });
+  } catch (error) {
+    console.error('Mark all read error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Mark one as read
 router.put('/:id/read', authenticateToken, async (req, res) => {
   try {
@@ -109,27 +106,17 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
   }
 });
 
-// Mark all as read
-router.put('/read-all', authenticateToken, async (req, res) => {
-  try {
-    const { user_id } = req.user;
-    
-    await query(
-      'UPDATE notifications SET is_read = true WHERE user_id = $1',
-      [user_id]
-    );
-    
-    res.json({ success: true, message: 'All notifications marked as read' });
-  } catch (error) {
-    console.error('Mark all read error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // Utility to create a notification (Internal API)
+// S7 FIX: Only Coordinators, Supervisors, and Admins can create notifications
 router.post('/create', authenticateToken, async (req, res) => {
   try {
-    // Only allow system or specific roles to create
+    const { role } = req.user;
+
+    // Role check: Only allow Coordinator, Supervisor, or Admin to create notifications
+    if (!['Coordinator', 'Supervisor', 'Admin'].includes(role)) {
+      return res.status(403).json({ error: 'Access denied. Only coordinators, supervisors, and admins can create notifications.' });
+    }
+
     const { title, message, type, assigned_to } = req.body;
     
     if (!title || !message || !assigned_to) {

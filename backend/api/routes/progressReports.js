@@ -4,15 +4,7 @@ const { query } = require('../../config/db');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const jwt = require('jsonwebtoken');
 const authenticateToken = require('../middleware/auth');
-
-// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
-  process.exit(1);
-}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -59,7 +51,9 @@ router.post('/', authenticateToken, upload.single('report_file'), async (req, re
       return res.status(400).json({ error: 'Please upload a file' });
     }
 
-    const filePath = req.file.path;
+    // L5 FIX: Store relative path for deployment portability
+    // Absolute paths break when deploying to Render or any different host
+    const filePath = path.relative(path.join(__dirname, '../..'), req.file.path);
     const fileName = req.file.originalname;
 
     const result = await query(
@@ -193,8 +187,13 @@ router.get('/:id/view', authenticateToken, async (req, res) => {
 
     const { file_path: filePath, file_name: fileName } = result.rows[0];
     console.log(`[DEBUG] Database path: ${filePath}`);
+
+    // L5 COMPAT: Resolve relative paths (new format) AND absolute paths (legacy data)
+    const resolvedPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(__dirname, '../..', filePath);
     
-    if (fs.existsSync(filePath)) {
+    if (fs.existsSync(resolvedPath)) {
       const ext = path.extname(fileName).toLowerCase();
       let contentType = 'application/octet-stream';
       
@@ -217,9 +216,9 @@ router.get('/:id/view', authenticateToken, async (req, res) => {
       res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
       res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval'; img-src * data:; media-src *;");
 
-      res.sendFile(path.resolve(filePath));
+      res.sendFile(path.resolve(resolvedPath));
     } else {
-      console.error(`[DEBUG] File not found on disk at: ${filePath}`);
+      console.error(`[DEBUG] File not found on disk at: ${resolvedPath}`);
       res.status(404).json({ error: 'File not found on server' });
     }
   } catch (error) {
@@ -239,9 +238,14 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
     }
 
     const { file_path: filePath, file_name: fileName } = result.rows[0];
+
+    // L5 COMPAT: Resolve relative paths (new format) AND absolute paths (legacy data)
+    const resolvedPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(__dirname, '../..', filePath);
     
-    if (fs.existsSync(filePath)) {
-      res.download(filePath, fileName);
+    if (fs.existsSync(resolvedPath)) {
+      res.download(resolvedPath, fileName);
     } else {
       res.status(404).json({ error: 'File not found on server' });
     }

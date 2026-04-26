@@ -462,9 +462,10 @@ class _LoginScreenState extends State<LoginScreen>
                           
                           const SizedBox(height: 12),
                           Text(
-                            "JRMSU AI OJT",
+                            InstitutionalConfig.universityName.toUpperCase(),
+                            textAlign: TextAlign.center,
                             style: GoogleFonts.poppins(
-                              fontSize: 28,
+                              fontSize: 18,
                               fontWeight: FontWeight.w800,
                               color: Colors.white,
                               letterSpacing: 1.2,

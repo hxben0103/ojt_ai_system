@@ -210,7 +210,10 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// 404 handler for unmatched routes
+// L1 FIX: 404 handler MUST come BEFORE the global error handler (Express convention)
+// Routes → 404 catch-all → Error handler (4-param, must be last)
+
+// 404 handler for unmatched API routes
 app.use('/api/*', (req, res) => {
   res.status(404).json({
     error: {
@@ -220,16 +223,20 @@ app.use('/api/*', (req, res) => {
   });
 });
 
-// Error handling middleware
+// Global Error Handler (must be the LAST middleware registered)
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  console.error('🔥 [GLOBAL ERROR]:', err);
+  if (err.stack) console.error(err.stack);
+  
   res.status(err.status || 500).json({
     error: {
-      message: err.message || 'Internal Server Error',
+      message: err.message || 'Internal server error',
       status: err.status || 500
     }
   });
 });
+
+
 
 // Start server - Listen on all interfaces (0.0.0.0) to allow network access
 app.listen(PORT, '0.0.0.0', () => {

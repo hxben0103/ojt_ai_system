@@ -7,11 +7,13 @@ import 'package:printing/printing.dart';
 import '../../widgets/restricted_access_screen.dart';
 import '../services/ojt_service.dart';
 import '../services/auth_service.dart';
+import '../../core/config.dart';
 
 class StudentDTRViewScreen extends StatefulWidget {
   final String studentName;
   final String studentId;
   final String course;
+  final String? supervisorName; // Added supervisor name
   final Uint8List? certSigBytes; // optional signature image
   final List<Map<String, dynamic>> dtrRecords; // daily logs
 
@@ -21,6 +23,7 @@ class StudentDTRViewScreen extends StatefulWidget {
     required this.studentId,
     required this.course,
     required this.dtrRecords,
+    this.supervisorName,
     this.certSigBytes,
   });
 
@@ -106,6 +109,18 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
             child: pw.Column(
               children: [
                 pw.Text(
+                  InstitutionalConfig.universityName.toUpperCase(),
+                  style: pw.TextStyle(
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.Text(
+                  InstitutionalConfig.campusName,
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
+                pw.SizedBox(height: 12),
+                pw.Text(
                   "DAILY TIME RECORD",
                   style: pw.TextStyle(
                     fontSize: 18,
@@ -183,7 +198,6 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
       "Overtime Out",
       "Ded. Mins",
       "Total Hours",
-      "Status",
     ];
 
     return pw.Table(
@@ -194,15 +208,6 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
           children: headers.map((h) => _headerCell(h)).toList(),
         ),
         ...widget.dtrRecords.map((record) {
-          // Use status field if available, otherwise fall back to verified flag
-          final status = record['status'] as String? ?? 
-                       (record['verified'] == true ? 'Approved' : 'Pending');
-          final statusText = status == 'Approved' ? "✓ Approved" : 
-                            status == 'Rejected' ? "✗ Rejected" : 
-                            "⏳ Pending";
-          PdfColor statusColor = status == 'Approved' ? PdfColors.green :
-                                status == 'Rejected' ? PdfColors.red :
-                                PdfColors.orange;
           return pw.TableRow(
             children: [
               _cell(record['date'] ?? "-"),
@@ -214,10 +219,6 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
               _cell(record['otOut'] ?? "-"),
               _cell(record['deductionMinutes']?.toString() ?? "0", color: PdfColors.orange),
               _cell(record['totalHours']?.toString() ?? "0", color: PdfColors.teal),
-              _cell(
-                statusText,
-                color: statusColor,
-              ),
             ],
           );
         }),
@@ -265,8 +266,10 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
                 : null,
           ),
           pw.SizedBox(height: 4),
-          pw.Text('Certified By (In-Charge)',
-              style: const pw.TextStyle(fontSize: 10)),
+          pw.Text(widget.supervisorName ?? 'Industry Supervisor',
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+          pw.Text('Industry Supervisor / In-Charge',
+              style: const pw.TextStyle(fontSize: 9)),
         ]),
       ],
     );
@@ -301,12 +304,7 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
   double _calculateTotalHours() {
     double total = 0;
     for (var rec in widget.dtrRecords) {
-      // Only count hours for Approved records (thesis rule: Approved-only totals)
-      final status = rec['status'] as String? ?? 
-                    (rec['verified'] == true ? 'Approved' : 'Pending');
-      if (status == 'Approved') {
-        total += double.tryParse(rec['totalHours']?.toString() ?? '0') ?? 0;
-      }
+      total += double.tryParse(rec['totalHours']?.toString() ?? '0') ?? 0;
     }
     return total;
   }

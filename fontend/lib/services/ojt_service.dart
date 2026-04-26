@@ -3,6 +3,19 @@ import '../models/narrative_report.dart';
 import 'api_service.dart';
 import '../core/config.dart';
 
+/// Thrown when creating an OJT record for a student who already has an ongoing one.
+/// The UI should catch this and offer to update the existing record instead.
+class OjtExistsException implements Exception {
+  final String message;
+  final int? existingRecordId;
+  final String? existingCompany;
+
+  OjtExistsException(this.message, {this.existingRecordId, this.existingCompany});
+
+  @override
+  String toString() => message;
+}
+
 class OjtService {
   // Get all OJT records
   static Future<List<OjtRecord>> getOjtRecords({
@@ -74,7 +87,7 @@ class OjtService {
     }
   }
 
-  // Create OJT record
+  // Create OJT record (or update existing if updateExisting=true)
   static Future<OjtRecord> createOjtRecord({
     // Prefer schoolId (alphanumeric) — backend resolves to user_id automatically.
     // Provide studentId (integer) as fallback for backward compatibility.
@@ -91,6 +104,7 @@ class OjtService {
     double? latitude,
     double? longitude,
     double? radiusMeters,
+    bool updateExisting = false,
   }) async {
     assert(schoolId != null || studentId != null,
         'Either schoolId or studentId must be provided');
@@ -113,8 +127,18 @@ class OjtService {
           if (latitude != null) 'latitude': latitude,
           if (longitude != null) 'longitude': longitude,
           if (radiusMeters != null) 'radius_meters': radiusMeters,
+          if (updateExisting) 'update_existing': true,
         },
       );
+
+      // Handle "student already has an existing record" (409 Conflict)
+      if (response.containsKey('can_update') && response['can_update'] == true) {
+        throw OjtExistsException(
+          response['error']?.toString() ?? 'Student already has an active OJT record.',
+          existingRecordId: response['existing_record_id'] as int?,
+          existingCompany: response['existing_company']?.toString(),
+        );
+      }
 
       // Handle validation errors from stored procedure
       if (response.containsKey('errors')) {
@@ -122,7 +146,10 @@ class OjtService {
       }
 
       return OjtRecord.fromJson(response['record']);
+    } on OjtExistsException {
+      rethrow;
     } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('Failed to create OJT record: $e');
     }
   }

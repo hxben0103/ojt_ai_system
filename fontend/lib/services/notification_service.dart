@@ -37,7 +37,8 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> fetchNotifications() async {
     try {
-      final response = await ApiService.get('/api/notifications');
+      // E1 FIX: Removed double /api/ prefix (DioClient.baseUrl already ends in /api)
+      final response = await ApiService.get('/notifications');
       if (response.containsKey('notifications')) {
         final List<dynamic> data = response['notifications'];
         _notifications = data.map((n) => NotificationModel.fromJson(n)).toList();
@@ -53,7 +54,7 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> markAsRead(int id) async {
     try {
-      final response = await ApiService.put('/api/notifications/$id/read', {});
+      final response = await ApiService.put('/notifications/$id/read', {});
       if (response.containsKey('success')) {
         final index = _notifications.indexWhere((n) => n.id == id);
         if (index != -1) {
@@ -78,7 +79,7 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> markAllAsRead() async {
     try {
-      final response = await ApiService.put('/api/notifications/read-all', {});
+      final response = await ApiService.put('/notifications/read-all', {});
       if (response.containsKey('success')) {
         _notifications = _notifications.map((n) {
           return NotificationModel(

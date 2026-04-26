@@ -36,69 +36,45 @@ class _CoordinatorLiveMapScreenState
 
   Future<void> _loadAttendance() async {
     try {
-      // Get OJT records for this coordinator
-      final recordsResponse = await ApiService.get(
-          '/ojt/records?coordinator_id=${widget.coordinatorId}');
-      final records =
-          (recordsResponse['records'] as List<dynamic>? ?? []);
+      final todayStr = DateTime.now().toIso8601String().split('T')[0];
+      
+      // Get all attendance for today that this coordinator can see
+      final response = await ApiService.get(
+          '/attendance?date=$todayStr');
+      final attendances =
+          (response['attendance'] as List<dynamic>? ?? []);
 
       final pins = <_StudentPin>[];
 
-      for (final record in records) {
-        final studentId = record['student_id'];
-        final studentName =
-            record['student_name'] as String? ?? 'Student $studentId';
-        try {
-          // Get today's attendance for each student
-          final attResponse = await ApiService.get(
-              '/attendance/summary/$studentId');
-          final attendances =
-              (attResponse['recent'] as List<dynamic>? ??
-               attResponse['attendances'] as List<dynamic>? ?? []);
+      for (final a in attendances) {
+        // Find the most recent available GPS coordinates
+        double? lat;
+        double? lng;
 
-          // Find today's record
-          final today = DateTime.now();
-          for (final a in attendances) {
-            final dateStr = a['date']?.toString() ?? '';
-            DateTime? attDate;
-            try {
-              attDate = DateTime.parse(dateStr);
-            } catch (_) {}
-            if (attDate != null &&
-                attDate.year == today.year &&
-                attDate.month == today.month &&
-                attDate.day == today.day) {
-              // Find the most recent available GPS coordinates from today's attendance
-              double? lat;
-              double? lng;
+        // Check checkout coordinates first (Out events), then checkin coordinates (In events)
+        if (a['checkout_lat'] != null) {
+          lat = (a['checkout_lat'] as num).toDouble();
+          lng = (a['checkout_lng'] as num).toDouble();
+        } else if (a['checkin_lat'] != null) {
+          lat = (a['checkin_lat'] as num).toDouble();
+          lng = (a['checkin_lng'] as num).toDouble();
+        }
 
-              // Check checkout coordinates first (Out events), then checkin coordinates (In events)
-              if (a['checkout_lat'] != null) {
-                lat = (a['checkout_lat'] as num).toDouble();
-                lng = (a['checkout_lng'] as num).toDouble();
-              } else if (a['checkin_lat'] != null) {
-                lat = (a['checkin_lat'] as num).toDouble();
-                lng = (a['checkin_lng'] as num).toDouble();
-              }
-
-              if (lat != null && lng != null) {
-                final flags = a['trust_flags'];
-                final verificationStatus =
-                    a['verification_status'] as String? ?? '';
-                final isFlagged = verificationStatus == 'FLAGGED' ||
-                    (flags != null && flags.toString().isNotEmpty);
-                pins.add(_StudentPin(
-                  studentName: studentName,
-                  lat: lat,
-                  lng: lng,
-                  isFlagged: isFlagged,
-                  trustScore: (a['trust_score'] as num?)?.toInt() ?? 100,
-                ));
-              }
-              break;
-            }
-          }
-        } catch (_) {}
+        if (lat != null && lng != null) {
+          final flags = a['trust_flags'];
+          final verificationStatus =
+              a['verification_status'] as String? ?? '';
+          final isFlagged = verificationStatus == 'FLAGGED' ||
+              (flags != null && flags.toString().isNotEmpty);
+              
+          pins.add(_StudentPin(
+            studentName: a['full_name'] as String? ?? 'Student ${a['student_id']}',
+            lat: lat,
+            lng: lng,
+            isFlagged: isFlagged,
+            trustScore: (a['trust_score'] as num?)?.toInt() ?? 100,
+          ));
+        }
       }
 
       setState(() {

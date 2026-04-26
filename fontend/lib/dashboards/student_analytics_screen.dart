@@ -5,7 +5,9 @@ import 'package:intl/intl.dart';
 import '../models/attendance.dart';
 import '../services/prediction_service.dart';
 import '../services/attendance_service.dart';
+import '../services/ojt_service.dart';
 import '../widgets/daily_rhythm_chart.dart';
+import '../widgets/explainable_ai_panel.dart';
 import '../core/app_theme.dart';
 import 'student_dtr_view_screen.dart';
 
@@ -14,6 +16,7 @@ class StudentAnalyticsScreen extends StatefulWidget {
   final String studentId;
   final String course;
   final int userId;
+  final String? supervisorName; // Added supervisor name
 
   const StudentAnalyticsScreen({
     super.key,
@@ -21,6 +24,7 @@ class StudentAnalyticsScreen extends StatefulWidget {
     required this.studentId,
     required this.course,
     required this.userId,
+    this.supervisorName,
   });
 
   @override
@@ -31,7 +35,9 @@ class _StudentAnalyticsScreenState extends State<StudentAnalyticsScreen> {
   bool _isLoading = true;
   List<Attendance> _attendanceRecords = [];
   Map<String, dynamic>? _integrityData;
+  Map<String, dynamic>? _aiPrediction;
   double _totalHours = 0;
+  String? _supervisorName; // Local supervisor name state
 
   @override
   void initState() {
@@ -41,10 +47,24 @@ class _StudentAnalyticsScreenState extends State<StudentAnalyticsScreen> {
 
   Future<void> _loadData() async {
     try {
+      _supervisorName = widget.supervisorName;
+      
       final records = await AttendanceService.getAttendance(studentId: widget.userId);
+      
+      // If supervisor name is missing (e.g., student viewing their own analytics), fetch OJT record
+      if (_supervisorName == null) {
+        try {
+          final ojtRecords = await OjtService.getOjtRecords(studentId: widget.userId);
+          if (ojtRecords.isNotEmpty) {
+            _supervisorName = ojtRecords.first.supervisorName;
+          }
+        } catch (e) {
+          debugPrint("Note: Could not fetch OJT record for supervisor name: $e");
+        }
+      }
       Map<String, dynamic>? prediction;
       try {
-        prediction = await PredictionService.getDailyPrediction(widget.userId, cacheOnly: true);
+        prediction = await PredictionService.getDailyPrediction(widget.userId, cacheOnly: false);
       } catch (e) {
         debugPrint("Note: AI integrity data not available: $e");
       }
@@ -61,6 +81,7 @@ class _StudentAnalyticsScreenState extends State<StudentAnalyticsScreen> {
           _attendanceRecords = records;
           if (prediction != null) {
             _integrityData = prediction['payload']?['integrity_analysis'] ?? prediction['integrity_analysis'];
+            _aiPrediction = prediction['ai_prediction'] ?? prediction['ml_prediction'];
           }
           _totalHours = total;
           _isLoading = false;
@@ -121,6 +142,17 @@ class _StudentAnalyticsScreenState extends State<StudentAnalyticsScreen> {
                   child: DailyRhythmChart(records: _attendanceRecords),
                 ),
                 const SizedBox(height: 30),
+                if (_aiPrediction != null) ...[
+                  _buildSectionLabel("Performance Insight", "AI-driven success forecast"),
+                  const SizedBox(height: 15),
+                  ExplainableAiPanel(
+                    reasons: List<String>.from(_aiPrediction!['top_reasons'] ?? []),
+                    riskLevel: _aiPrediction!['risk_level'] ?? 'LOW',
+                    confidence: (_aiPrediction!['confidence'] ?? 0.0).toDouble(),
+                    summary: _aiPrediction!['summary'] ?? _aiPrediction!['recommendation'],
+                  ),
+                  const SizedBox(height: 30),
+                ],
                 if (_integrityData != null) ...[
                   _buildSectionLabel("Integrity Insight", "Anti-fraud analysis"),
                   const SizedBox(height: 15),
@@ -345,6 +377,7 @@ class _StudentAnalyticsScreenState extends State<StudentAnalyticsScreen> {
                studentName: widget.studentName,
                studentId: widget.studentId,
                course: widget.course,
+               supervisorName: _supervisorName,
                dtrRecords: formattedRecords,
             ),
           ),

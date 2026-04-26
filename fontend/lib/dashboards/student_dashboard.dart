@@ -320,6 +320,9 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   Future<void> _loadAttendanceData() async {
     int? serverHours;
+    bool serverTimedIn = false;
+    String? serverLastAction;
+    
     if (_studentUserId != null) {
       try {
         final summary =
@@ -330,6 +333,33 @@ class _StudentDashboardState extends State<StudentDashboard>
         }
       } catch (_) {
         // ignore summary errors and fall back to cached/local data
+      }
+
+      // ── SERVER-SIDE CHECK: Fetch today's attendance to derive _isTimedIn from DB ──
+      try {
+        final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        final todayAttendance = await AttendanceService.getTodayAttendance(_studentUserId!, date: today);
+        if (todayAttendance != null) {
+          final hasAnyIn = todayAttendance.morningIn != null ||
+                           todayAttendance.afternoonIn != null ||
+                           todayAttendance.overtimeIn != null;
+          final isFullyComplete = todayAttendance.afternoonOut != null ||
+                                  todayAttendance.overtimeOut != null;
+          serverTimedIn = hasAnyIn && !isFullyComplete;
+          
+          // Derive last action time from the most recent segment
+          final lastSegment = todayAttendance.overtimeOut ??
+                              todayAttendance.overtimeIn ??
+                              todayAttendance.afternoonOut ??
+                              todayAttendance.afternoonIn ??
+                              todayAttendance.morningOut ??
+                              todayAttendance.morningIn;
+          if (lastSegment != null && lastSegment.isNotEmpty) {
+            serverLastAction = _formatTime12h(lastSegment);
+          }
+        }
+      } catch (_) {
+        // Ignore today's attendance fetch errors — fall back to prefs below
       }
     }
 
@@ -344,12 +374,19 @@ class _StudentDashboardState extends State<StudentDashboard>
       await prefs.remove('attendance_image');
       await prefs.remove('attendance_image_base64');
       await prefs.setString('last_attendance_image_date', today);
+      // Also reset timed-in state for new day
+      await prefs.setBool('is_timed_in', false);
+      await prefs.remove('last_action_time');
     }
     
     final imagePath = prefs.getString('attendance_image');
-    final isTimedIn = prefs.getBool('is_timed_in') ?? false;
-    final lastTime = prefs.getString('last_action_time');
+    final prefsTimedIn = prefs.getBool('is_timed_in') ?? false;
+    final prefsLastTime = prefs.getString('last_action_time');
     final localHours = prefs.getInt('completed_hours');
+
+    // Server state takes priority over SharedPreferences
+    final resolvedTimedIn = serverTimedIn || prefsTimedIn;
+    final resolvedLastAction = serverLastAction ?? prefsLastTime;
 
     // Handle attendance image loading (only if it's from today)
     dynamic attendanceImg;
@@ -380,11 +417,27 @@ class _StudentDashboardState extends State<StudentDashboard>
     final resolvedHours = serverHours ?? localHours ?? _completedHours;
 
     setState(() {
-      _isTimedIn = isTimedIn;
-      _lastActionTime = lastTime;
+      _isTimedIn = resolvedTimedIn;
+      _lastActionTime = resolvedLastAction;
       _completedHours = resolvedHours;
       _attendanceImage = attendanceImg;
     });
+  }
+
+  /// Helper to format HH:MM:SS to hh:mm AM/PM for dashboard display
+  String? _formatTime12h(String? time) {
+    if (time == null || time.isEmpty) return null;
+    try {
+      final parts = time.split(':');
+      if (parts.length >= 2) {
+        final hour = int.parse(parts[0]);
+        final minute = int.parse(parts[1]);
+        final period = hour >= 12 ? 'PM' : 'AM';
+        final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+        return '${displayHour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
+      }
+    } catch (_) {}
+    return time;
   }
 
   Future<void> _loadDTRRecords() async {
@@ -1306,61 +1359,88 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   // ── 3. Condensed Action Row (Time In/Out + View DTR) ──
   Widget _buildCondensedActionRow() {
+    // Dynamic label and icon based on current attendance state
+    final String actionLabel = _isTimedIn ? 'On Duty ✓' : 'Time In / Out';
+    final IconData actionIcon = _isTimedIn ? Icons.timer_rounded : Icons.login_rounded;
+    final Color actionColor = _isTimedIn ? AppTheme.successColor : AppTheme.studentPrimary;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: Container(
-              height: 56,
-              decoration: BoxDecoration(
-                boxShadow: AppTheme.softShadow,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: FilledButton.icon(
-                onPressed: () => _showAttendanceOptions(context),
-                icon: const Icon(Icons.login_rounded, size: 20),
-                label: Text('Time In / Out', style: AppTheme.bodyLarge.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.studentPrimary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+          if (_isTimedIn && _lastActionTime != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.successColor),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Last recorded: $_lastActionTime',
+                    style: AppTheme.bodySmall.copyWith(
+                      color: AppTheme.successColor,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(width: AppTheme.spacing16),
-          Expanded(
-            child: Container(
-              height: 56,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => StudentAnalyticsScreen(
-                        studentName: _studentName ?? "Unknown",
-                        studentId: _studentId ?? "N/A",
-                        course: _course ?? "N/A",
-                        userId: _studentUserId!,
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 56,
+                  decoration: BoxDecoration(
+                    boxShadow: AppTheme.softShadow,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: FilledButton.icon(
+                    onPressed: () => _showAttendanceOptions(context),
+                    icon: Icon(actionIcon, size: 20),
+                    label: Text(actionLabel, style: AppTheme.bodyLarge.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: actionColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                  );
-                },
-                icon: const Icon(Icons.analytics_rounded, size: 20),
-                label: Text('DTR Analytics', style: AppTheme.bodyLarge.copyWith(color: AppTheme.studentPrimary, fontWeight: FontWeight.w700)),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: AppTheme.studentPrimary.withOpacity(0.2), width: 1.5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(width: AppTheme.spacing16),
+              Expanded(
+                child: Container(
+                  height: 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => StudentAnalyticsScreen(
+                            studentName: _studentName ?? "Unknown",
+                            studentId: _studentId ?? "N/A",
+                            course: _course ?? "N/A",
+                            userId: _studentUserId!,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.analytics_rounded, size: 20),
+                    label: Text('DTR Analytics', style: AppTheme.bodyLarge.copyWith(color: AppTheme.studentPrimary, fontWeight: FontWeight.w700)),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: AppTheme.studentPrimary.withOpacity(0.2), width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1598,7 +1678,8 @@ class _StudentDashboardState extends State<StudentDashboard>
                             studentName: _studentName ?? "Unknown",
                             studentId: _studentId ?? "N/A",
                             course: _course ?? "N/A",
-                            userId: _studentUserId!,
+                            userId: _studentUserId ?? 0,
+                            supervisorName: _supervisor,
                           ),
                         ),
                       );
@@ -2028,7 +2109,12 @@ class _StudentDashboardState extends State<StudentDashboard>
                     MaterialPageRoute(
                       builder: (context) => const StudentAttendanceScreen(),
                     ),
-                  );
+                  ).then((_) {
+                    // ── Refresh dashboard when returning from attendance screen ──
+                    _loadAttendanceData();
+                    _loadDTRRecords();
+                    _loadStudentStatus();
+                  });
                 },
               ),
               ListTile(

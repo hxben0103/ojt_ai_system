@@ -141,10 +141,11 @@ class ApiService {
   }
 
   static Map<String, dynamic> _handleDioError(DioException error) {
-    // For 400, 401, 404, we return the error response map so services can handle validation gracefully
+    // For 400, 401, 404, 409 we return the error response map so services can handle validation gracefully
     if (error.response?.statusCode == 400 || 
         error.response?.statusCode == 401 || 
-        error.response?.statusCode == 404) {
+        error.response?.statusCode == 404 ||
+        error.response?.statusCode == 409) {
       
       final data = error.response?.data;
       if (data is Map<String, dynamic>) {

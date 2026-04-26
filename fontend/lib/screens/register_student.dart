@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
-import '../services/attendance_service.dart';
 
 class RegisterStudent extends StatefulWidget {
   const RegisterStudent({super.key});
@@ -120,8 +119,7 @@ class _RegisterStudentState extends State<RegisterStudent>
         throw Exception('Please fill in all required fields');
       }
 
-      // ✅ NEW: Upload profile photo to cloud storage first
-      String? profilePhotoUrl;
+      // Convert profile image to base64 for database storage
       List<int>? imageBytes;
       if (_profileImageBytes != null) {
         imageBytes = _profileImageBytes;
@@ -129,23 +127,9 @@ class _RegisterStudentState extends State<RegisterStudent>
         imageBytes = await _profileImage!.readAsBytes();
       }
 
-      if (imageBytes != null) {
-        try {
-          final uploadRes = await AttendanceService.uploadImageToStorage(
-            studentId: 0, // Placeholder ID for registration
-            photoType: 'profile',
-            imageBytes: imageBytes,
-            fileName: 'profile_${email.replaceAll('@', '_')}.jpg',
-          );
-          profilePhotoUrl = uploadRes['publicUrl'];
-          debugPrint("✅ Profile photo uploaded: $profilePhotoUrl");
-        } catch (e) {
-          debugPrint("⚠️ Photo upload failed, falling back to base64: $e");
-        }
-      }
-
-      // Convert profile image to base64 ONLY if cloud upload failed
-      String? finalProfilePhoto = profilePhotoUrl ?? (imageBytes != null ? base64Encode(imageBytes) : null);
+      // NOTE: Photos are stored as base64 text in the database.
+      // Supabase Storage bucket upload has been removed for simplicity.
+      String? finalProfilePhoto = imageBytes != null ? base64Encode(imageBytes) : null;
 
       await AuthService.register(
         fullName: fullName,
@@ -234,11 +218,7 @@ class _RegisterStudentState extends State<RegisterStudent>
             title: const Text("Student Registration"),
             foregroundColor: Colors.white,
             leading: IconButton(
-              icon: Image.network(
-                'https://cdn-icons-png.flaticon.com/512/271/271218.png', // back arrow
-                height: 24,
-                color: Colors.white,
-              ),
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -305,16 +285,12 @@ class _RegisterStudentState extends State<RegisterStudent>
                                       }
 
                                       return CircleAvatar(
-                                    radius: 55,
-                                    backgroundColor: Colors.grey.shade300,
+                                        radius: 55,
+                                        backgroundColor: Colors.grey.shade300,
                                         backgroundImage: avatarImage,
                                         child: avatarImage == null
-                                        ? Image.network(
-                                            'https://cdn-icons-png.flaticon.com/512/2921/2921222.png', // camera icon
-                                            height: 40,
-                                            color: Colors.indigo,
-                                          )
-                                        : null,
+                                            ? const Icon(Icons.camera_alt, size: 40, color: Colors.indigo)
+                                            : null,
                                       );
                                     },
                                   ),
@@ -458,6 +434,14 @@ class _RegisterStudentState extends State<RegisterStudent>
                                     labelText: 'Email Address',
                                     border: OutlineInputBorder(),
                                   ),
+                                  // E5 FIX: Added inline email validation
+                                  validator: (v) {
+                                    if (v == null || v.isEmpty) return "Please enter your email";
+                                    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
+                                      return "Please enter a valid email address";
+                                    }
+                                    return null;
+                                  },
                                 ),
                                 9,
                               ),
@@ -483,7 +467,8 @@ class _RegisterStudentState extends State<RegisterStudent>
                                 11,
                               ),
 
-                              // Password fields with network icons
+                              // Password fields
+                              // E12 FIX: Replaced Image.network CDN icons with Flutter Icons
                               animatedField(
                                 TextFormField(
                                   controller: _passwordController,
@@ -492,11 +477,10 @@ class _RegisterStudentState extends State<RegisterStudent>
                                     labelText: 'Password',
                                     border: const OutlineInputBorder(),
                                     suffixIcon: IconButton(
-                                      icon: Image.network(
+                                      icon: Icon(
                                         _showPassword
-                                            ? 'https://cdn-icons-png.flaticon.com/512/709/709612.png' // hidden eye
-                                            : 'https://cdn-icons-png.flaticon.com/512/709/709699.png', // visible eye
-                                        height: 24,
+                                            ? Icons.visibility_off
+                                            : Icons.visibility,
                                         color: Colors.indigo,
                                       ),
                                       onPressed: () => setState(() =>
@@ -514,11 +498,10 @@ class _RegisterStudentState extends State<RegisterStudent>
                                     labelText: 'Confirm Password',
                                     border: const OutlineInputBorder(),
                                     suffixIcon: IconButton(
-                                      icon: Image.network(
+                                      icon: Icon(
                                         _showPassword
-                                            ? 'https://cdn-icons-png.flaticon.com/512/709/709612.png'
-                                            : 'https://cdn-icons-png.flaticon.com/512/709/709699.png',
-                                        height: 24,
+                                            ? Icons.visibility_off
+                                            : Icons.visibility,
                                         color: Colors.indigo,
                                       ),
                                       onPressed: () => setState(() =>
@@ -530,14 +513,10 @@ class _RegisterStudentState extends State<RegisterStudent>
                               ),
                               const SizedBox(height: 25),
 
-                              // Submit button with network icon
+                              // Submit button
                               ElevatedButton.icon(
                                 onPressed: _register,
-                                icon: Image.network(
-                                  'https://cdn-icons-png.flaticon.com/512/845/845646.png', // check mark
-                                  height: 24,
-                                  color: Colors.white,
-                                ),
+                                icon: const Icon(Icons.check_circle, color: Colors.white),
                                 label: const Text("Submit for Approval"),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.indigo,

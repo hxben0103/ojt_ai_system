@@ -116,3 +116,19 @@ class AppConstants {
   static const String appVersion = '1.0.0';
 }
 
+/// 🏛️ Legit Institutional Data for JRMSU (Jose Rizal Memorial State University)
+class InstitutionalConfig {
+  static const String universityName = "Jose Rizal Memorial State University";
+  static const String campusName = "Dapitan Campus";
+  static const String departmentName = "College of Computing Studies";
+  
+  // Official Signatories (from university_officials.txt)
+  static const String universityPresident = "DR. MARIA RIO ABDON NAGUIT, Ph.D.";
+  static const String vpaa = "DR. JAY D. TELEN, Ph.D.";
+  static const String campusDirector = "DR. PATRICK G. GALLETO, Ed.D.";
+  
+  static const String presidentTitle = "University President";
+  static const String vpaaTitle = "Vice President for Academic Affairs";
+  static const String directorTitle = "Campus Director";
+}
+

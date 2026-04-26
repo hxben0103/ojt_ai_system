@@ -4,12 +4,7 @@ const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const { query } = require('../../config/db');
 
-// ✅ Security: Enforce JWT_SECRET from environment — never use a fallback
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('❌ FATAL: JWT_SECRET environment variable is not set. Please configure your .env file.');
-  process.exit(1);
-}
+// D2 FIX: JWT_SECRET check removed — handled by shared middleware (auth.js)
 
 const authenticateToken = require('../middleware/auth');
 
@@ -186,30 +181,40 @@ async function getStudentAIPayload(studentId) {
         AND t.status = 'Approved'
       GROUP BY c.competency_id, c.title, c.point_value
     ),
+    -- WPR: Hours-Weighted Average of competency point_values
+    -- Formula: Σ(hours_worked × point_value) / Σ(hours_worked)
+    -- Tasks with more hours contribute proportionally more to the score.
     wpr_computed AS (
       SELECT
         CASE
-          WHEN COUNT(*) > 0
-            THEN ROUND(AVG(point_value)::NUMERIC, 2)
+          WHEN SUM(t.hours_worked) > 0
+            THEN ROUND((SUM(t.hours_worked * c.point_value) / SUM(t.hours_worked))::NUMERIC, 2)
           ELSE 0
         END AS wpr_score
-      FROM competency_points
-      WHERE total_points > 0
+      FROM ojt_daily_tasks t
+      INNER JOIN task_competencies tc ON t.task_id = tc.task_id
+      INNER JOIN competencies c ON tc.competency_id = c.competency_id
+      WHERE t.student_id = $1 AND t.status = 'Approved'
     ),
-    -- Task Score: Daily average → then average of daily averages
-    -- Step 1: For each day, average the point_value of all tasks logged that day
-    -- Step 2: Average those daily averages to get the final score (= WPR input)
+    -- Task Score: Hours-weighted daily scores → hours-weighted overall score
+    -- Step 1: For each day, compute Σ(hours × point_value) / Σ(hours)
+    -- Step 2: Weight each day's score by that day's total hours for the final score
     task_score_computed AS (
       SELECT
         CASE
-          WHEN COUNT(*) > 0
-            THEN ROUND(AVG(daily_avg_score), 2)
+          WHEN SUM(daily_hours) > 0
+            THEN ROUND((SUM(daily_hours * daily_weighted_score) / SUM(daily_hours))::NUMERIC, 2)
           ELSE 0
         END AS avg_task_score
       FROM (
         SELECT
           DATE(t.created_at) AS task_date,
-          AVG(c.point_value) AS daily_avg_score
+          SUM(t.hours_worked) AS daily_hours,
+          CASE
+            WHEN SUM(t.hours_worked) > 0
+              THEN SUM(t.hours_worked * c.point_value) / SUM(t.hours_worked)
+            ELSE 0
+          END AS daily_weighted_score
         FROM ojt_daily_tasks t
         INNER JOIN task_competencies tc ON t.task_id = tc.task_id
         INNER JOIN competencies c ON tc.competency_id = c.competency_id
@@ -433,13 +438,14 @@ async function getStudentAIPayload(studentId) {
     competencyPointsMap[featureName] = points;
   });
 
-  // Task-based score: running average of each day's avg task scores (from task_score_computed CTE)
-  // Each day → avg(competency point_values of tasks logged) → accumulate → divide by number of days
+  // Task-based score: hours-weighted average of competency point_values
+  // Formula: Σ(hours_worked × point_value) / Σ(hours_worked)
+  // Tasks with more hours contribute proportionally more to the score.
   const totalTaskPoints = parseFloat(snap.avg_task_score) || 0;
 
-  // WPR = (running avg daily task score + attendance rate) / 2
-  // Combines task skill performance + attendance into a single 0-100 WPR score
-  const weeklyProgressGrade = Math.min(100, Math.round(((totalTaskPoints + attendanceRate) / 2) * 100) / 100);
+  // WPR = Hours-weighted average task score (0-100)
+  // Attendance rate is already sent as a separate feature — no double-counting.
+  const weeklyProgressGrade = Math.min(100, Math.round(totalTaskPoints * 100) / 100);
 
   const narrativeReportGrade = parseFloat(snap.narrative_eval_score) || 0;
   const coordinatorEvalGrade = parseFloat(snap.coordinator_eval_score) || 0;
@@ -618,7 +624,7 @@ router.get('/insights', authenticateToken, async (req, res) => {
 });
 
 // Create AI insight
-router.post('/insights', async (req, res) => {
+router.post('/insights', authenticateToken, async (req, res) => {
   try {
     const { student_id, model_name, insight_type, result, confidence } = req.body;
 
@@ -684,7 +690,7 @@ router.get('/performance', authenticateToken, async (req, res) => {
 });
 
 // Generate and save performance prediction
-router.post('/performance/generate', async (req, res) => {
+router.post('/performance/generate', authenticateToken, async (req, res) => {
   try {
     const { student_id } = req.body;
     if (!student_id) return res.status(400).json({ error: 'student_id is required' });
@@ -810,7 +816,7 @@ router.get('/at-risk', authenticateToken, async (req, res) => {
 });
 
 // Generate batch predictions for all active students
-router.post('/batch', async (req, res) => {
+router.post('/batch', authenticateToken, async (req, res) => {
   try {
     // 1) Get all active students
     const activeStudents = await query(`
@@ -1109,7 +1115,8 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
 });
 
 // Chatbot Interaction Proxy Endpoint (Injects Student Competencies)
-router.post('/chat', async (req, res) => {
+// S1 FIX: Added authenticateToken — prevents unauthenticated AI resource abuse
+router.post('/chat', authenticateToken, async (req, res) => {
   try {
     const { message, session_id, student_id, stream } = req.body;
 
@@ -1137,7 +1144,8 @@ router.post('/chat', async (req, res) => {
       student_data = { competencies };
     }
 
-    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:5000';
+    // A1 FIX: Standardized on FLASK_AI_URL (was AI_SERVICE_URL)
+    const aiServiceUrl = process.env.FLASK_AI_URL || 'http://127.0.0.1:5000';
     
     try {
       if (stream === true) {
@@ -1225,103 +1233,13 @@ router.get('/chatbot/logs', authenticateToken, async (req, res) => {
   }
 });
 
-// Save chatbot log
-router.post('/chatbot/logs', async (req, res) => {
-  try {
-    const { user_id, query: userQuery, response, model_used } = req.body;
-
-    // Validation
-    if (!user_id || !userQuery || !response) {
-      return res.status(400).json({
-        error: 'Missing required fields: user_id, query, and response are required'
-      });
-    }
-
-    // Convert user_id to integer if it's a string
-    const userId = parseInt(user_id, 10);
-    if (isNaN(userId)) {
-      return res.status(400).json({
-        error: 'Invalid user_id: must be a valid integer'
-      });
-    }
-
-    // Verify user exists before inserting
-    const userCheck = await query(
-      'SELECT user_id FROM users WHERE user_id = $1',
-      [userId]
-    );
-
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({
-        error: `User with ID ${userId} not found`
-      });
-    }
-
-    const result = await query(
-      `INSERT INTO chatbot_logs (user_id, query, response, model_used)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [userId, userQuery, response, model_used || 'rag-ollama']
-    );
-
-    res.status(201).json({
-      message: 'Chatbot log saved successfully',
-      log: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Save chatbot log error:', error);
-
-    // Provide more detailed error message
-    let errorMessage = 'Internal server error';
-    if (error.code === '23503') {
-      errorMessage = 'Foreign key violation: User does not exist';
-    } else if (error.code === '23505') {
-      errorMessage = 'Duplicate entry';
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-
-    // Log critical errors to database
-    try {
-      await query(
-        `INSERT INTO api_error_logs (route, method, status_code, error_message)
-         VALUES ($1, $2, $3, $4)`,
-        ['/api/prediction/chatbot/logs', 'POST', 500, errorMessage]
-      );
-    } catch (logError) {
-      console.error('Failed to log error to database:', logError);
-    }
-
-    res.status(500).json({
-      error: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-// Get chatbot logs for a specific user
-router.get('/chatbot/logs/:userId', async (req, res) => {
-  try {
-    const userId = req.params.userId;
-
-    const result = await query(
-      `SELECT chat_id, user_id, query, response, model_used, timestamp
-       FROM chatbot_logs
-       WHERE user_id = $1
-       ORDER BY timestamp DESC
-       LIMIT 100`,
-      [userId]
-    );
-
-    res.json({ logs: result.rows });
-  } catch (error) {
-    console.error('Get chatbot logs error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// D3 FIX: Removed duplicate POST /chatbot/logs and GET /chatbot/logs/:userId
+// These were unauthenticated duplicates of the routes in chatbot.js (S2/S3).
+// Use POST /api/chatbot/log and GET /api/chatbot/history instead.
 
 // Get AI Evaluation Metrics (Defense Ready)
-router.get('/evaluation-metrics', async (req, res) => {
+// S4 FIX: Added authenticateToken — internal metrics should not be public
+router.get('/evaluation-metrics', authenticateToken, async (req, res) => {
   try {
     // 1. Fetch data from ai_evaluations table
     const evalResult = await query(`
@@ -1373,7 +1291,8 @@ router.get('/evaluation-metrics', async (req, res) => {
 });
 
 // Suggest competency based on task description
-router.post('/suggest-competency', async (req, res) => {
+// S5 FIX: Added authenticateToken — prevents unauthenticated AI proxy abuse
+router.post('/suggest-competency', authenticateToken, async (req, res) => {
   try {
     const { description } = req.body;
 
@@ -1425,29 +1344,35 @@ router.get('/prediction/history/:studentId', authenticateToken, async (req, res)
       }
     }
 
+    // L3 FIX: Use correct ai_insights columns (insight_id, result JSONB, created_at)
+    // Previously used non-existent columns: id, insight_date, forecasted_grade, risk_level
     const result = await query(
       `SELECT
-         id,
+         insight_id,
          student_id,
-         insight_date,
-         forecasted_grade,
-         risk_level,
+         result,
          created_at
        FROM ai_insights
        WHERE student_id = $1
-         AND forecasted_grade IS NOT NULL
-       ORDER BY insight_date DESC, created_at DESC
+         AND insight_type IN ('daily_risk_prediction', 'performance_prediction')
+         AND result IS NOT NULL
+       ORDER BY created_at DESC
        LIMIT 10`,
       [studentId]
     );
 
-    const history = result.rows.map(row => ({
-      id: row.id,
-      studentId: row.student_id,
-      date: row.insight_date || row.created_at,
-      forecastedGrade: parseFloat(row.forecasted_grade) || 0,
-      riskLevel: row.risk_level || 'UNKNOWN'
-    })).reverse(); // Oldest first so chart renders left-to-right
+    const history = result.rows.map(row => {
+      const resultData = typeof row.result === 'string' ? JSON.parse(row.result) : row.result;
+      const forecastedGrade = parseFloat(resultData?.predicted_performance || resultData?.forecasted_grade || resultData?.ml_prediction?.predicted_performance) || 0;
+      const riskLevel = resultData?.risk_level || resultData?.ml_prediction?.risk_level || resultData?.class_label || 'UNKNOWN';
+      return {
+        id: row.insight_id,
+        studentId: row.student_id,
+        date: row.created_at,
+        forecastedGrade,
+        riskLevel
+      };
+    }).reverse(); // Oldest first so chart renders left-to-right
 
     res.json({ history });
   } catch (error) {
@@ -1457,7 +1382,8 @@ router.get('/prediction/history/:studentId', authenticateToken, async (req, res)
 });
 
 // Streaming version of daily prediction for improved perceived latency
-router.get('/daily/stream/:studentId', async (req, res) => {
+// S6 FIX: Added authenticateToken — prevents unauthenticated streaming access
+router.get('/daily/stream/:studentId', authenticateToken, async (req, res) => {
   try {
     const studentId = parseInt(req.params.studentId);
     
@@ -1474,7 +1400,7 @@ router.get('/daily/stream/:studentId', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     // Step 3: Proxy request to Python AI Service
-    const axios = require('axios');
+    // A3 FIX: Removed inline require('axios') — already imported at top of file (line 3)
     const FLASK_AI_URL = process.env.FLASK_AI_URL || 'http://127.0.0.1:5000';
     
     const aiResponse = await axios({

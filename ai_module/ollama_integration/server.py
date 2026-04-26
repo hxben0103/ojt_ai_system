@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
-from chatbot_handler import chatbot_response
+from chatbot_handler import chatbot_response, get_rag_context
+from run_ai import format_response, build_prompt_with_context
 from competency_handler import suggest_competency
 from insight_engine import predict_with_explanation, predict_performance, build_features_from_snapshot
 from face_engine import verify_faces
@@ -22,25 +23,7 @@ def log_request(response):
         print(f"[API] {request.method} {request.path} - {response.status_code} - {duration:.2f}ms")
     return response
 
-def format_response(text):
-    """
-    Format chatbot response for better presentation while preserving markdown:
-    - Improve paragraph spacing
-    - Ensure bullet points and lists are well-defined
-    """
-    if not text:
-        return text
-    
-    # Normalize whitespace (avoid double-triple newlines but keep paragraph breaks)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    
-    # Ensure spacing around bullet points if they aren't already spaced
-    text = re.sub(r'([^\n])\n([-•*])\s', r'\1\n\n\2 ', text)
-    
-    # Ensure spacing around headers
-    text = re.sub(r'([^\n])\n([#]+)', r'\1\n\n\2', text)
-    
-    return text.strip()
+# Standard formatting is now handled by run_ai.format_response
 
 @app.route('/greeting', methods=['GET', 'POST'])
 def greeting():
@@ -166,31 +149,23 @@ def chat():
                 import json
                 import requests as req_lib
                 import os
+                from chatbot_context import get_context_manager
 
                 ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
                 ollama_model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
 
-                # Build a context-aware prompt using chatbot_handler's RAG retrieval
-                from chatbot_handler import get_rag_context
-                context = get_rag_context(user_message)
+                # 1. Get RAG context using unified logic
+                context_snippets = get_rag_context(user_message)
                 
-                # If no specific context found, add a general university context
-                if "No specific context found" in context:
-                    context = (
-                        "JRMSU (Jose Rizal Memorial State University) OJT Program overview:\n"
-                        "- Primary focus: Providing hands-on industry experience for students.\n"
-                        "- Requirements: DTR, Narrative Report, Evaluation forms.\n"
-                        "- Goal: Develop learning competencies in various IT and engineering fields."
-                    )
+                # 2. Get conversation history if session exists
+                history = []
+                if session_id:
+                    ctx = get_context_manager().get_context(session_id)
+                    if ctx:
+                        history = ctx.get_recent_history(max_turns=5)
                 
-                prompt = (
-                    f"System: You are the JRMSU OJT AI Assistant. You answer ONLY based on the provided JRMSU Context. "
-                    f"You must refuse to answer any questions that are not related to JRMSU OJT or the provided context.\n"
-                    f"Context:\n{context}\n\n"
-                    f"Instruction: Answer the student's question ONLY using information from the context above. "
-                    f"If the information is not present, say: 'I'm sorry, my current JRMSU knowledge doesn't cover that topic. Please consult your OJT coordinator.'\n\n"
-                    f"Student: {user_message}\nAssistant:"
-                )
+                # 3. Build the official prompt (Same as run_ai.py)
+                prompt = build_prompt_with_context(user_message, context_snippets, conversation_history=history)
 
                 accumulated = ""
                 try:
@@ -210,12 +185,12 @@ def chat():
                                 done = chunk.get("done", False)
                                 yield json.dumps({
                                     "success": True,
-                                    "answer": accumulated,
+                                    "answer": format_response(accumulated),
                                     "is_streaming": not done,
                                     "session_id": session_id or "default",
                                     "is_fallback": False,
                                     "confidence_score": 1.0,
-                                    "used_context": []
+                                    "used_context": [context_snippets[:200] + "..."] if context_snippets else []
                                 }) + "\n"
                                 if done:
                                     break

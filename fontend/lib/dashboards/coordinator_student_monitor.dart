@@ -64,15 +64,10 @@ class StudentMonitorEntry {
   // Helper to get status text for today's attendance
   String get todayStatusText {
     if (onDutyToday) {
-      if (todayAttendanceStatus == 'Approved') {
-        return 'On Duty (Approved)';
-      } else if (todayAttendanceStatus == 'Pending') {
-        return 'On Duty (Pending)';
-      } else if (todayAttendanceStatus == 'Rejected') {
-        return 'On Duty (Rejected)';
-      } else {
-        return 'On Duty Today';
+      if (flagsCaught != null && flagsCaught!.isNotEmpty) {
+        return 'Flagged Activity';
       }
+      return 'On Duty';
     } else {
       return 'Not on Duty Today';
     }
@@ -81,18 +76,12 @@ class StudentMonitorEntry {
   // Helper to get status color
   Color get todayStatusColor {
     if (onDutyToday) {
-      // Student logged attendance - color based on approval status
-      if (todayAttendanceStatus == 'Approved') {
-        return Colors.green;
-      } else if (todayAttendanceStatus == 'Pending') {
-        return Colors.orange;
-      } else if (todayAttendanceStatus == 'Rejected') {
+      if (flagsCaught != null && flagsCaught!.isNotEmpty) {
         return Colors.red;
-      } else {
-        return Colors.blue; // Unknown status
       }
+      return Colors.green;
     } else {
-      return Colors.redAccent; // Not on duty
+      return Colors.redAccent;
     }
   }
 }
@@ -428,10 +417,8 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
   Widget _buildStatusChip(StudentMonitorEntry entry) {
     IconData icon;
     if (entry.onDutyToday) {
-      if (entry.todayAttendanceStatus == 'Approved') icon = Icons.check_circle_outline;
-      else if (entry.todayAttendanceStatus == 'Pending') icon = Icons.schedule;
-      else if (entry.todayAttendanceStatus == 'Rejected') icon = Icons.cancel_outlined;
-      else icon = Icons.cases_outlined;
+      if (entry.flagsCaught != null && entry.flagsCaught!.isNotEmpty) icon = Icons.report_problem_rounded;
+      else icon = Icons.check_circle_rounded;
     } else {
       icon = Icons.event_busy_outlined;
     }

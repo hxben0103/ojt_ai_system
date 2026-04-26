@@ -28,7 +28,8 @@ class _AdminHeatmapScreenState extends State<AdminHeatmapScreen> {
     try {
       setState(() { _loading = true; _error = null; });
 
-      final response = await ApiService.get('/api/attendance/heatmap');
+      final todayStr = DateTime.now().toIso8601String().split('T')[0];
+      final response = await ApiService.get('/attendance/heatmap?date=$todayStr');
       final records = (response['records'] as List<dynamic>?) ?? [];
 
       final pins = <_StudentPin>[];

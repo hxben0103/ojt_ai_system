@@ -66,18 +66,32 @@ class IntegrityTimelineCard extends StatelessWidget {
               children: [
                 if (showStudent) Expanded(flex: 3, child: _headerText("Student")),
                 Expanded(flex: 2, child: _headerText("Date")),
+                Expanded(flex: 2, child: _headerText("OT In")),
+                Expanded(flex: 2, child: _headerText("OT Out")),
                 Expanded(flex: 2, child: _headerText("Geofence")),
                 Expanded(flex: 2, child: _headerText("Trust")),
-                Expanded(flex: 2, child: _headerText("Photo")),
+                Expanded(flex: 2, child: _headerText("In 📷")),
+                Expanded(flex: 2, child: _headerText("Out 📷")),
                 Expanded(flex: 2, child: _headerText("Dist.")),
-                const SizedBox(width: 28), // map icon space
+                SizedBox(width: 28, child: _headerText("Loc.")), 
               ],
             ),
           ),
           const Divider(height: 1),
           // Rows
-          ...recentEntries
-              .map((a) => _buildRow(context, a)),
+          if (attendanceHistory.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Center(
+                child: Text(
+                  "No recent activity detected",
+                  style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade400),
+                ),
+              ),
+            )
+          else
+            ...attendanceHistory
+                .map((a) => _buildRow(context, a)),
           const SizedBox(height: 8),
         ],
       ),
@@ -119,17 +133,28 @@ class IntegrityTimelineCard extends StatelessWidget {
       trustLabel = "$trustScore ✗";
     }
 
-    // Photo availability
-    final bool hasPhoto = attendance.checkinPhotoPath != null ||
+    // Photo availability — check-in photo (attendance_image)
+    final bool hasCheckinPhoto = attendance.checkinPhotoPath != null ||
+        attendance.photoUrl != null ||
         attendance.attendanceImage != null ||
         (attendance.hasBase64Image ?? false);
 
-    // Location availability
+    // Photo availability — check-out photo (checkout_image)
+    final bool hasCheckoutPhoto = attendance.checkoutPhotoPath != null ||
+        attendance.checkoutPhotoUrl != null ||
+        attendance.checkoutImage != null ||
+        (attendance.hasCheckoutImage ?? false);
+
     // Location availability (either checkin or checkout)
     final bool hasLocation = (attendance.checkinLat != null && attendance.checkinLng != null) ||
         (attendance.checkoutLat != null && attendance.checkoutLng != null);
 
     final DateFormat formatter = DateFormat('MMM dd, yyyy');
+
+    // Overtime display
+    final String otInText = _formatTimeShort(attendance.overtimeIn);
+    final String otOutText = _formatTimeShort(attendance.overtimeOut);
+    final bool hasOvertime = attendance.overtimeIn != null;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -156,48 +181,77 @@ class IntegrityTimelineCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          // OT In
+          Expanded(
+            flex: 2,
+            child: Text(
+              otInText,
+              style: AppTheme.bodySmall.copyWith(
+                color: hasOvertime ? Colors.deepPurple : Colors.grey.shade400,
+                fontSize: 10,
+                fontWeight: hasOvertime ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+          // OT Out
+          Expanded(
+            flex: 2,
+            child: Text(
+              otOutText,
+              style: AppTheme.bodySmall.copyWith(
+                color: attendance.overtimeOut != null ? Colors.deepPurple : Colors.grey.shade400,
+                fontSize: 10,
+                fontWeight: attendance.overtimeOut != null ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
           // Geofence badge
           Expanded(
             flex: 2,
-            child: _buildBadge(geofenceText, geofenceColor),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _buildBadge(geofenceText, geofenceColor),
+            ),
           ),
           // Trust badge
           Expanded(
             flex: 2,
-            child: _buildBadge(trustLabel, trustColor),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _buildBadge(trustLabel, trustColor),
+            ),
           ),
-          // Photo link
+          // Check-in Photo (In 📷)
           Expanded(
             flex: 2,
-            child: hasPhoto
+            child: hasCheckinPhoto
                 ? GestureDetector(
-                    onTap: () => _showPhotoDialog(context, attendance),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.image_outlined,
-                            size: 15, color: Colors.blue.shade600),
-                        const SizedBox(width: 3),
-                        Flexible(
-                          child: Text(
-                            "View",
-                            style: AppTheme.bodySmall.copyWith(
-                              color: Colors.blue.shade600,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                    onTap: () => _showPhotoDialog(context, attendance, isCheckout: false),
+                    child: Center(
+                      child: _buildPhotoThumb(Colors.blue),
                     ),
                   )
-                : Text(
-                    "—",
-                    style: AppTheme.bodySmall.copyWith(
-                      color: Colors.grey.shade400,
-                      fontSize: 10,
+                : Center(
+                    child: Text(
+                      "None",
+                      style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade400, fontSize: 10),
+                    ),
+                  ),
+          ),
+          // Check-out Photo (Out 📷)
+          Expanded(
+            flex: 2,
+            child: hasCheckoutPhoto
+                ? GestureDetector(
+                    onTap: () => _showPhotoDialog(context, attendance, isCheckout: true),
+                    child: Center(
+                      child: _buildPhotoThumb(Colors.orange),
+                    ),
+                  )
+                : Center(
+                    child: Text(
+                      "None",
+                      style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade400, fontSize: 10),
                     ),
                   ),
           ),
@@ -205,7 +259,7 @@ class IntegrityTimelineCard extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              "N/A", // Distance native
+              attendance.distanceM != null ? "${attendance.distanceM!.toStringAsFixed(0)}m" : "N/A",
               style: AppTheme.bodySmall.copyWith(color: Colors.grey.shade600, fontSize: 10),
             ),
           ),
@@ -227,10 +281,37 @@ class IntegrityTimelineCard extends StatelessWidget {
                       ),
                     ),
                   )
-                : const SizedBox.shrink(),
+                : Tooltip(
+                    message: 'Location data not captured',
+                    child: Icon(
+                      Icons.location_off_outlined,
+                      size: 18,
+                      color: Colors.grey.shade300,
+                    ),
+                  ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPhotoThumb(Color borderColor) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.grey.shade100,
+        border: Border.all(color: borderColor.withOpacity(0.6), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: borderColor.withOpacity(0.15),
+            blurRadius: 6,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Icon(Icons.photo_camera, size: 16, color: borderColor),
     );
   }
 
@@ -241,7 +322,8 @@ class IntegrityTimelineCard extends StatelessWidget {
     }
   }
 
-    void _showPhotoDialog(BuildContext context, Attendance attendance) {
+    void _showPhotoDialog(BuildContext context, Attendance attendance, {bool isCheckout = false}) {
+    final String photoLabel = isCheckout ? "Check-out Photo" : "Check-in Photo";
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -257,7 +339,7 @@ class IntegrityTimelineCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      "Photo — ${DateFormat('MMM dd, yyyy').format(attendance.date)}",
+                      "$photoLabel — ${DateFormat('MMM dd, yyyy').format(attendance.date)}",
                       style: AppTheme.bodyLarge
                           .copyWith(fontWeight: FontWeight.bold),
                       overflow: TextOverflow.ellipsis,
@@ -278,7 +360,9 @@ class IntegrityTimelineCard extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: const BorderRadius.vertical(
                     bottom: Radius.circular(16)),
-                child: _buildImageLoader(attendance),
+                child: isCheckout
+                    ? _buildCheckoutImageLoader(attendance)
+                    : _buildImageLoader(attendance),
               ),
             ),
             const SizedBox(height: 16),
@@ -292,6 +376,9 @@ class IntegrityTimelineCard extends StatelessWidget {
     if (attendance.attendanceImage != null &&
         attendance.attendanceImage!.isNotEmpty) {
       return _buildMemoryImage(attendance.attendanceImage!);
+    } else if (attendance.photoUrl != null &&
+        attendance.photoUrl!.isNotEmpty) {
+      return _buildNetworkImage(attendance.photoUrl!);
     } else if (attendance.checkinPhotoPath != null &&
         attendance.checkinPhotoPath!.isNotEmpty) {
       return _buildNetworkImage(attendance.checkinPhotoPath!);
@@ -316,6 +403,41 @@ class IntegrityTimelineCard extends StatelessWidget {
       );
     } else {
       return const Center(child: Text("No photo available"));
+    }
+  }
+
+  /// Loads the checkout image (from checkout_image column)
+  Widget _buildCheckoutImageLoader(Attendance attendance) {
+    if (attendance.checkoutImage != null &&
+        attendance.checkoutImage!.isNotEmpty) {
+      return _buildMemoryImage(attendance.checkoutImage!);
+    } else if (attendance.checkoutPhotoUrl != null &&
+        attendance.checkoutPhotoUrl!.isNotEmpty) {
+      return _buildNetworkImage(attendance.checkoutPhotoUrl!);
+    } else if (attendance.checkoutPhotoPath != null &&
+        attendance.checkoutPhotoPath!.isNotEmpty) {
+      return _buildNetworkImage(attendance.checkoutPhotoPath!);
+    } else if (attendance.hasCheckoutImage == true &&
+        attendance.attendanceId != null) {
+      return FutureBuilder<String?>(
+        future: AttendanceService.getCheckoutImage(attendance.attendanceId!),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(40.0),
+                child: CircularProgressIndicator(),
+              ),
+            );
+          }
+          if (snapshot.hasError || snapshot.data == null) {
+            return const Center(child: Text("Failed to load photo"));
+          }
+          return _buildMemoryImage(snapshot.data!);
+        },
+      );
+    } else {
+      return const Center(child: Text("No checkout photo"));
     }
   }
 
@@ -360,6 +482,23 @@ class IntegrityTimelineCard extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
     );
+  }
+
+  /// Format a time string (HH:MM:SS) to short AM/PM format
+  String _formatTimeShort(String? time) {
+    if (time == null || time.isEmpty) return "-";
+    try {
+      final parts = time.split(':');
+      if (parts.length < 2) return time;
+      int hour = int.parse(parts[0]);
+      int minute = int.parse(parts[1]);
+      final period = hour >= 12 ? "PM" : "AM";
+      hour = hour % 12;
+      if (hour == 0) hour = 12;
+      return "$hour:${minute.toString().padLeft(2, '0')} $period";
+    } catch (e) {
+      return time ?? "-";
+    }
   }
 }
 

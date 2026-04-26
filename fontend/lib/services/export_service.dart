@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import '../core/dio_client.dart';
 import 'api_service.dart';
@@ -82,11 +82,11 @@ class ExportService {
         
         print('ExportService: File saved to ${file.path}');
         
-        // Use printing package to share/save the file
-        final bytes = await file.readAsBytes();
-        await Printing.sharePdf(
-           bytes: bytes,
-           filename: filename,
+        // E4 FIX: Use share_plus to share CSV files instead of Printing.sharePdf
+        // Printing.sharePdf expects PDF format and corrupts CSV data
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Exported data: $filename',
         );
       } catch (e) {
         print('ExportService: Mobile export failed: $e');
@@ -95,4 +95,3 @@ class ExportService {
     }
   }
 }
-

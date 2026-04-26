@@ -228,7 +228,7 @@ class _SupervisorAttendanceVerificationScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Verify Student Attendance'),
+        title: const Text('Review Student Attendance'),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
         actions: [
@@ -381,14 +381,9 @@ class _SupervisorAttendanceVerificationScreenState
                             Colors.blue,
                           ),
                           _buildSummaryCard(
-                            'Verified',
-                            '${_attendanceRecords.where((a) => a.verified).length}',
-                            Colors.green,
-                          ),
-                          _buildSummaryCard(
-                            'Pending',
-                            '${_attendanceRecords.where((a) => !a.verified).length}',
-                            Colors.orange,
+                            'Flagged Activity',
+                            '${_attendanceRecords.where((a) => a.verificationStatus == 'FLAGGED').length}',
+                            Colors.red,
                           ),
                         ],
                       ),
@@ -500,35 +495,36 @@ class _SupervisorAttendanceVerificationScreenState
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isVerified ? Colors.green : Colors.orange,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isVerified ? Icons.check_circle : Icons.pending,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        isVerified ? 'Verified' : 'Pending',
-                        style: const TextStyle(
+                if (attendance.verificationStatus == 'FLAGGED')
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.report_problem_rounded,
                           color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
+                          size: 16,
                         ),
-                      ),
-                    ],
+                        SizedBox(width: 4),
+                        Text(
+                          'FLAGGED',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -681,32 +677,7 @@ class _SupervisorAttendanceVerificationScreenState
               ),
             ],
             const SizedBox(height: 12),
-            // Action buttons
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (!isVerified)
-                  ElevatedButton.icon(
-                    onPressed: () => _verifyAttendance(attendance),
-                    icon: const Icon(Icons.check_circle, size: 18),
-                    label: const Text('Verify'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  )
-                else
-                  OutlinedButton.icon(
-                    onPressed: () => _unverifyAttendance(attendance),
-                    icon: const Icon(Icons.cancel, size: 18),
-                    label: const Text('Remove Verification'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                    ),
-                  ),
-              ],
-            ),
+            // Action buttons removed (Auto-Approved model)
           ],
         ),
       ),

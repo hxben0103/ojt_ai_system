@@ -42,6 +42,7 @@ import '../screens/coordinator/coordinator_ojt_management_screen.dart';
 import '../screens/coordinator/coordinator_attendance_map_screen.dart';
 import '../screens/coordinator/coordinator_live_map_screen.dart';
 import '../screens/coordinator/coordinator_narrative_review_screen.dart';
+import '../screens/coordinator/coordinator_overtime_approvals_screen.dart';
 
 class CoordinatorDashboard extends StatefulWidget {
   const CoordinatorDashboard({super.key});
@@ -59,6 +60,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
   String? _analyticsWarning;
   int _predictionFailures = 0;
   Uint8List? _profileImageBytes;
+  int? _userId;
 
   // Coordinator profile info - will be loaded from API
   String fullName = "Loading...";
@@ -122,6 +124,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
         _safeSetState(() {
           fullName = user.fullName;
           idNumber = user.studentId ?? user.email;
+          _userId = user.userId;
           office = user.course ?? "OJT Office";
           position = user.role;
           _profileImageBytes = imageBytes;
@@ -883,7 +886,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => CoordinatorLiveMapScreen(
-                    coordinatorId: int.tryParse(idNumber) ?? 0,
+                    coordinatorId: _userId ?? 0,
                   ),
                 ),
               );
@@ -906,6 +909,12 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
             "Narrative Report Review",
             "Evaluate and rate student narratives (20%)",
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorNarrativeReviewScreen())),
+          ),
+          _actionTile(
+            Icon(Icons.more_time_rounded, color: Colors.purple.shade600, size: 22),
+            "Overtime Approvals",
+            "Review formal supervisor requests for student overtime",
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorOvertimeApprovalsScreen())),
             isLast: true,
           ),
           const SizedBox(height: 12),
@@ -1007,6 +1016,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                             studentId: snapshot.studentId.toString(),
                             course: snapshot.course ?? "N/A",
                             userId: snapshot.studentId,
+                            supervisorName: snapshot.supervisorName,
                           ),
                         ),
                       );
@@ -1216,7 +1226,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
 
   Widget _buildSystemIntegrityTimeline() {
     return FutureBuilder<List<Attendance>>(
-      future: AttendanceService.getAttendance(), // gets all
+      future: AttendanceService.getAttendance(), 
       builder: (context, fbSnapshot) {
         if (fbSnapshot.connectionState == ConnectionState.waiting) {
           return const Padding(
@@ -1224,16 +1234,13 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
              child: LoadingSkeleton(height: 150),
           );
         }
-        if (!fbSnapshot.hasData || fbSnapshot.data!.isEmpty) {
-          return const SizedBox.shrink();
-        }
         
-        final recentEntries = fbSnapshot.data!.take(5).toList();
+        final List<Attendance> data = fbSnapshot.data ?? [];
         
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
           child: IntegrityTimelineCard(
-            attendanceHistory: recentEntries,
+            attendanceHistory: data.take(10).toList(),
             showStudent: true,
           ),
         );

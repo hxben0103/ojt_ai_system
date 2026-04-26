@@ -610,9 +610,6 @@ def generate_recommendation(risk_level: str, reasons: List[str], features_dict: 
             return "Excellent competency diversity. Continue maintaining attendance and task logging consistency."
         else:
             return "Good overall performance. Focus on maintaining consistency in attendance, task logging, and evaluations."
-    
-    # Default recommendation
-    return "Continue monitoring and provide support as needed. Ensure all attendance and tasks are approved by supervisor."
 
 
 # =========================================================
@@ -786,7 +783,6 @@ def predict_performance(features_dict: Dict[str, float]) -> Dict[str, Any]:
             "score": progress_score,
             "confidence": float(probability),
             "prediction_stage": prediction_stage,
-            "top_reasons": top_reasons,
             "key_factors": top_reasons,
             "data_completeness": data_completeness,
             "recommendations": [recommendation] # Overwritten by Gemma if enabled
@@ -993,7 +989,7 @@ def parse_gemma_response(response_text: str) -> Dict[str, str]:
 # =========================================================
 # Hybrid ML + Gemma Prediction (Enhanced)
 # =========================================================
-def predict_with_explanation(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+def predict_with_explanation(snapshot: Dict[str, Any], include_gemma: bool = True) -> Dict[str, Any]:
     """
     Combined ML prediction + Gemma explanation and recommendations.
     
@@ -1170,6 +1166,8 @@ Start with: "Hi {student_name}, ..." Keep total response under 200 words. Format
         gemma_recommendations = []
         
         try:
+            if not include_gemma:
+                raise Exception("Gemma skipped (include_gemma=False)")
             gemma_response = call_gemma(prompt)
             parsed = parse_gemma_response(gemma_response)
             gemma_explanation = parsed["explanation"]

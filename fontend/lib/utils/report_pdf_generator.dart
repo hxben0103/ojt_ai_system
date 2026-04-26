@@ -3,6 +3,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:intl/intl.dart';
 import '../models/system_report.dart';
+import '../core/config.dart';
 
 class ReportPdfGenerator {
   static final DateFormat _dateFormat = DateFormat('MMM d, yyyy HH:mm');
@@ -29,6 +30,37 @@ class ReportPdfGenerator {
             _buildIndividualReportContent(report),
             
           pw.Spacer(),
+          
+          // --- Signature Section ---
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.end,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Container(
+                    width: 180,
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(bottom: pw.BorderSide(width: 1, color: PdfColors.black)),
+                    ),
+                  ),
+                  pw.SizedBox(height: 4),
+                  if (report.content?['supervisor_name'] != null) ...[
+                    pw.Text(report.content!['supervisor_name'], style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('Industry Supervisor', style: const pw.TextStyle(fontSize: 9)),
+                  ] else if (report.reportType.contains('Master Summary')) ...[
+                    pw.Text(InstitutionalConfig.universityPresident, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.Text(InstitutionalConfig.presidentTitle, style: const pw.TextStyle(fontSize: 9)),
+                  ] else ...[
+                    pw.Text(report.generatedByName ?? 'OJT Coordinator', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('OJT Coordinator', style: const pw.TextStyle(fontSize: 9)),
+                  ],
+                ],
+              ),
+            ],
+          ),
+          
+          pw.SizedBox(height: 20),
           pw.Divider(thickness: 0.5),
           pw.Align(
             alignment: pw.Alignment.centerRight,
@@ -160,9 +192,12 @@ class ReportPdfGenerator {
         pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text(title, style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900)),
-            pw.SizedBox(height: 4),
-            pw.Text('Coordinator: $generatedBy', style: const pw.TextStyle(fontSize: 12)),
+            pw.Text(title, style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900)),
+            pw.SizedBox(height: 2),
+            pw.Text(InstitutionalConfig.universityName, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.Text(InstitutionalConfig.campusName, style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+            pw.SizedBox(height: 8),
+            pw.Text('Coordinator: $generatedBy', style: const pw.TextStyle(fontSize: 11)),
           ],
         ),
         // Placeholder for Logo

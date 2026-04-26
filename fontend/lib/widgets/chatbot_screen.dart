@@ -176,9 +176,13 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
         await prefs.setString('chatbot_session_id', sessionId);
       }
 
+      // ── Load auth token for authenticated endpoint ──
+      final token = prefs.getString('auth_token');
+      
       final client = http.Client();
       final request = http.Request('POST', Uri.parse(apiUrl))
         ..headers['Content-Type'] = 'application/json'
+        ..headers['Authorization'] = 'Bearer ${token ?? ''}'
         ..body = json.encode({
           "message": userMessage,
           "session_id": sessionId,

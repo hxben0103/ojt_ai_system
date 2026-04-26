@@ -36,6 +36,7 @@ router.get('/attendance', authenticateToken, async (req, res) => {
         u.course,
         a.date,
         a.morning_in, a.morning_out, a.afternoon_in, a.afternoon_out,
+        a.overtime_in, a.overtime_out,
         a.total_hours, a.regular_hours, a.overtime_hours,
         a.status AS attendance_status,
         a.verification_status,
@@ -74,6 +75,7 @@ router.get('/attendance', authenticateToken, async (req, res) => {
     const csv = toCSV(result.rows, [
       'student_name', 'school_id', 'course', 'date',
       'morning_in', 'morning_out', 'afternoon_in', 'afternoon_out',
+      'overtime_in', 'overtime_out',
       'total_hours', 'regular_hours', 'overtime_hours',
       'attendance_status', 'verification_status', 'trust_score'
     ]);

@@ -436,7 +436,7 @@ class _SupervisorDailyTasksReviewScreenState
         borderRadius:
             BorderRadius.circular(AppTheme.borderRadiusLarge),
         side: isSelected
-            ? BorderSide(color: AppTheme.successColor, width: 2)
+            ? const BorderSide(color: AppTheme.successColor, width: 2)
             : BorderSide.none,
       ),
       child: InkWell(
@@ -518,7 +518,7 @@ class _SupervisorDailyTasksReviewScreenState
                       ),
                       child: Text(
                         task.status,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: AppTheme.warningColor,
                           fontWeight: FontWeight.w600,
                           fontSize: 12,
@@ -579,7 +579,7 @@ class _SupervisorDailyTasksReviewScreenState
                         label: const Text('Reject'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppTheme.errorColor,
-                          side: BorderSide(
+                          side: const BorderSide(
                               color: AppTheme.errorColor),
                           padding: const EdgeInsets.symmetric(
                               vertical: AppTheme.spacing12),

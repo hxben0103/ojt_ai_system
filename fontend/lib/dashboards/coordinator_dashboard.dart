@@ -1,18 +1,14 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/role_dashboard.dart';
 import '../widgets/role_guard.dart';
-import '../widgets/stat_card.dart';
 import '../widgets/modern_stat_card.dart';
 import '../widgets/section_header.dart';
 import '../widgets/loading_skeleton.dart';
 import '../core/app_theme.dart';
-import '../widgets/error_state_widget.dart';
 import '../services/cache_service.dart';
 import '../widgets/insight_card.dart';
 import '../widgets/modern_table_card.dart';
@@ -29,12 +25,9 @@ import '../services/prediction_service.dart';
 import '../services/attendance_service.dart';
 import '../services/daily_task_service.dart';
 import '../services/analytics_service.dart';
-import '../models/user.dart';
 import '../models/ojt_record.dart';
 import '../models/attendance.dart';
 import '../models/daily_task.dart';
-import '../screens/coordinator/coordinator_supervisor_feedback_screen.dart';
-import '../screens/coordinator/coordinator_performance_analysis_screen.dart';
 import '../screens/coordinator/coordinator_user_approvals_screen.dart';
 import '../screens/coordinator/coordinator_reports_screen.dart';
 import '../screens/coordinator/data_export_screen.dart';
@@ -178,7 +171,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
 
       Map<String, dynamic> overview = {};
       try {
-        overview = await AnalyticsService.getCoordinatorOverview(coordinatorId: currentUser!.userId);
+        overview = await AnalyticsService.getCoordinatorOverview(coordinatorId: currentUser.userId);
         _analyticsWarning = null;
       } catch (e) {
         debugPrint('[CoordinatorDashboard] Analytics API failed: $e');
@@ -577,7 +570,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
         
         // Statistics Section
         _buildAnimatedCard(
-          SectionHeader(
+          const SectionHeader(
             title: 'Overview',
             icon: Icons.dashboard_rounded,
           ),
@@ -632,7 +625,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                   value: '$_totalStudents',
                   icon: Icons.people_rounded,
                   color: AppTheme.coordinatorPrimary,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CoordinatorOjtManagementScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorOjtManagementScreen())),
                 ),
               ),
               const SizedBox(width: 12),
@@ -642,7 +635,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                   value: '$_highRiskStudents',
                   icon: Icons.warning_rounded,
                   color: AppTheme.errorColor,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CoordinatorStudentMonitor())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorStudentMonitor())),
                 ),
               ),
             ],
@@ -656,7 +649,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                   value: '$_completedOjt',
                   icon: Icons.check_circle_rounded,
                   color: AppTheme.successColor,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CoordinatorReportsScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoordinatorReportsScreen())),
                 ),
               ),
               const SizedBox(width: 12),
@@ -724,7 +717,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
           child: ConstrainedBox(
             constraints: BoxConstraints(minWidth: constraints.maxWidth),
             child: DataTable(
-              headingRowColor: MaterialStateProperty.all(Colors.blueGrey.shade50),
+              headingRowColor: WidgetStateProperty.all(Colors.blueGrey.shade50),
               dividerThickness: 1,
               horizontalMargin: 24,
               columnSpacing: 24,
@@ -1269,10 +1262,10 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           colors: [
             AppTheme.coordinatorPrimary,
-            const Color(0xFF3730A3), // Deeper indigo for depth
+            Color(0xFF3730A3), // Deeper indigo for depth
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -1399,7 +1392,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: [AppTheme.cardShadow],
+        boxShadow: const [AppTheme.cardShadow],
       ),
       child: Material(
         color: Colors.transparent,
@@ -1455,7 +1448,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: [AppTheme.cardShadow],
+        boxShadow: const [AppTheme.cardShadow],
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
@@ -1504,7 +1497,7 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
                   color: AppTheme.errorColor.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.power_settings_new_rounded,
                   color: AppTheme.errorColor,
                   size: 26,

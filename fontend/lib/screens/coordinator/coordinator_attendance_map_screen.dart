@@ -195,7 +195,7 @@ class _CoordinatorAttendanceMapScreenState
               children: [
                 Row(
                   children: [
-                    Icon(Icons.shield_outlined,
+                    const Icon(Icons.shield_outlined,
                         color: AppTheme.coordinatorPrimary, size: 20),
                     const SizedBox(width: 8),
                     Text(
@@ -344,7 +344,7 @@ class _CoordinatorAttendanceMapScreenState
             children: [
               Row(
                 children: [
-                  Icon(Icons.flag_outlined,
+                  const Icon(Icons.flag_outlined,
                       size: 16, color: AppTheme.warningColor),
                   const SizedBox(width: 6),
                   Text(
@@ -505,10 +505,10 @@ class _StaticMapCard extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  _LegendDot(color: Colors.green, label: 'Student GPS'),
+                  const _LegendDot(color: Colors.green, label: 'Student GPS'),
                   if (siteLat != null) ...[
                     const SizedBox(width: 12),
-                    _LegendDot(color: Colors.blue, label: 'OJT Site'),
+                    const _LegendDot(color: Colors.blue, label: 'OJT Site'),
                   ],
                 ],
               ),

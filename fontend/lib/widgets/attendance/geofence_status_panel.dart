@@ -28,7 +28,7 @@ class GeofenceStatusPanel extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(AppTheme.spacing16),
+        padding: const EdgeInsets.all(AppTheme.spacing16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -56,7 +56,7 @@ class GeofenceStatusPanel extends StatelessWidget {
                   ),
               ],
             ),
-            SizedBox(height: AppTheme.spacing12),
+            const SizedBox(height: AppTheme.spacing12),
             Text(
               siteName ?? "Loading site details...", 
               style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.bold)
@@ -65,7 +65,7 @@ class GeofenceStatusPanel extends StatelessWidget {
               siteAddress ?? "Checking location...", 
               style: AppTheme.bodySmall
             ),
-            SizedBox(height: AppTheme.spacing12),
+            const SizedBox(height: AppTheme.spacing12),
             if (currentLat != null) ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -77,7 +77,7 @@ class GeofenceStatusPanel extends StatelessWidget {
               ),
             ],
             if (isOutside) ...[
-              SizedBox(height: AppTheme.spacing12),
+              const SizedBox(height: AppTheme.spacing12),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(

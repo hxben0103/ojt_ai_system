@@ -4,7 +4,6 @@ import 'package:geolocator/geolocator.dart';
 import '../../services/ojt_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/ojt_record.dart';
-import '../../models/user.dart';
 
 class CoordinatorOjtManagementScreen extends StatefulWidget {
   const CoordinatorOjtManagementScreen({super.key});
@@ -111,7 +110,7 @@ class _CoordinatorOjtManagementScreenState
             }
           }
 
-          Future<void> _getCurrentLocation() async {
+          Future<void> getCurrentLocation() async {
             setDialogState(() => isGettingLocation = true);
             try {
               bool serviceEnabled;
@@ -316,7 +315,7 @@ class _CoordinatorOjtManagementScreenState
                               TextButton.icon(
                                 onPressed: isGettingLocation
                                     ? null
-                                    : _getCurrentLocation,
+                                    : getCurrentLocation,
                                 icon: const Icon(Icons.map, size: 16),
                                 label: const Text('Pick on Map',
                                     style: TextStyle(fontSize: 12)),

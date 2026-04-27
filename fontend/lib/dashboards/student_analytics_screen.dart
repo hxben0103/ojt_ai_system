@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -277,8 +276,9 @@ class _StudentAnalyticsScreenState extends State<StudentAnalyticsScreen> {
     final flags = List<String>.from(_integrityData?['flags'] ?? []);
 
     Color scoreColor = AppTheme.successColor;
-    if (status == 'CRITICAL') scoreColor = AppTheme.errorColor;
-    else if (status == 'SUSPICIOUS') scoreColor = AppTheme.warningColor;
+    if (status == 'CRITICAL') {
+      scoreColor = AppTheme.errorColor;
+    } else if (status == 'SUSPICIOUS') scoreColor = AppTheme.warningColor;
 
     return _buildCard(
       padding: const EdgeInsets.all(20),
@@ -334,7 +334,7 @@ class _StudentAnalyticsScreenState extends State<StudentAnalyticsScreen> {
                   ),
                 ],
               ),
-            )).toList()
+            ))
           else
             Text(
               "No irregularities detected",

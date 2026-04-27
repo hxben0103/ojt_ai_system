@@ -7,11 +7,11 @@ class PerformanceTrendIndicator extends StatelessWidget {
   final String trendReason;
 
   const PerformanceTrendIndicator({
-    Key? key,
+    super.key,
     required this.progressScore,
     required this.trendDirection,
     required this.trendReason,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

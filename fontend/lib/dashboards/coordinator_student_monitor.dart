@@ -417,8 +417,11 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
   Widget _buildStatusChip(StudentMonitorEntry entry) {
     IconData icon;
     if (entry.onDutyToday) {
-      if (entry.flagsCaught != null && entry.flagsCaught!.isNotEmpty) icon = Icons.report_problem_rounded;
-      else icon = Icons.check_circle_rounded;
+      if (entry.flagsCaught != null && entry.flagsCaught!.isNotEmpty) {
+        icon = Icons.report_problem_rounded;
+      } else {
+        icon = Icons.check_circle_rounded;
+      }
     } else {
       icon = Icons.event_busy_outlined;
     }
@@ -483,7 +486,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
         children: [
           Row(
             children: [
-              Icon(Icons.auto_awesome, size: 18, color: AppTheme.coordinatorPrimary),
+              const Icon(Icons.auto_awesome, size: 18, color: AppTheme.coordinatorPrimary),
               const SizedBox(width: 8),
               Text('AI Insights', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade800)),
             ],
@@ -563,8 +566,8 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
                       Text('Forecasted Grade', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                       const SizedBox(height: 4),
                       Text(
-                        '${entry.finalGradeForecast!.toStringAsFixed(1)}',
-                        style: TextStyle(
+                        entry.finalGradeForecast!.toStringAsFixed(1),
+                        style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                           color: AppTheme.coordinatorPrimary,
@@ -650,7 +653,7 @@ class _CoordinatorStudentMonitorState extends State<CoordinatorStudentMonitor> {
                 value: entry.completionPercent,
                 minHeight: 6,
                 backgroundColor: Colors.grey.shade100,
-                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.coordinatorPrimary),
+                valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.coordinatorPrimary),
               ),
             ),
             const SizedBox(height: 6),

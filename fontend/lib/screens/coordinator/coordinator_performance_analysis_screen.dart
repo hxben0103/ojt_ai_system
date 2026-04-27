@@ -4,8 +4,6 @@ import '../../services/ojt_service.dart';
 import '../../services/attendance_service.dart';
 import '../../services/evaluation_service.dart';
 import '../../services/prediction_service.dart';
-import '../../models/ojt_record.dart';
-import '../../models/evaluation.dart';
 import '../../widgets/explainable_ai_card.dart';
 
 class CoordinatorPerformanceAnalysisScreen extends StatefulWidget {

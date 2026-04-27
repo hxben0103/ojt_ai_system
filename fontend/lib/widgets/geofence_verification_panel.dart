@@ -176,7 +176,7 @@ class GeofenceVerificationPanel extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded,
+                  const Icon(Icons.warning_amber_rounded,
                       color: AppTheme.errorColor, size: 18),
                   const SizedBox(width: 8),
                   Expanded(
@@ -204,7 +204,7 @@ class GeofenceVerificationPanel extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.gps_not_fixed_outlined,
+                  const Icon(Icons.gps_not_fixed_outlined,
                       color: AppTheme.warningColor, size: 18),
                   const SizedBox(width: 8),
                   Expanded(

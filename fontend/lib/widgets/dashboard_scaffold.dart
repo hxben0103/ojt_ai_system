@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
-import 'section_header.dart';
 
 /// Shared scaffold for dashboard-style screens with
 /// consistent padding, scroll behavior, and optional pull-to-refresh.

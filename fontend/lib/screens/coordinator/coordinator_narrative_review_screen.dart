@@ -38,10 +38,8 @@ class _CoordinatorNarrativeReviewScreenState extends State<CoordinatorNarrativeR
       // Group by student
       final Map<int, Map<String, dynamic>> studentMap = {};
       for (var report in reports) {
-        if (report.studentId == null) continue;
-        
         if (!studentMap.containsKey(report.studentId)) {
-          studentMap[report.studentId!] = {
+          studentMap[report.studentId] = {
             'id': report.studentId,
             'name': report.studentName ?? 'Unknown Student',
             'reportCount': 0,

@@ -22,19 +22,19 @@ class AttendanceSummaryCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(AppTheme.spacing16),
+        padding: const EdgeInsets.all(AppTheme.spacing16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text("Attendance Summary", style: AppTheme.heading3),
-            SizedBox(height: AppTheme.spacing16),
+            const SizedBox(height: AppTheme.spacing16),
             Row(
               children: [
                 Expanded(child: _buildSummaryItem("Morning In", formatTime(attendance!.morningIn))),
                 Expanded(child: _buildSummaryItem("Morning Out", formatTime(attendance!.morningOut))),
               ],
             ),
-            SizedBox(height: AppTheme.spacing12),
+            const SizedBox(height: AppTheme.spacing12),
             Row(
               children: [
                 Expanded(child: _buildSummaryItem("Afternoon In", formatTime(attendance!.afternoonIn))),
@@ -42,7 +42,7 @@ class AttendanceSummaryCard extends StatelessWidget {
               ],
             ),
             if (attendance!.overtimeIn != null) ...[
-              SizedBox(height: AppTheme.spacing12),
+              const SizedBox(height: AppTheme.spacing12),
               Row(
                 children: [
                   Expanded(child: _buildSummaryItem("Overtime In", formatTime(attendance!.overtimeIn))),
@@ -71,15 +71,15 @@ class AttendanceSummaryCard extends StatelessWidget {
                 ),
               ],
             ),
-            SizedBox(height: AppTheme.spacing12),
+            const SizedBox(height: AppTheme.spacing12),
             Text(
               "Note: Early arrival gives no extra credit. Late arrivals are rounded to the next 30-minute block.",
               style: AppTheme.caption.copyWith(fontStyle: FontStyle.italic),
             ),
             if (attendance!.coordinatorComment != null) ...[
-              SizedBox(height: AppTheme.spacing16),
+              const SizedBox(height: AppTheme.spacing16),
               const Divider(),
-              SizedBox(height: AppTheme.spacing8),
+              const SizedBox(height: AppTheme.spacing8),
               _buildCoordinatorFeedback(),
             ],
           ],

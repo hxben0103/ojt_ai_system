@@ -78,8 +78,9 @@ class CoordinatorProvider extends ChangeNotifier {
       int completed = 0;
       int active    = 0;
       for (final r in ojtRecords) {
-        if (r.status == 'Completed') completed++;
-        else if (r.status == 'Active' || r.status == 'Ongoing') active++;
+        if (r.status == 'Completed') {
+          completed++;
+        } else if (r.status == 'Active' || r.status == 'Ongoing') active++;
       }
 
       Map<String, dynamic> overview = {};

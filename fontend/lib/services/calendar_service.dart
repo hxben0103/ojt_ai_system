@@ -1,4 +1,3 @@
-import '../core/config.dart';
 import 'api_service.dart';
 
 class CalendarService {

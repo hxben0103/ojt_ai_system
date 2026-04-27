@@ -271,7 +271,7 @@ class _SupervisorAttendanceVerificationScreenState
                             children: [
                               Expanded(
                                 child: DropdownButtonFormField<int?>(
-                                  value: _selectedStudentId,
+                                  initialValue: _selectedStudentId,
                                   decoration: const InputDecoration(
                                     labelText: 'Filter by Student',
                                     border: OutlineInputBorder(),
@@ -302,7 +302,7 @@ class _SupervisorAttendanceVerificationScreenState
                               ),
                               const SizedBox(width: 12),
                               DropdownButtonFormField<String?>(
-                                value: _filterVerificationStatus,
+                                initialValue: _filterVerificationStatus,
                                 decoration: const InputDecoration(
                                   labelText: 'Verification status',
                                   border: OutlineInputBorder(),
@@ -663,7 +663,7 @@ class _SupervisorAttendanceVerificationScreenState
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.verified_user, size: 16, color: Colors.green),
+                  const Icon(Icons.verified_user, size: 16, color: Colors.green),
                   const SizedBox(width: 4),
                   Text(
                     'Verified by ${attendance.verifiedByName ?? "Supervisor"} on $verifiedDateStr',

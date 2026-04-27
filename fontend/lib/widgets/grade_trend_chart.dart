@@ -98,7 +98,7 @@ class _GradeTrendChartState extends State<GradeTrendChart> {
             padding: const EdgeInsets.only(left: 8, bottom: 12),
             child: Row(
               children: [
-                Icon(Icons.trending_up, size: 16,
+                const Icon(Icons.trending_up, size: 16,
                     color: AppTheme.coordinatorPrimary),
                 const SizedBox(width: 6),
                 Text(
@@ -111,7 +111,7 @@ class _GradeTrendChartState extends State<GradeTrendChart> {
                 // Legend
                 _LegendDot(color: Colors.green.shade600, label: 'Good (≥75)'),
                 const SizedBox(width: 10),
-                _LegendDot(color: Colors.orange, label: 'Risk (<75)'),
+                const _LegendDot(color: Colors.orange, label: 'Risk (<75)'),
               ],
             ),
           ),

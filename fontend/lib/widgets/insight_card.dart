@@ -54,7 +54,7 @@ class InsightCard extends StatelessWidget {
         ),
         child: Column(
           children: [
-            Icon(Icons.error_outline_rounded, color: AppTheme.errorColor, size: 32),
+            const Icon(Icons.error_outline_rounded, color: AppTheme.errorColor, size: 32),
             const SizedBox(height: 12),
             Text(
               "Intelligence Data Offline",

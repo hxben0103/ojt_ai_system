@@ -1,7 +1,6 @@
 import '../models/competency.dart';
 import '../models/daily_task.dart';
 import 'api_service.dart';
-import '../core/config.dart';
 
 class DailyTaskService {
   // Get all competencies

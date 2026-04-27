@@ -8,7 +8,7 @@ import '../../providers/supervisor_provider.dart';
 import '../../core/app_theme.dart';
 
 class SupervisorOvertimeRequestsScreen extends StatefulWidget {
-  const SupervisorOvertimeRequestsScreen({Key? key}) : super(key: key);
+  const SupervisorOvertimeRequestsScreen({super.key});
 
   @override
   State<SupervisorOvertimeRequestsScreen> createState() => _SupervisorOvertimeRequestsScreenState();

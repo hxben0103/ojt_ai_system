@@ -7,11 +7,11 @@ class RestrictedAccessScreen extends StatelessWidget {
   final String message;
 
   const RestrictedAccessScreen({
-    Key? key,
+    super.key,
     this.title = 'Access Restricted',
     this.message =
         'You must have an active OJT Record assigned to both a Coordinator and a Supervisor to access this feature.',
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -67,10 +67,10 @@ class RestrictedAccessScreen extends StatelessWidget {
               const SizedBox(height: AppTheme.spacing16),
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Go Back'),
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.grey[700],
                 ),
+                child: const Text('Go Back'),
               ),
             ],
           ),

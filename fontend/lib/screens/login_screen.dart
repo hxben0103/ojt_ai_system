@@ -297,11 +297,11 @@ class _LoginScreenState extends State<LoginScreen>
       builder: (ctx) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge)),
-          title: Row(
+          title: const Row(
             children: [
-              const Icon(Icons.wifi_tethering, color: Colors.blue),
-              const SizedBox(width: 8),
-              const Text('Server IP Configuration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Icon(Icons.wifi_tethering, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Server IP Configuration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
           content: Column(

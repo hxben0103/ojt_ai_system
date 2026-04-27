@@ -151,7 +151,7 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
               ),
             ),
             title: Text(
-              report.content?['title'] ?? report.reportType,
+              report.content['title'] ?? report.reportType,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             subtitle: Column(
@@ -217,12 +217,12 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
   }
 
   void _showReportDetails(SystemReport report) {
-    final students = report.content?['students'] as List<dynamic>?;
+    final students = report.content['students'] as List<dynamic>?;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(report.content?['title'] ?? report.reportType),
+        title: Text(report.content['title'] ?? report.reportType),
         content: SizedBox(
           width: double.maxFinite,
           child: students != null

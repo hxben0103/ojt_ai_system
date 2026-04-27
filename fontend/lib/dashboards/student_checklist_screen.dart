@@ -92,8 +92,8 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Row(
+            const SnackBar(
+              content: Row(
                 children: [
                   Icon(Icons.warning, color: Colors.white),
                   SizedBox(width: AppTheme.spacing8),
@@ -284,7 +284,7 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
                     color: AppTheme.studentPrimary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.checklist,
                     color: AppTheme.studentPrimary,
                     size: 28,
@@ -322,7 +322,7 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.trending_up,
                       color: AppTheme.successColor,
                       size: 20,
@@ -404,7 +404,7 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.info_outline,
                     color: AppTheme.warningColor,
                     size: 24,
@@ -435,15 +435,15 @@ class _StudentChecklistScreenState extends State<StudentChecklistScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Row(
+        title: const Row(
           children: [
             Icon(
               Icons.checklist_rtl,
               color: Colors.white,
               size: 26,
             ),
-            const SizedBox(width: AppTheme.spacing8),
-            const Text("OJT Application Checklist"),
+            SizedBox(width: AppTheme.spacing8),
+            Text("OJT Application Checklist"),
           ],
         ),
         backgroundColor: AppTheme.studentPrimary,

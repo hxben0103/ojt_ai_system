@@ -1,13 +1,12 @@
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify, Response, stream_with_context, g
 from flask_cors import CORS
 from chatbot_handler import chatbot_response, get_rag_context
 from run_ai import format_response, build_prompt_with_context
 from competency_handler import suggest_competency
-from insight_engine import predict_with_explanation, predict_performance, build_features_from_snapshot
+from insight_engine import predict_with_explanation, call_gemma_stream
 from face_engine import verify_faces
-import re
+import json
 import time
-from flask import g
 
 app = Flask(__name__)
 CORS(app)  # ✅ Enables communication with Flutter (web or mobile)
@@ -23,7 +22,7 @@ def log_request(response):
         print(f"[API] {request.method} {request.path} - {response.status_code} - {duration:.2f}ms")
     return response
 
-# Standard formatting is now handled by run_ai.format_response
+
 
 @app.route('/greeting', methods=['GET', 'POST'])
 def greeting():
@@ -390,30 +389,15 @@ def predict_stream():
         if not student_data:
             return jsonify({"success": False, "error": "No student data provided"}), 400
 
-        from insight_engine import predict_with_explanation, call_gemma_stream
-        from flask import Response, stream_with_context
-        import json
-
-        # Step 1: Pre-calculate the prompt using standard logic (trivially small latency)
-        # We'll use a simplified version for the stream or just reuse insight_engine logic.
-        # For simplicity, we'll implement the generator here.
-        
         def generate():
-            # First, get the static ML result (which is fast)
-            # We bypass the full Gemma wait by using call_gemma_stream
-            
-            # This is a bit complex to do in one go, so let's use the insight_engine 
-            # to get the ML result first, then stream the narrative.
+            # Get the static ML result first (fast, no LLM call)
             ml_and_context = predict_with_explanation(student_data, include_gemma=False)
             
             # Yield the static JSON first (ML result, grading, integrity)
             yield json.dumps({"type": "metadata", "data": ml_and_context}) + "\n--CHUNK--\n"
             
-            # Yield the AI narrative chunks
-            # Construct the prompt manually or use a helper
+            # Stream the AI narrative tokens
             prompt = f"Student performance summary for {student_data.get('student_name', 'Student')}:\n- Risk: {ml_and_context['risk_level']}\n- Recommendations: ..."
-            # Note: In a real refactor, I'd move prompt construction to a shared helper.
-            # Using basic prompt for now as a proof of concept.
             
             for token in call_gemma_stream(prompt):
                 yield json.dumps({"type": "token", "content": token}) + "\n--CHUNK--\n"

@@ -2,7 +2,6 @@ import '../models/attendance.dart';
 import '../models/overtime_request.dart';
 import 'api_service.dart';
 import '../core/config.dart';
-import '../core/attendance_constants.dart';
 import 'ojt_service.dart';
 
 class AttendanceService {

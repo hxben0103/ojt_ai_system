@@ -11,14 +11,14 @@ class AIRecommendationCard extends StatelessWidget {
   final bool isLoading;
 
   const AIRecommendationCard({
-    Key? key,
+    super.key,
     required this.riskLevel,
     required this.trendStatus,
     required this.trendReason,
     required this.recommendation,
     this.gemmaExplanation,
     this.isLoading = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -218,7 +218,7 @@ class AIRecommendationCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        '${_getFriendlyRisk(riskLevel).toUpperCase()}',
+        _getFriendlyRisk(riskLevel).toUpperCase(),
         style: const TextStyle(
           color: Colors.white,
           fontSize: 10,

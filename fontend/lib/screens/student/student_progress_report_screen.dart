@@ -23,7 +23,7 @@ class StudentProgressReportScreen extends StatefulWidget {
 class _StudentProgressReportScreenState
     extends State<StudentProgressReportScreen> {
   bool _isLoading = true;
-  bool _isUploading = false;
+  final bool _isUploading = false;
   bool _canPerformOjtActions = false;
   List<NarrativeReport> _history = [];
   String? _errorMessage;

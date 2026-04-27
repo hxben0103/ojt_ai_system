@@ -84,7 +84,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         
         // Statistics Section
         _buildAnimatedCard(
-          SectionHeader(
+          const SectionHeader(
             title: 'Overview',
             icon: Icons.dashboard_rounded,
           ),
@@ -333,7 +333,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.verified_user_rounded,
+            const Icon(Icons.verified_user_rounded,
                 size: 10, color: AppTheme.successColor),
             const SizedBox(width: 4),
             Text(
@@ -440,10 +440,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           colors: [
             AppTheme.supervisorPrimary,
-            const Color(0xFF065F46), // A slightly lighter emerald for depth
+            Color(0xFF065F46), // A slightly lighter emerald for depth
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -594,7 +594,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SupervisorEvaluationFormScreen(),
+                  builder: (_) => const SupervisorEvaluationFormScreen(),
                 ),
               ),
             ),
@@ -609,7 +609,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SupervisorEvaluationFormScreen(),
+                  builder: (_) => const SupervisorEvaluationFormScreen(),
                 ),
               ),
             ),
@@ -637,7 +637,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: [AppTheme.cardShadow],
+        boxShadow: const [AppTheme.cardShadow],
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
@@ -684,7 +684,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                   color: AppTheme.errorColor.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.power_settings_new_rounded,
                   color: AppTheme.errorColor,
                   size: 26,

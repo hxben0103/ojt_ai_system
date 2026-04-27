@@ -6,10 +6,10 @@ class WeeklyAiSummaryCard extends StatelessWidget {
   final String recommendation;
 
   const WeeklyAiSummaryCard({
-    Key? key,
+    super.key,
     required this.studentStatus,
     required this.recommendation,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -80,7 +80,7 @@ class WeeklyAiSummaryCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.auto_awesome_rounded, color: AppTheme.studentPrimary, size: 20),
+              const Icon(Icons.auto_awesome_rounded, color: AppTheme.studentPrimary, size: 20),
               const SizedBox(width: 8),
               Text(
                 "Weekly AI Summary",

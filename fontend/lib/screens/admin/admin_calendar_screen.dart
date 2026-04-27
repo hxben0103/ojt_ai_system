@@ -94,7 +94,7 @@ class _AdminCalendarScreenState extends State<AdminCalendarScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: eventType,
+                    initialValue: eventType,
                     decoration: const InputDecoration(
                       labelText: 'Event Type',
                       border: OutlineInputBorder(),

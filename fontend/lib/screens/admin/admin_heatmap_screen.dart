@@ -188,7 +188,7 @@ class _AdminHeatmapScreenState extends State<AdminHeatmapScreen> {
                           children: [
                             const Icon(Icons.wifi_off, size: 64, color: Colors.grey),
                             const SizedBox(height: 12),
-                            Text('Failed to load data'),
+                            const Text('Failed to load data'),
                             const SizedBox(height: 12),
                             ElevatedButton(
                               onPressed: () {

@@ -10,14 +10,14 @@ class ExplainableAiPanel extends StatelessWidget {
   final String? predictionStage;
 
   const ExplainableAiPanel({
-    Key? key,
+    super.key,
     required this.reasons,
     required this.riskLevel,
     this.confidence = 0.0,
     this.summary,
     this.recommendations,
     this.predictionStage,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -161,7 +161,7 @@ class ExplainableAiPanel extends StatelessWidget {
                     style: AppTheme.bodyMedium.copyWith(color: Colors.grey.shade700, fontStyle: FontStyle.italic),
                   )
                 else
-                  ...reasons.map((reason) => _buildReasonBullet(_normalizeReason(reason))).toList(),
+                  ...reasons.map((reason) => _buildReasonBullet(_normalizeReason(reason))),
 
                 // LLM Recommendations
                 if (recommendations != null && recommendations!.isNotEmpty) ...[
@@ -175,7 +175,7 @@ class ExplainableAiPanel extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  ...recommendations!.map((rec) => _buildReasonBullet(rec)).toList(),
+                  ...recommendations!.map((rec) => _buildReasonBullet(rec)),
                 ],
               ],
             ),

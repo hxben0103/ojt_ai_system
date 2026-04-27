@@ -10,13 +10,13 @@ class TrustScoreBadge extends StatelessWidget {
   final bool isCompact;
 
   const TrustScoreBadge({
-    Key? key,
+    super.key,
     required this.trustScore,
     this.trustFlags = const [],
     this.insideGeofence = true,
     this.photoPresent = true,
     this.isCompact = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +62,7 @@ class TrustScoreBadge extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.security, color: AppTheme.studentPrimary, size: 20),
+              const Icon(Icons.security, color: AppTheme.studentPrimary, size: 20),
               const SizedBox(width: AppTheme.spacing8),
               Text('Attendance Integrity', style: AppTheme.heading3),
             ],

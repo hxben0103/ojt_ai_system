@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -315,7 +314,7 @@ class _RegisterCoordinatorState extends State<RegisterCoordinator>
                             // 🎓 Assigned Program
                             animatedField(
                               DropdownButtonFormField<String>(
-                                value: _selectedProgram,
+                                initialValue: _selectedProgram,
                                 decoration: const InputDecoration(
                                   labelText: 'Assigned Program',
                                   border: OutlineInputBorder(),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
@@ -286,7 +285,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
 
     setState(() {
         _messages.add(ChatMessage(
-          text: "🚫 Unexpected error: ${errorMsg.length > 100 ? errorMsg.substring(0, 100) + '...' : errorMsg}",
+          text: "🚫 Unexpected error: ${errorMsg.length > 100 ? '${errorMsg.substring(0, 100)}...' : errorMsg}",
           isUser: false,
           timestamp: DateTime.now(),
         ));
@@ -484,7 +483,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Column(
+                const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -738,7 +737,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                               ),
                             )
                           : (msg.text.isEmpty 
-                             ? _BlinkingCursorIndicator()
+                             ? const _BlinkingCursorIndicator()
                              : MarkdownBody(
                                 data: msg.text,
                                 styleSheet: MarkdownStyleSheet(
@@ -751,9 +750,9 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                                     color: Color(0xFF1E293B),
                                     fontWeight: FontWeight.w700,
                                   ),
-                                  code: TextStyle(
-                                    backgroundColor: const Color(0xFFF8FAFC),
-                                    color: const Color(0xFF6366F1),
+                                  code: const TextStyle(
+                                    backgroundColor: Color(0xFFF8FAFC),
+                                    color: Color(0xFF6366F1),
                                     fontFamily: 'monospace',
                                     fontSize: 13,
                                   ),

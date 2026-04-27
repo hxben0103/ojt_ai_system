@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import logging
 from typing import Dict, Any, List, Optional, Tuple
+from functools import lru_cache
 from integrity_engine import assess_integrity_score
 
 # =========================================================
@@ -104,7 +105,6 @@ REQUIRED_SNAPSHOT_FIELDS = [
 ]
 
 
-from functools import lru_cache
 
 # =========================================================
 # Model Validation Helper
@@ -798,44 +798,6 @@ def predict_performance(features_dict: Dict[str, float]) -> Dict[str, Any]:
         }
 
 
-# =========================================================
-# ML Prediction (Pure ML - No LLM) - Backward Compatible
-# =========================================================
-def ml_predict(features_dict: Dict[str, float]) -> Dict[str, Any]:
-    """
-    Pure ML prediction function (no LLM).
-    This is the numeric backbone for risk assessment.
-    
-    This function maintains backward compatibility with existing code that expects
-    the old response format.
-    
-    Args:
-        features_dict: Dictionary mapping feature names to numeric values
-    
-    Returns:
-        Dictionary containing:
-        {
-            "class_label": <string>,
-            "probability": <float>,
-            "risk_level": "HIGH" | "MEDIUM" | "LOW",
-            "class_probabilities": { <label>: prob, ... }
-        }
-        
-        OR error dict if models unavailable
-    """
-    result = predict_performance(features_dict)
-    
-    # If error response, return as-is
-    if not result.get("success", False):
-        return result
-    
-    # Rename keys to match expected format (backward compatibility)
-    return {
-        "class_label": result["predicted_label"],
-        "probability": result["probability"],
-        "risk_level": result["risk_level"],
-        "class_probabilities": result["probabilities"]
-    }
 
 
 # =========================================================

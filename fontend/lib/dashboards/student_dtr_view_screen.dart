@@ -236,7 +236,7 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
           pw.Container(
             width: 220,
             height: 60,
-            decoration: pw.BoxDecoration(
+            decoration: const pw.BoxDecoration(
               border: pw.Border(
                 bottom: pw.BorderSide(width: 1, color: PdfColors.black),
               ),
@@ -250,7 +250,7 @@ class _StudentDTRViewScreenState extends State<StudentDTRViewScreen> {
           pw.Container(
             width: 220,
             height: 60,
-            decoration: pw.BoxDecoration(
+            decoration: const pw.BoxDecoration(
               border: pw.Border(
                 bottom: pw.BorderSide(width: 1, color: PdfColors.black),
               ),

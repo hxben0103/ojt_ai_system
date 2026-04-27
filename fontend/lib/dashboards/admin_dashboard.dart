@@ -197,7 +197,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ));
     } else {
       widgets
-        ..add(SectionHeader(
+        ..add(const SectionHeader(
           title: 'System Overview',
           icon: Icons.dashboard_rounded,
         ))
@@ -366,7 +366,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionHeader(
+          const SectionHeader(
             title: 'Institutional Configuration',
             icon: Icons.settings_rounded,
           ),
@@ -375,7 +375,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-              boxShadow: [AppTheme.cardShadow],
+              boxShadow: const [AppTheme.cardShadow],
             ),
             child: Material(
               color: Colors.transparent,
@@ -411,7 +411,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-              boxShadow: [AppTheme.cardShadow],
+              boxShadow: const [AppTheme.cardShadow],
             ),
             child: Material(
               color: Colors.transparent,
@@ -613,7 +613,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 children: [
                   CircleAvatar(
                     backgroundColor: AppTheme.adminPrimary.withOpacity(0.1),
-                    child: Text(user.fullName[0], style: TextStyle(color: AppTheme.adminPrimary, fontWeight: FontWeight.bold)),
+                    child: Text(user.fullName[0], style: const TextStyle(color: AppTheme.adminPrimary, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -655,7 +655,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ],
           ),
         );
-      }).toList(),
+      }),
       ],
     );
   }
@@ -666,7 +666,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: [AppTheme.cardShadow],
+        boxShadow: const [AppTheme.cardShadow],
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
@@ -681,7 +681,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   color: AppTheme.errorColor.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.power_settings_new_rounded,
                   color: AppTheme.errorColor,
                   size: 26,

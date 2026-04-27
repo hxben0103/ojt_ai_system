@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../../core/app_theme.dart';
 import '../../services/api_service.dart';
-import '../../models/attendance.dart';
 
 /// Coordinator "God View" - shows all OJT students on a live map today.
 /// Green pins = on-site / trusted. Red pulsing pins = flagged / suspicious.

@@ -306,7 +306,7 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
                                   
                                   // Competency Dropdown
                                   DropdownButtonFormField<Competency>(
-                                    value: _selectedCompetency,
+                                    initialValue: _selectedCompetency,
                                     decoration: InputDecoration(
                                       labelText: 'Competency',
                                       border: OutlineInputBorder(
@@ -368,7 +368,7 @@ class _StudentDailyTasksScreenState extends State<StudentDailyTasksScreen> {
                                       ),
                                       hintText: 'e.g., 8.0',
                                     ),
-                                    keyboardType: TextInputType.numberWithOptions(decimal: true),
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                     validator: (value) {
                                       if (value == null || value.trim().isEmpty) {
                                         return 'Please enter hours worked';

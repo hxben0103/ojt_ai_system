@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../models/attendance.dart';
 import '../../models/daily_task.dart';
 import '../../models/ojt_record.dart';
@@ -11,9 +10,6 @@ import '../../services/prediction_service.dart';
 import '../../core/app_theme.dart';
 import '../../widgets/daily_rhythm_chart.dart';
 import '../../widgets/modern_stat_card.dart';
-import '../../widgets/integrity_badge.dart';
-import '../../widgets/loading_skeleton.dart';
-import '../../widgets/section_header.dart';
 import '../../widgets/insight_card.dart';
 import 'supervisor_evaluation_form_screen.dart';
 
@@ -260,8 +256,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     final summary = ai['summary'] ?? "Overall performance is stable.";
     
     Color riskColor = AppTheme.successColor;
-    if (riskLevel == 'HIGH') riskColor = AppTheme.errorColor;
-    else if (riskLevel == 'MEDIUM') riskColor = AppTheme.warningColor;
+    if (riskLevel == 'HIGH') {
+      riskColor = AppTheme.errorColor;
+    } else if (riskLevel == 'MEDIUM') riskColor = AppTheme.warningColor;
 
     return InsightCard(
       title: "AI Risk Snapshot",
@@ -311,7 +308,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
             color: AppTheme.supervisorPrimary.withOpacity(0.05),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(Icons.assignment_outlined, size: 20, color: AppTheme.supervisorPrimary),
+          child: const Icon(Icons.assignment_outlined, size: 20, color: AppTheme.supervisorPrimary),
         ),
         title: Text(
           task.taskDescription,

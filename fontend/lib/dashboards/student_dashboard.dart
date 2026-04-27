@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -21,19 +20,12 @@ import '../services/auth_service.dart';
 import '../services/ojt_service.dart';
 import '../services/prediction_service.dart';
 import '../widgets/stat_card.dart';
-import '../widgets/section_header.dart';
 import '../widgets/loading_skeleton.dart';
 import '../core/app_theme.dart';
-import '../widgets/error_state_widget.dart';
 import '../services/cache_service.dart';
-import '../widgets/insight_card.dart';
-import '../widgets/integrity_badge.dart';
 import '../widgets/progress_summary_card.dart';
 import '../widgets/ojt_progress_hero_card.dart';
-import '../widgets/explainable_ai_card.dart';
 import '../widgets/weekly_ai_summary_card.dart';
-import '../widgets/trust_score_badge.dart';
-import '../widgets/performance_trend_indicator.dart';
 import '../widgets/ai_recommendation_card.dart';
 
 // Conditional import for File operations
@@ -70,14 +62,13 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   // Enhanced status data
   Map<String, dynamic>? _studentStatus;
-  bool _statusLoading = false;
-  String? _statusError;
+
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
 
   bool _isLoading = false;
-  String? _errorMessage;
+
   bool _isFromCache = false;
   String? _lastSyncTime;
 
@@ -115,10 +106,11 @@ class _StudentDashboardState extends State<StudentDashboard>
         _loadStudentStatus(),
         _loadAiPrediction(),
       ]);
-      if (mounted) setState(() {
-        _errorMessage = null;
+      if (mounted) {
+        setState(() {
         _isFromCache = false;
       });
+      }
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
       // Try to serve from cache
@@ -130,14 +122,13 @@ class _StudentDashboardState extends State<StudentDashboard>
         if (cached != null && mounted) {
           setState(() {
             _studentStatus = cached;
-            _errorMessage = null;
             _isFromCache = true;
           });
         } else if (mounted) {
-          setState(() => _errorMessage = 'Failed to load dashboard. Check your connection.');
+          // Failed to load dashboard
         }
       } else if (mounted) {
-        setState(() => _errorMessage = 'Failed to load dashboard. Check your connection.');
+        // Failed to load dashboard
       }
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
@@ -147,10 +138,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   Future<void> _loadStudentStatus() async {
     if (_studentUserId == null) return;
 
-    setState(() {
-      _statusLoading = true;
-      _statusError = null;
-    });
+
 
     try {
       final rawStatus = await OjtService.getStudentStatus(_studentUserId!);
@@ -173,7 +161,7 @@ class _StudentDashboardState extends State<StudentDashboard>
 
       setState(() {
         _studentStatus = status;
-        _statusError = null;
+
         _lastSyncTime = status['generated_at'];
       });
     } catch (e) {
@@ -186,18 +174,11 @@ class _StudentDashboardState extends State<StudentDashboard>
       if (cached != null && mounted) {
         setState(() {
           _studentStatus = cached;
-          _statusError = null;
+
           _isFromCache = true;
           _lastSyncTime = cached['generated_at'];
         });
       } else {
-        setState(() => _statusError = 'Unable to load status');
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _statusLoading = false;
-        });
       }
     }
   }
@@ -697,7 +678,7 @@ class _StudentDashboardState extends State<StudentDashboard>
         children: [
           Row(
             children: [
-              Icon(Icons.lock_person_rounded, color: AppTheme.warningColor, size: 28),
+              const Icon(Icons.lock_person_rounded, color: AppTheme.warningColor, size: 28),
               const SizedBox(width: AppTheme.spacing12),
               Expanded(
                 child: Text(
@@ -735,15 +716,14 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   // ── Profile Header ──
   Widget _buildProfileHeader() {
-    ImageProvider? profileImageProvider;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           colors: [
             AppTheme.studentPrimary,
-            const Color(0xFF1E293B), // Deeper navy for depth
+            Color(0xFF1E293B), // Deeper navy for depth
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -948,7 +928,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                     value: progressPct / 100.0,
                     minHeight: 12,
                     backgroundColor: AppTheme.studentPrimary.withOpacity(0.05),
-                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.studentPrimary),
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.studentPrimary),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -998,113 +978,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  Widget _buildProgressStat(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(fontSize: 15, color: color, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
 
-  // ------------------- Notification Card -------------------
-  Widget _buildNotificationCard(Map<String, dynamic> notification) {
-    final type = notification['type'] as String? ?? 'info';
-    final message = notification['message'] as String? ?? '';
-    final priority = notification['priority'] as String? ?? 'medium';
-
-    Color backgroundColor;
-    Color textColor;
-    IconData icon;
-
-    switch (type) {
-      case 'error':
-        backgroundColor = AppTheme.errorColor.withOpacity(0.1);
-        textColor = AppTheme.errorColor;
-        icon = Icons.error_outline;
-        break;
-      case 'warning':
-        backgroundColor = AppTheme.warningColor.withOpacity(0.1);
-        textColor = AppTheme.warningColor;
-        icon = Icons.warning_amber_rounded;
-        break;
-      case 'success':
-        backgroundColor = AppTheme.successColor.withOpacity(0.1);
-        textColor = AppTheme.successColor;
-        icon = Icons.check_circle_outline;
-        break;
-      default:
-        backgroundColor = AppTheme.infoColor.withOpacity(0.1);
-        textColor = AppTheme.infoColor;
-        icon = Icons.info_outline;
-    }
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-      ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      color: backgroundColor,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppTheme.spacing16,
-          vertical: AppTheme.spacing12,
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: textColor, size: 24),
-            const SizedBox(width: AppTheme.spacing12),
-            Expanded(
-              child: Text(
-                message,
-                style: AppTheme.bodyMedium.copyWith(
-                  color: textColor,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Helper method to safely parse numeric values from JSON (handles both string and number)
-  double? _parseDouble(dynamic value) {
-    if (value == null) return null;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) {
-      return double.tryParse(value);
-    }
-    return null;
-  }
 
   int? _parseInt(dynamic value) {
     if (value == null) return null;
@@ -1116,36 +990,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     return null;
   }
 
-  // ── AI Performance Insight Hero Card (Student-facing, no risk label) ──
-  Widget _buildRiskAndInsightsCard() {
-    if (_statusLoading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-        child: LoadingSkeleton(height: 180),
-      );
-    }
 
-    Map<String, dynamic>? aiInsight = _studentStatus?['ai_insight'] as Map<String, dynamic>?;
-    
-    // Inject a computed fallback score just for the UI if API didn't provide one
-    if (aiInsight != null && !aiInsight.containsKey('score')) {
-      final hoursMap = _studentStatus?['hours'] as Map<String, dynamic>?;
-      final int completedHours = (hoursMap?['completed'] as num?)?.toInt() ?? 0;
-      final int requiredHours = (hoursMap?['required'] as num?)?.toInt() ?? 300;
-      int computedPct = requiredHours > 0 
-          ? ((completedHours / requiredHours) * 100).clamp(0, 100).toInt() 
-          : 0;
-      
-      // Use spread operator to safely add to a potentially read-only map
-      aiInsight = {...aiInsight, 'computed_pct': computedPct};
-    }
-
-    // If there's no insight yet, use isLoading to show loading state
-    return OjtProgressHeroCard.fromAiInsight(
-      aiInsight: aiInsight,
-      isLoading: false,
-    );
-  }
 
   // ── Explainable AI Panel ──
   Widget _buildExplainableAiPanel() {
@@ -1374,7 +1219,7 @@ class _StudentDashboardState extends State<StudentDashboard>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.successColor),
+                  const Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.successColor),
                   const SizedBox(width: 6),
                   Text(
                     'Last recorded: $_lastActionTime',
@@ -1578,149 +1423,6 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
 
-  // ------------------- Quick Stats Row -------------------
-  Widget _buildQuickStatsRow() {
-    final attendance = _studentStatus?['attendance'] as Map<String, dynamic>?;
-    final daysPresent = _parseInt(attendance?['days_present']) ?? 0;
-    
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Row(
-        children: [
-          Expanded(
-            child: StatCard(
-              title: 'Days Present',
-              value: '$daysPresent',
-              icon: Icons.calendar_today,
-              color: AppTheme.infoColor,
-            ),
-          ),
-          const SizedBox(width: AppTheme.spacing12),
-          Expanded(
-            child: StatCard(
-              title: 'Remaining',
-              value: '${_requiredHours - _completedHours}',
-              subtitle: 'hours',
-              icon: Icons.timer_outlined,
-              color: AppTheme.warningColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ------------------- Attendance Action Card -------------------
-  Widget _buildAttendanceActionCard() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-      ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.spacing16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.studentPrimary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                  ),
-                  child: Icon(
-                    Icons.access_time,
-                    color: AppTheme.studentPrimary,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: AppTheme.spacing12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Attendance',
-                        style: AppTheme.heading3,
-                      ),
-                      if (_lastActionTime != null)
-                        Text(
-                          'Last: $_lastActionTime',
-                          style: AppTheme.bodySmall,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppTheme.spacing16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _showAttendanceOptions(context),
-                    icon: const Icon(Icons.login),
-                    label: const Text('Time In/Out'),
-                    style: AppTheme.primaryButtonStyle(AppTheme.studentPrimary),
-                  ),
-                ),
-                const SizedBox(width: AppTheme.spacing12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => StudentAnalyticsScreen(
-                            studentName: _studentName ?? "Unknown",
-                            studentId: _studentId ?? "N/A",
-                            course: _course ?? "N/A",
-                            userId: _studentUserId ?? 0,
-                            supervisorName: _supervisor,
-                          ),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.list_alt),
-                    label: const Text('View DTR'),
-                    style: AppTheme.secondaryButtonStyle(AppTheme.studentPrimary),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ------------------- Attendance Card (Legacy - kept for compatibility) -------------------
-  Widget _buildAttendanceCard() {
-    return Card(
-      elevation: 6,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ListTile(
-        leading: Image.network(
-          'https://cdn-icons-png.flaticon.com/512/3515/3515523.png',
-          height: 30,
-        ),
-        title: const Text(
-          "Attendance Record",
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: const Text("View or update your daily attendance records"),
-        trailing: Image.network(
-          'https://cdn-icons-png.flaticon.com/512/271/271228.png',
-          height: 20,
-        ),
-        onTap: () => _showAttendanceOptions(context),
-      ),
-    );
-  }
-
   // ------------------- Last Attendance Record -------------------
   Widget _buildLastRecordCard() {
     return Card(
@@ -1742,7 +1444,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                     color: AppTheme.infoColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(AppTheme.borderRadiusSmall),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.history,
                     color: AppTheme.infoColor,
                     size: 20,
@@ -1844,148 +1546,6 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // ------------------- Upload Report -------------------
-  Widget _buildUploadCard() {
-    return _buildCardTemplate(
-      icon: Icons.upload_file,
-      title: "Upload Progress Report",
-      subtitle: "Submit your daily report after duty ends",
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const StudentProgressReportScreen(),
-          ),
-        );
-      },
-    );
-  }
-
-  // ------------------- Shared Card Template -------------------
-  Widget _buildCardTemplate({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    Color? iconColor,
-  }) {
-    final color = iconColor ?? AppTheme.studentPrimary;
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-      ),
-      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacing16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(AppTheme.spacing16),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
-                ),
-                child: Icon(icon, color: color, size: 24),
-              ),
-              const SizedBox(width: AppTheme.spacing16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: AppTheme.bodyLarge.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: AppTheme.spacing4),
-                    Text(
-                      subtitle,
-                      style: AppTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.chevron_right,
-                color: Colors.grey[400],
-                size: 20,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ------------------- Improvement Tips -------------------
-  Widget _buildImprovementTipsCard() {
-    return _buildCardTemplate(
-      icon: Icons.lightbulb_outline,
-      title: "Get Improvement Tips",
-      subtitle: "Receive suggestions to improve your OJT performance",
-      iconColor: AppTheme.warningColor,
-      onTap: () {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-            ),
-            title: const Text("🌟 OJT Improvement Tips"),
-            content: const Text("💡 Keep improving daily with good habits!"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("Close"),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // ------------------- Checklist -------------------
-  Widget _buildChecklistCardButton() {
-    return _buildCardTemplate(
-      icon: Icons.checklist,
-      title: "OJT Application Checklist",
-      subtitle: "View and upload required OJT documents",
-      iconColor: AppTheme.infoColor,
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const StudentChecklistScreen(),
-          ),
-        );
-      },
-    );
-  }
-
-  // ------------------- Daily Tasks & Competencies -------------------
-  Widget _buildDailyTasksCardButton() {
-    return _buildCardTemplate(
-      icon: Icons.task_alt,
-      title: "Daily Tasks & Competencies",
-      subtitle: "Log your daily tasks and track competency progress",
-      iconColor: AppTheme.studentPrimary,
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const StudentDailyTasksScreen(),
-          ),
-        );
-      },
-    );
-  }
-
   // ------------------- Logout Logic -------------------
   Widget _buildLogoutCard() {
     return Container(
@@ -1993,7 +1553,7 @@ class _StudentDashboardState extends State<StudentDashboard>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
-        boxShadow: [AppTheme.cardShadow],
+        boxShadow: const [AppTheme.cardShadow],
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
@@ -2040,7 +1600,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                   color: AppTheme.errorColor.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(AppTheme.borderRadiusMedium),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.power_settings_new_rounded,
                   color: AppTheme.errorColor,
                   size: 26,
@@ -2078,7 +1638,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   void _showAttendanceOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      shape: RoundedRectangleBorder(
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(AppTheme.borderRadiusLarge),
         ),
@@ -2095,7 +1655,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                     color: AppTheme.studentPrimary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.camera_alt,
                     color: AppTheme.studentPrimary,
                   ),
@@ -2124,7 +1684,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                     color: AppTheme.infoColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.calendar_today,
                     color: AppTheme.infoColor,
                   ),

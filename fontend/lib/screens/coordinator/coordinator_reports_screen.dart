@@ -100,7 +100,7 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
         content['supervisor_name'] = student.supervisorName;
 
         // If it's an OJT Summary, fetch detailed requirement compliance
-        if (reportType == 'OJT Summary' && student.studentId != null) {
+        if (reportType == 'OJT Summary') {
           try {
             final reqResponse = await ApiService.get('${ApiConfig.ojt}/requirements/${student.studentId}');
             if (reqResponse['requirements'] != null) {
@@ -284,7 +284,7 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
         itemBuilder: (context, index) {
           final report = _reports[index];
           // Try to extract student name from content title
-          final title = report.content?['title'] ?? report.reportType;
+          final title = report.content['title'] ?? report.reportType;
           
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
@@ -474,10 +474,10 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              if ((report.reportType == 'Coordinator Summary' || report.reportType == 'Admin Master Summary') && report.content?['students'] != null)
-                _buildSummaryTable(report.content!['students'] as List<dynamic>)
+              if ((report.reportType == 'Coordinator Summary' || report.reportType == 'Admin Master Summary') && report.content['students'] != null)
+                _buildSummaryTable(report.content['students'] as List<dynamic>)
               else ...[
-                if (report.content?['requirements'] != null) ...[
+                if (report.content['requirements'] != null) ...[
                   const Text('Requirement Compliance:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   const SizedBox(height: 4),
                   Container(
@@ -490,10 +490,10 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
                     ),
                     child: ListView.separated(
                       shrinkWrap: true,
-                      itemCount: (report.content!['requirements'] as List).length,
+                      itemCount: (report.content['requirements'] as List).length,
                       separatorBuilder: (context, index) => const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        final req = report.content!['requirements'][index];
+                        final req = report.content['requirements'][index];
                         final bool isCompleted = req['status'] == 'Completed';
                         return ListTile(
                           dense: true,
@@ -629,7 +629,7 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
             columnSpacing: 15,
             headingRowHeight: 40,
             dataRowHeight: 40,
-            headingRowColor: MaterialStateProperty.all(Colors.indigo.shade50),
+            headingRowColor: WidgetStateProperty.all(Colors.indigo.shade50),
             columns: [
               const DataColumn(label: Text('School ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
               const DataColumn(label: Text('Student Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
@@ -686,7 +686,7 @@ class _CoordinatorReportsScreenState extends State<CoordinatorReportsScreen> {
                       ),
                     ),
                   );
-                }).toList(),
+                }),
               ]);
             }).toList(),
           ),

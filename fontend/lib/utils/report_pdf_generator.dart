@@ -10,7 +10,7 @@ class ReportPdfGenerator {
 
   static Future<Uint8List> generateReportPdf(SystemReport report) async {
     final pdf = pw.Document();
-    final title = report.content?['title'] ?? report.reportType;
+    final title = report.content['title'] ?? report.reportType;
     final generatedAt = report.createdAt ?? DateTime.now();
 
     pdf.addPage(
@@ -20,12 +20,12 @@ class ReportPdfGenerator {
         build: (context) => [
           _buildHeader(title, report.generatedByName ?? 'Coordinator'),
           pw.SizedBox(height: 10),
-          pw.Text('Report Type: ${report.reportType}', style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-          pw.Text('Generated At: ${_dateFormat.format(generatedAt)}', style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+          pw.Text('Report Type: ${report.reportType}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+          pw.Text('Generated At: ${_dateFormat.format(generatedAt)}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
           pw.Divider(height: 30, thickness: 1, color: PdfColors.grey300),
           
-          if ((report.reportType == 'Coordinator Summary' || report.reportType == 'Admin Master Summary') && report.content?['students'] != null)
-            _buildSummaryTable(report.content!['students'] as List<dynamic>)
+          if ((report.reportType == 'Coordinator Summary' || report.reportType == 'Admin Master Summary') && report.content['students'] != null)
+            _buildSummaryTable(report.content['students'] as List<dynamic>)
           else
             _buildIndividualReportContent(report),
             
@@ -45,8 +45,8 @@ class ReportPdfGenerator {
                     ),
                   ),
                   pw.SizedBox(height: 4),
-                  if (report.content?['supervisor_name'] != null) ...[
-                    pw.Text(report.content!['supervisor_name'], style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                  if (report.content['supervisor_name'] != null) ...[
+                    pw.Text(report.content['supervisor_name'], style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                     pw.Text('Industry Supervisor', style: const pw.TextStyle(fontSize: 9)),
                   ] else if (report.reportType.contains('Master Summary')) ...[
                     pw.Text(InstitutionalConfig.universityPresident, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
@@ -65,19 +65,19 @@ class ReportPdfGenerator {
           pw.Align(
             alignment: pw.Alignment.centerRight,
             child: pw.Text('OJT AI Monitoring System - Official Report', 
-              style: pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
           ),
         ],
       ),
     );
 
     // ADDED: Master Compliance Matrix (Landscape) for Summary Reports
-    if ((report.reportType == 'Coordinator Summary' || report.reportType == 'Admin Master Summary') && report.content?['students'] != null) {
+    if ((report.reportType == 'Coordinator Summary' || report.reportType == 'Admin Master Summary') && report.content['students'] != null) {
       pdf.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4.landscape,
           margin: const pw.EdgeInsets.all(32),
-          build: (context) => _buildComplianceMatrix(report.content!['students'] as List<dynamic>),
+          build: (context) => _buildComplianceMatrix(report.content['students'] as List<dynamic>),
         ),
       );
     }
@@ -160,10 +160,10 @@ class ReportPdfGenerator {
                             style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900),
                             textAlign: pw.TextAlign.center),
                       );
-                    }).toList(),
+                    }),
                   ],
                 );
-            }).toList(),
+            }),
           ],
         ),
         

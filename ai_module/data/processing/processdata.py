@@ -569,7 +569,14 @@ class OJTDataPreprocessor:
     def map_csv_to_features(self, df):
         """
         Map CSV columns to standard FEATURE_COLUMNS.
-        Handles various column name formats from the CSV.
+        
+        Supports two CSV formats:
+        1. NEW FORMAT: Columns already use standard FEATURE_COLUMNS names
+           (e.g., attendance_rate, total_hours_completed, etc.)
+           → Used directly, no transformation needed.
+        2. LEGACY FORMAT: Old CSV with columns like
+           "Attendance (Days Present out of 25)" etc.
+           → Transformed to standard names.
         
         Args:
             df: DataFrame with original CSV columns
@@ -578,6 +585,58 @@ class OJTDataPreprocessor:
             DataFrame with mapped feature columns
         """
         print("\n🔄 Mapping CSV columns to standard feature names...")
+        
+        # -------------------------------------------------------
+        # Detect CSV format: if the DataFrame already contains the
+        # standard feature column names, use them directly.
+        # -------------------------------------------------------
+        standard_core_features = [
+            "attendance_rate", "total_hours_completed", "hours_completed_ratio",
+            "total_tasks_logged", "total_task_hours"
+        ]
+        is_new_format = all(col in df.columns for col in standard_core_features)
+        
+        if is_new_format:
+            print("✅ Detected NEW CSV format (standard feature column names)")
+            
+            # --- Grading components ---
+            # New format CSV uses the exact standard column names
+            grading_mapping = self.map_grading_components(df)
+            
+            # Set has_* flags for grading components
+            for component, col_name, has_col in [
+                ('WPR', 'weekly_progress_grade', 'has_weekly_progress_grade'),
+                ('NR', 'narrative_report_grade', 'has_narrative_report_grade'),
+                ('CE', 'coordinator_eval_grade', 'has_coordinator_eval_grade'),
+                ('SE', 'supervisor_eval_grade', 'has_supervisor_eval_grade'),
+            ]:
+                if col_name in df.columns:
+                    if has_col not in df.columns:
+                        df[has_col] = (df[col_name].notna() & (df[col_name] > 0)).astype(int)
+                else:
+                    df[col_name] = 0.0
+                    df[has_col] = 0
+            
+            # Compute final grade and risk if not already present
+            if 'risk_level' not in df.columns or 'final_ojt_grade' not in df.columns:
+                df = self.compute_final_grade_and_risk(df, grading_mapping)
+            
+            # Fill in any missing feature columns with defaults
+            for feature in FEATURE_COLUMNS:
+                if feature not in df.columns:
+                    df[feature] = 0.0
+                    print(f"⚠️  Missing feature '{feature}' in new-format CSV - filled with 0.0")
+            
+            # Ensure all FEATURE_COLUMNS exist
+            df = self.ensure_feature_columns(df)
+            
+            print("✅ New-format CSV column mapping completed!")
+            return df
+        
+        # -------------------------------------------------------
+        # LEGACY FORMAT: Old CSV with descriptive column names
+        # -------------------------------------------------------
+        print("📋 Detected LEGACY CSV format (descriptive column names)")
         
         # Map grading components
         grading_mapping = self.map_grading_components(df)
@@ -617,12 +676,21 @@ class OJTDataPreprocessor:
         # Map attendance (try various column names)
         attendance_cols = [col for col in df.columns if 'attendance' in col.lower() and ('days' in col.lower() or 'present' in col.lower())]
         if attendance_cols:
-            # Convert days present to attendance rate (assuming 25 days total, or calculate from data)
             days_present_col = attendance_cols[0]
-            total_days = 25  # Default, can be adjusted
-            df['attendance_rate'] = (df[days_present_col] / total_days * 100).fillna(0.0)
-            # Estimate total hours (assuming 8 hours per day)
-            df['total_hours_completed'] = (df[days_present_col] * 8).fillna(0.0)
+            col_max = df[days_present_col].max()
+            
+            # Auto-detect if values are already percentages (>25) or raw day counts (<=25)
+            if col_max > 25:
+                # Values look like percentages already (50-100 range)
+                print(f"   ℹ️  Attendance column '{days_present_col}' max={col_max} — treating as percentage")
+                df['attendance_rate'] = df[days_present_col].fillna(0.0).clip(0, 100)
+                # Estimate hours from percentage: (rate/100) * 25 days * 8 hours/day
+                df['total_hours_completed'] = (df['attendance_rate'] / 100 * 25 * 8).fillna(0.0)
+            else:
+                # Raw day counts (0-25 range)
+                total_days = 25
+                df['attendance_rate'] = (df[days_present_col] / total_days * 100).fillna(0.0)
+                df['total_hours_completed'] = (df[days_present_col] * 8).fillna(0.0)
         else:
             df['attendance_rate'] = 0.0
             df['total_hours_completed'] = 0.0
@@ -666,7 +734,7 @@ class OJTDataPreprocessor:
         # Ensure all FEATURE_COLUMNS exist
         df = self.ensure_feature_columns(df)
         
-        print("✅ CSV column mapping completed!")
+        print("✅ Legacy CSV column mapping completed!")
         
         return df
     

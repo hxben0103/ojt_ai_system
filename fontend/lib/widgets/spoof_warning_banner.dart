@@ -19,7 +19,7 @@ class SpoofWarningBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.orange.shade50,
-        border: Border(
+        border: const Border(
           left: BorderSide(color: Colors.orange, width: 4),
         ),
       ),

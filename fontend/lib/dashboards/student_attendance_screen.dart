@@ -24,7 +24,6 @@ import '../models/overtime_request.dart';
 import '../utils/web_image_picker.dart';
 import '../core/app_theme.dart';
 import '../widgets/geofence_verification_panel.dart';
-import '../widgets/attendance_integrity_row.dart';
 import '../widgets/attendance/attendance_summary_card.dart';
 import '../widgets/attendance/geofence_status_panel.dart';
 import '../widgets/attendance/attendance_photo_evidence.dart';
@@ -169,7 +168,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       // Check if it's a new day and reset all daily state if needed
       await _checkAndResetDailyState();
 
-      Future<void> _checkOjtStatus() async {
+      Future<void> checkOjtStatus() async {
     try {
       final user = await AuthService.getCurrentUser();
       if (user?.userId != null) {
@@ -220,9 +219,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           
           // Ensure student has an active/ongoing record with assigned coordinator/supervisor
           final activeRecord = ojtRecords.where((r) => 
-              (r.status == 'Active' || r.status == 'Ongoing') && 
-              r.coordinatorId != null && 
-              r.supervisorId != null).firstOrNull;
+              (r.status == 'Active' || r.status == 'Ongoing')).firstOrNull;
 
           if (activeRecord != null) {
             _ojtRecordId = activeRecord.recordId;
@@ -582,10 +579,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                   siteLatitude: nearestSite.latitude,
                   siteLongitude: nearestSite.longitude,
                   currentLatitude: position!.latitude,
-                  currentLongitude: position!.longitude,
+                  currentLongitude: position.longitude,
                   distanceMeters: distanceM,
                   accuracyMeters:
-                      position!.accuracy > 0 ? position!.accuracy : null,
+                      position.accuracy > 0 ? position.accuracy : null,
                   insideGeofence: insideGeofence,
                   trustScore: trustScore,
                   onProceed: () => Navigator.pop(ctx, true),
@@ -635,11 +632,11 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text(kIsWeb 
               ? "ℹ️ Browser location unavailable. High accuracy might be disabled." 
               : "⚠️ GPS signal weak. Recorded without location."),
-            duration: const Duration(seconds: 4),
+            duration: Duration(seconds: 4),
             backgroundColor: Colors.orange,
           ),
         );
@@ -845,7 +842,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         }
 
         // Update local state with the response from database
-        if (updatedAttendance != null && mounted) {
+        if (mounted) {
           final attendance = updatedAttendance;
           setState(() {
             _todayAttendance = attendance;
@@ -1090,11 +1087,11 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
+        title: const Row(
           children: [
-            const Icon(Icons.draw_rounded, color: Colors.orange, size: 28),
-            const SizedBox(width: 8),
-            const Text("Certified By"),
+            Icon(Icons.draw_rounded, color: Colors.orange, size: 28),
+            SizedBox(width: 8),
+            Text("Certified By"),
           ],
         ),
         content: SizedBox(
@@ -1319,8 +1316,8 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
             icon: Icons.logout,
           ),
           if (_isInsideGeofence == false)
-            Padding(
-              padding: const EdgeInsets.only(top: 8.0),
+            const Padding(
+              padding: EdgeInsets.only(top: 8.0),
               child: Text(
                 "Time In/Out disabled because you are outside geofence.",
                 style: TextStyle(color: AppTheme.errorColor, fontSize: 12),

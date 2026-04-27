@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -359,7 +358,7 @@ class _RegisterStudentState extends State<RegisterStudent>
                               ),
                               animatedField(
                                 DropdownButtonFormField<String>(
-                                  value: _selectedGender,
+                                  initialValue: _selectedGender,
                                   decoration: const InputDecoration(
                                     labelText: "Gender",
                                     border: OutlineInputBorder(),
@@ -379,7 +378,7 @@ class _RegisterStudentState extends State<RegisterStudent>
                               ),
                               animatedField(
                                 DropdownButtonFormField<String>(
-                                  value: _selectedCourse,
+                                  initialValue: _selectedCourse,
                                   decoration: const InputDecoration(
                                     labelText: "Course",
                                     border: OutlineInputBorder(),

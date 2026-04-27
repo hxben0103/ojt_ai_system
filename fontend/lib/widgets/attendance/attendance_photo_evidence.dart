@@ -18,7 +18,7 @@ class AttendancePhotoEvidence extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(AppTheme.spacing16),
+        padding: const EdgeInsets.all(AppTheme.spacing16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -33,7 +33,7 @@ class AttendancePhotoEvidence extends StatelessWidget {
                 ),
               ],
             ),
-            SizedBox(height: AppTheme.spacing8),
+            const SizedBox(height: AppTheme.spacing8),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Stack(

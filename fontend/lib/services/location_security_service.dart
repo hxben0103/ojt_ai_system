@@ -53,8 +53,7 @@ class LocationSecurityService {
     final posTs = position.timestamp;
     if (lastLat != null &&
         lastLng != null &&
-        lastTsStr != null &&
-        posTs != null) {
+        lastTsStr != null) {
       final lastTs = DateTime.tryParse(lastTsStr);
       if (lastTs != null) {
         final distM = _haversineMeters(

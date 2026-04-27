@@ -141,7 +141,7 @@ class _AdminCompetencyManagementScreenState extends State<AdminCompetencyManagem
         child: ListView(
           padding: const EdgeInsets.all(AppTheme.spacing16),
           children: [
-            SectionHeader(
+            const SectionHeader(
               title: 'Point-Based Scoring System',
               icon: Icons.settings_suggest_rounded,
               subtitle: 'Manage how skill categories contribute to student performance scores.',
@@ -232,18 +232,18 @@ class _AdminCompetencyManagementScreenState extends State<AdminCompetencyManagem
         borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
         border: Border.all(color: Colors.blue.withOpacity(0.1)),
       ),
-      child: Column(
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.info_outline, color: Colors.blue),
               SizedBox(width: 8),
               Text('Defense Tip:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
             ],
           ),
-          const SizedBox(height: 12),
-          const Text(
+          SizedBox(height: 12),
+          Text(
             'Explain to the panel that these point values represent the "Skill Multiplier." '
             'Higher points are assigned to technical competencies (Software Development, AI, Research) '
             'compared to administrative tasks. This ensures the prediction engine values quality over quantity.',

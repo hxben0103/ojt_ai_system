@@ -41,7 +41,6 @@ run_ai.BASE_KNOWLEDGE_DIR = os.path.join(jrmsu_dir, "data", "jrmsu_knowledge")
 # Import context manager
 from chatbot_context import get_context_manager
 from career_engine import generate_career_briefing
-from insight_engine import predict_performance, build_features_from_snapshot
 
 def _detect_intent(text: str) -> str:
     """Detect the high-level intent of the user message."""

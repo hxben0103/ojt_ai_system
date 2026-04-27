@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/overtime_request.dart';
 import '../../services/attendance_service.dart';
-import '../../core/app_theme.dart';
 
 class CoordinatorOvertimeApprovalsScreen extends StatefulWidget {
-  const CoordinatorOvertimeApprovalsScreen({Key? key}) : super(key: key);
+  const CoordinatorOvertimeApprovalsScreen({super.key});
 
   @override
   State<CoordinatorOvertimeApprovalsScreen> createState() => _CoordinatorOvertimeApprovalsScreenState();

@@ -12,10 +12,10 @@ class IntegrityTimelineCard extends StatelessWidget {
   final bool showStudent;
 
   const IntegrityTimelineCard({
-    Key? key,
+    super.key,
     required this.attendanceHistory,
     this.showStudent = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +46,7 @@ class IntegrityTimelineCard extends StatelessWidget {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                Icon(Icons.shield_outlined,
+                const Icon(Icons.shield_outlined,
                     color: AppTheme.coordinatorPrimary, size: 20),
                 const SizedBox(width: 8),
                 Text(

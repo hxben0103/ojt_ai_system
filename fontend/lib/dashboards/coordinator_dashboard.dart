@@ -563,6 +563,23 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
         "average_completion": _averageCompletionRatio,
         "average_attendance": _averageAttendanceRate,
         "average_forecast_grade": _averageForecastedGrade,
+        // Per-student details for chatbot to answer "what is student X's standing?"
+        "student_details": _studentSnapshots.map((s) => {
+          "name": s.studentName,
+          "student_id": s.studentId,
+          "risk_level": s.riskLevel,
+          "score": s.aiScore ?? 0,
+          "status": s.ojtStatus,
+          "hours_completed": s.approvedHours.round(),
+          "hours_required": s.requiredHours,
+          "attendance_rate": (s.attendanceRate * 100).round(),
+          "days_present": s.presentDays,
+          "days_absent": s.absentDays,
+          "late_count": s.lateCount,
+          "forecasted_grade": s.forecastedGrade,
+          "company": s.course ?? 'N/A',
+          "supervisor": s.supervisorName ?? 'N/A',
+        }).toList(),
       },
       customActions: [
         _buildAnimatedCard(_buildProfileHeader(), delay: 0),

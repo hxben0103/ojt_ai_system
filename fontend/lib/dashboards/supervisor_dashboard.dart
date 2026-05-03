@@ -77,6 +77,14 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         "pending_evaluations": provider.pendingEvaluations,
         "high_risk_students": provider.highRiskStudents,
         "average_forecast_score": provider.averageForecastedGrade,
+        // Per-student details for chatbot to answer "what is student X's standing?"
+        "student_details": provider.assignedStudents.map((record) => {
+          "name": record.studentName ?? 'Unknown',
+          "student_id": record.studentId,
+          "risk_level": record.riskLevel ?? 'N/A',
+          "status": record.status,
+          "company": record.companyName ?? 'N/A',
+        }).toList(),
       },
       customActions: [
         _buildAnimatedCard(_buildProfileHeader(provider), delay: 0),

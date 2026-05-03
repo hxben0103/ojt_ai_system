@@ -545,7 +545,11 @@ class _StudentDashboardState extends State<StudentDashboard>
               "score": aiScore,
               "risk_level": aiInsight?['risk_level'],
               "trend": aiInsight?['trend'],
-            }
+            },
+            // OJT status context for AI chatbot personalization
+            "can_perform_ojt_actions": _studentStatus?['can_perform_ojt_actions'] ?? true,
+            "blocking_reason": _studentStatus?['blocking_reason'],
+            "ojt_record": _studentStatus?['ojt_record'],
           },
           appBarActions: [
             IconButton(

@@ -93,11 +93,15 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
         await prefs.setString('chatbot_session_id', sessionId);
       }
 
+      // Extract role from dashboard data for role-aware greeting
+      final role = (widget.dashboardData?['role'] as String?) ?? '';
+
       final response = await http.post(
         Uri.parse(AiConfig.greetingEndpoint),
         headers: {"Content-Type": "application/json"},
         body: json.encode({
           "session_id": sessionId,
+          "role": role,
         }),
       ).timeout(const Duration(seconds: 10));
 
@@ -639,11 +643,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
               spacing: 12,
               runSpacing: 12,
               alignment: WrapAlignment.center,
-              children: [
-                _buildSuggestionChip('What are the OJT requirements?'),
-                _buildSuggestionChip('How do I submit attendance?'),
-                _buildSuggestionChip('What is the evaluation process?'),
-              ],
+              children: _buildRoleSuggestionChips(),
             ),
           ],
         ),
@@ -662,6 +662,40 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
       side: BorderSide(color: Colors.grey.shade300),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     );
+  }
+
+  /// Build role-specific suggestion chips for the empty state
+  List<Widget> _buildRoleSuggestionChips() {
+    final role = (widget.dashboardData?['role'] as String?)?.toLowerCase() ?? '';
+
+    switch (role) {
+      case 'supervisor':
+      case 'industry supervisor':
+        return [
+          _buildSuggestionChip('How are my students performing?'),
+          _buildSuggestionChip('Which students need attention?'),
+          _buildSuggestionChip('What are the OJT grading criteria?'),
+        ];
+      case 'coordinator':
+      case 'ojt coordinator':
+        return [
+          _buildSuggestionChip('Give me a program overview'),
+          _buildSuggestionChip('Which students need attention?'),
+          _buildSuggestionChip('How does the grading system work?'),
+        ];
+      case 'admin':
+        return [
+          _buildSuggestionChip('What are the OJT procedures?'),
+          _buildSuggestionChip('How does the grading system work?'),
+        ];
+      case 'student':
+      default:
+        return [
+          _buildSuggestionChip('How am I doing in my OJT?'),
+          _buildSuggestionChip('What are the OJT requirements?'),
+          _buildSuggestionChip('What should I improve?'),
+        ];
+    }
   }
 
   Widget _buildMessageBubble(ChatMessage msg, int index) {

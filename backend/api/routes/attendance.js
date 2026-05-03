@@ -301,6 +301,43 @@ router.post('/time-in', authenticateToken, async (req, res) => {
       }
     }
 
+    // HOLIDAY CHECK: Block attendance on university calendar holidays
+    // (unless student has approved overtime request for this specific date)
+    try {
+      const holidayCheck = await query(
+        `SELECT title, event_type FROM university_calendar
+         WHERE $1::date BETWEEN start_date AND end_date
+         AND event_type IN ('holiday')
+         LIMIT 1`,
+        [currentDate]
+      );
+      if (holidayCheck.rows.length > 0) {
+        // Check if there's an approved overtime request overriding the holiday
+        let holidayOverride = false;
+        try {
+          const otOverride = await query(
+            `SELECT request_id FROM supervisor_overtime_requests
+             WHERE $1 = ANY(student_ids)
+               AND date = $2
+               AND status = 'Approved'
+             LIMIT 1`,
+            [student_id, currentDate]
+          );
+          holidayOverride = otOverride.rows.length > 0;
+        } catch (_) { /* table may not exist yet */ }
+
+        if (!holidayOverride) {
+          return res.status(403).json({
+            error: `Cannot record attendance on "${holidayCheck.rows[0].title}". This is a university holiday. Contact your supervisor if you need to work on this date.`
+          });
+        }
+        console.log(`[Attendance] Holiday override: approved OT request allows attendance on ${currentDate} (${holidayCheck.rows[0].title})`);
+      }
+    } catch (holErr) {
+      console.warn('[Attendance] Holiday check failed:', holErr.message);
+      // Non-fatal: proceed if university_calendar table doesn't exist
+    }
+
     let morningIn = null;
     let afternoonIn = null;
     let overtimeIn = null;
@@ -694,6 +731,42 @@ router.put('/time-out', authenticateToken, async (req, res) => {
           error: 'You cannot perform this action because your OJT setup is incomplete. Coordinator or Supervisor assignment is missing.'
         });
       }
+    }
+
+    // HOLIDAY CHECK: Block time-out on university calendar holidays
+    // (unless student has approved overtime request for this specific date)
+    const timeOutDate = date || new Date().toISOString().split('T')[0];
+    try {
+      const holidayCheck = await query(
+        `SELECT title, event_type FROM university_calendar
+         WHERE $1::date BETWEEN start_date AND end_date
+         AND event_type IN ('holiday')
+         LIMIT 1`,
+        [timeOutDate]
+      );
+      if (holidayCheck.rows.length > 0) {
+        let holidayOverride = false;
+        try {
+          const otOverride = await query(
+            `SELECT request_id FROM supervisor_overtime_requests
+             WHERE $1 = ANY(student_ids)
+               AND date = $2
+               AND status = 'Approved'
+             LIMIT 1`,
+            [targetStudentId, timeOutDate]
+          );
+          holidayOverride = otOverride.rows.length > 0;
+        } catch (_) { /* table may not exist yet */ }
+
+        if (!holidayOverride) {
+          return res.status(403).json({
+            error: `Cannot record attendance on "${holidayCheck.rows[0].title}". This is a university holiday.`
+          });
+        }
+        console.log(`[Attendance] Holiday override for time-out: approved OT request on ${timeOutDate}`);
+      }
+    } catch (holErr) {
+      console.warn('[Attendance] Holiday check (time-out) failed:', holErr.message);
     }
 
     let morningOut = null;

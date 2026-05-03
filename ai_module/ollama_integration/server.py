@@ -27,12 +27,18 @@ def log_request(response):
 @app.route('/greeting', methods=['GET', 'POST'])
 def greeting():
     """
-    Greeting endpoint that returns the initial greeting message.
+    Greeting endpoint that returns a role-aware initial greeting message.
+    
+    Expected JSON request (POST):
+    {
+        "session_id": "<optional session identifier>",
+        "role": "<optional user role: student|supervisor|coordinator|admin>"
+    }
     
     Returns:
     {
         "success": true,
-        "answer": "<greeting message>",
+        "answer": "<role-aware greeting message>",
         "is_fallback": false,
         "session_id": "<session id>",
         "used_context": [],
@@ -42,19 +48,19 @@ def greeting():
     }
     """
     try:
-        greeting_text = (
-            "Hello. I am the JRMSU OJT Assistant. I can provide formal information about JRMSU, "
-            "the OJT program, requirements, procedures, and related university guidelines. "
-            "How can I help you today?"
-        )
-        
-        # Get or generate session ID
+        # Get session ID and role from request
         session_id = None
+        role = ""
         if request.method == 'POST':
             data = request.get_json() or {}
             session_id = data.get("session_id")
+            role = (data.get("role") or "").lower().strip()
         
         session_id = session_id or "default"
+        
+        # Role-aware greeting
+        from chatbot_handler import _get_role_greeting
+        greeting_text = _get_role_greeting(role)
         
         return jsonify({
             "success": True,
@@ -127,6 +133,10 @@ def chat():
         
         print(f"[CHAT] Received message: {user_message[:100]}...")  # Log first 100 chars
         print(f"[CHAT] Session ID: {session_id or 'default'}")
+        print(f"[CHAT] student_data present: {student_data is not None}, type: {type(student_data).__name__}")
+        if student_data:
+            print(f"[CHAT] student_data keys: {list(student_data.keys()) if isinstance(student_data, dict) else 'NOT A DICT'}")
+            print(f"[CHAT] student_data role: {student_data.get('role', 'MISSING') if isinstance(student_data, dict) else 'N/A'}")
         
         if not user_message:
             return jsonify({
@@ -148,29 +158,121 @@ def chat():
                 import json
                 import requests as req_lib
                 import os
+                import datetime
                 from chatbot_context import get_context_manager
+                from chatbot_handler import (
+                    _is_ojt_related, _build_role_system_instruction,
+                    _get_role_greeting, OJT_DECLINE_MESSAGE,
+                    _generate_student_summary, _generate_coordinator_summary,
+                    _generate_supervisor_summary, _generate_admin_summary,
+                    _validate_role,          # GAP 2b FIX — role escalation guard
+                )
+                from run_ai import build_system_message  # GAP 6b FIX — unified system msg
+
+                # ── OJT Topic Guard for streaming ──
+                if not _is_ojt_related(user_message):
+                    yield json.dumps({
+                        "success": True,
+                        "answer": OJT_DECLINE_MESSAGE,
+                        "is_streaming": False,
+                        "session_id": session_id or "default",
+                        "is_fallback": False,
+                        "confidence_score": 1.0,
+                        "used_context": []
+                    }) + "\n"
+                    return
+
+                # ── Handle greetings inline ──
+                greeting_patterns = [
+                    "hi", "hello", "hey", "good morning", "good afternoon",
+                    "good evening", "greetings", "hi there", "hello there"
+                ]
+                msg_lower = user_message.lower().strip()
+                if msg_lower in greeting_patterns or any(msg_lower.startswith(g) for g in greeting_patterns):
+                    role_g = (student_data or {}).get('role', '') if student_data else ''
+                    greeting = _get_role_greeting(role_g.lower())
+                    yield json.dumps({
+                        "success": True,
+                        "answer": greeting,
+                        "is_streaming": False,
+                        "session_id": session_id or "default",
+                        "is_fallback": False,
+                        "confidence_score": 1.0,
+                        "used_context": []
+                    }) + "\n"
+                    return
 
                 ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
                 ollama_model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
 
                 # 1. Get RAG context using unified logic
                 context_snippets = get_rag_context(user_message)
-                
+
                 # 2. Get conversation history if session exists
                 history = []
                 if session_id:
                     ctx = get_context_manager().get_context(session_id)
                     if ctx:
+                        ctx.add_user_message(user_message)
                         history = ctx.get_recent_history(max_turns=5)
-                
-                # 3. Build the official prompt (Same as run_ai.py)
-                prompt = build_prompt_with_context(user_message, context_snippets, conversation_history=history)
+
+                # 3. Build role-aware instruction + dashboard context from student_data
+                # GAP 2b FIX — validate role against whitelist before use
+                raw_role = (student_data or {}).get('role', '') if student_data else ''
+                role = _validate_role(raw_role) if student_data else ''
+                role_instruction = _build_role_system_instruction(role, student_data) if role else None
+
+                dashboard_context = ""
+                if student_data:
+                    try:
+                        if role == 'coordinator' or "total_students" in student_data:
+                            dashboard_context = _generate_coordinator_summary(student_data)
+                        elif role == 'admin' or "total_users" in student_data:
+                            dashboard_context = _generate_admin_summary(student_data)
+                        elif role in ('supervisor', 'industry supervisor') or "total_assigned" in student_data:
+                            dashboard_context = _generate_supervisor_summary(student_data)
+                        elif role == 'student' or "hours" in student_data:
+                            dashboard_context = _generate_student_summary(student_data)
+                        print(f"[CHAT] Dashboard context built for role '{role}' ({len(dashboard_context)} chars)")
+                    except Exception as e:
+                        print(f"[CHAT] Warning: Failed to build dashboard context: {e}")
+
+                # 4. Build enriched query WITH dashboard data (this was the missing piece)
+                if dashboard_context:
+                    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    enriched_message = (
+                        f"[SYSTEM CONTEXT]\n"
+                        f"Current Local Time: {current_time_str}\n"
+                        f"{dashboard_context}\n\n"
+                        f"User Question: {user_message}"
+                    )
+                else:
+                    enriched_message = user_message
+
+                # 5. Build the official prompt with enriched message (not raw user_message)
+                print(f"[CHAT_DEBUG] enriched_message has [SYSTEM CONTEXT]: {'[SYSTEM CONTEXT]' in enriched_message}")
+                print(f"[CHAT_DEBUG] enriched_message length: {len(enriched_message)}")
+                print(f"[CHAT_DEBUG] first 400 chars: {enriched_message[:400]}")
+                prompt = build_prompt_with_context(
+                    enriched_message, context_snippets,
+                    conversation_history=history,
+                    role_instruction=role_instruction
+                )
+
+                # 6. Build role-aware system message using the SHARED builder
+                # GAP 6b FIX — identical persona whether streaming or non-streaming
+                system_msg = build_system_message(role_instruction)
 
                 accumulated = ""
                 try:
                     with req_lib.post(
                         ollama_url,
-                        json={"model": ollama_model, "prompt": prompt, "stream": True},
+                        json={
+                            "model": ollama_model,
+                            "prompt": prompt,
+                            "system": system_msg,
+                            "stream": True
+                        },
                         stream=True,
                         timeout=120
                     ) as r:
@@ -192,6 +294,14 @@ def chat():
                                     "used_context": [context_snippets[:200] + "..."] if context_snippets else []
                                 }) + "\n"
                                 if done:
+                                    # Save assistant response to conversation context
+                                    if session_id:
+                                        try:
+                                            ctx2 = get_context_manager().get_context(session_id)
+                                            if ctx2:
+                                                ctx2.add_assistant_message(accumulated)
+                                        except Exception:
+                                            pass
                                     break
                             except Exception:
                                 continue

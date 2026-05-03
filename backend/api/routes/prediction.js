@@ -118,6 +118,36 @@ async function getStudentAIPayload(studentId) {
       ORDER BY o.start_date DESC
       LIMIT 1
     ),
+    -- Holiday dates from university calendar (flatten multi-day ranges into individual dates)
+    holiday_dates AS (
+      SELECT DISTINCT d::date AS holiday
+      FROM university_calendar uc,
+           generate_series(uc.start_date, uc.end_date, '1 day'::interval) d
+      WHERE uc.event_type IN ('holiday')
+    ),
+    -- Required OJT days = weekdays in range minus holidays (accurate for absent count)
+    required_days_stats AS (
+      SELECT
+        COUNT(*) FILTER (
+          WHERE EXTRACT(DOW FROM d) NOT IN (0, 6)
+            AND d::date NOT IN (SELECT holiday FROM holiday_dates)
+        ) AS total_required_days,
+        COUNT(*) FILTER (
+          WHERE d::date <= CURRENT_DATE
+            AND EXTRACT(DOW FROM d) NOT IN (0, 6)
+            AND d::date NOT IN (SELECT holiday FROM holiday_dates)
+        ) AS elapsed_required_days,
+        COUNT(*) FILTER (
+          WHERE d::date > CURRENT_DATE
+            AND EXTRACT(DOW FROM d) NOT IN (0, 6)
+            AND d::date NOT IN (SELECT holiday FROM holiday_dates)
+        ) AS remaining_required_days
+      FROM generate_series(
+        (SELECT start_date FROM ojt_info),
+        (SELECT COALESCE(end_date, CURRENT_DATE + INTERVAL '90 days') FROM ojt_info),
+        '1 day'::interval
+      ) d
+    ),
     -- Attendance stats (CRITICAL: Only approved attendance counts)
     -- Apply the "1-30 minutes late = 2-hour penalty" rule per record:
     --   late_minutes = EXTRACT(minutes past 08:00) clamped to >= 0
@@ -298,6 +328,7 @@ async function getStudentAIPayload(studentId) {
             '1 day'
           ) d
           WHERE EXTRACT(DOW FROM d) NOT IN (0, 6)  -- exclude Sat/Sun
+            AND d::date NOT IN (SELECT holiday FROM holiday_dates)  -- exclude university holidays
         ),
         present_dates AS (
           SELECT DISTINCT date
@@ -396,7 +427,11 @@ async function getStudentAIPayload(studentId) {
       (SELECT current_absence_streak FROM consecutive_absence_stats) AS current_absence_streak,
       (SELECT row_to_json(t) FROM trend_stats t) AS trend_data,
       (SELECT row_to_json(tn) FROM time_normalization_stats tn) AS normalization_data,
-      (SELECT json_agg(json_build_object('title', title, 'points', total_points, 'point_value', point_value)) FROM competency_points) AS competency_points_json
+      (SELECT json_agg(json_build_object('title', title, 'points', total_points, 'point_value', point_value)) FROM competency_points) AS competency_points_json,
+      -- Holiday-aware required days for accurate absent count
+      (SELECT total_required_days FROM required_days_stats) AS total_required_days,
+      (SELECT elapsed_required_days FROM required_days_stats) AS elapsed_required_days,
+      (SELECT remaining_required_days FROM required_days_stats) AS remaining_required_days
   `, [studentId]);
 
   if (!snapshotResult.rows || snapshotResult.rows.length === 0 || !snapshotResult.rows[0].student_name) {
@@ -411,17 +446,22 @@ async function getStudentAIPayload(studentId) {
   const daysPresent = parseFloat(snap.days_present) || 0;
   const lateCount = parseInt(snap.late_count) || 0;
 
-  // OJT Timeframe
+  // OJT Timeframe (holiday-aware: uses SQL-computed counts that exclude university calendar holidays)
   const ojtStartDate = snap.ojt_start_date ? new Date(snap.ojt_start_date).toISOString().split('T')[0] : null;
   const ojtEndDate = snap.ojt_end_date ? new Date(snap.ojt_end_date).toISOString().split('T')[0] : null;
-  const totalOjtDays = countWeekdays(snap.ojt_start_date, snap.ojt_end_date);
+  // Prefer the holiday-aware SQL count; fall back to JS weekday-only count
+  const totalOjtDays = parseInt(snap.total_required_days) || countWeekdays(snap.ojt_start_date, snap.ojt_end_date);
   const today = new Date();
   const endDateObj = snap.ojt_end_date ? new Date(snap.ojt_end_date) : null;
-  const daysRemaining = endDateObj ? Math.max(0, countWeekdays(today, endDateObj)) : null;
+  const daysRemaining = parseInt(snap.remaining_required_days) ?? (endDateObj ? Math.max(0, countWeekdays(today, endDateObj)) : null);
+  // Elapsed days = working days from start to min(today, end_date), excluding holidays
+  const elapsedRequiredDays = parseInt(snap.elapsed_required_days) || totalOjtDays;
 
   const requiredDays = totalOjtDays;
-  const attendanceRate = requiredDays > 0 ? Math.min((daysPresent / requiredDays) * 100, 100) : 0;
-  const absentCount = Math.max(0, requiredDays - daysPresent);
+  // Attendance rate uses elapsed days (only days that have actually passed, not future days)
+  const attendanceRate = elapsedRequiredDays > 0 ? Math.min((daysPresent / elapsedRequiredDays) * 100, 100) : 0;
+  // Absent count = elapsed working days (excl. holidays) minus days actually present
+  const absentCount = Math.max(0, elapsedRequiredDays - daysPresent);
   // Use credited hours (after late penalty) for the progress ratio sent to the AI
   const hoursCompletedRatio = requiredHours > 0 ? creditedHoursCompleted / requiredHours : 0;
 
@@ -1118,9 +1158,12 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
 // S1 FIX: Added authenticateToken — prevents unauthenticated AI resource abuse
 router.post('/chat', authenticateToken, async (req, res) => {
   try {
-    const { message, session_id, student_id, stream } = req.body;
+    const { message, session_id, student_id, stream, student_data: frontend_student_data } = req.body;
 
-    let student_data = null;
+    // Merge: Start with dashboard data sent from Flutter (role, hours, attendance, scores)
+    // then enrich with competency hours from the database.
+    let student_data = frontend_student_data || null;
+
     if (student_id) {
       // Fetch competency hours for skill gap and career match analysis
       const compResult = await query(`
@@ -1141,7 +1184,12 @@ router.post('/chat', authenticateToken, async (req, res) => {
         competencies[key] = parseFloat(row.hours) || 0;
       });
 
-      student_data = { competencies };
+      // Merge competencies INTO the existing frontend data (don't replace it)
+      if (student_data) {
+        student_data.competencies = competencies;
+      } else {
+        student_data = { competencies };
+      }
     }
 
     // A1 FIX: Standardized on FLASK_AI_URL (was AI_SERVICE_URL)

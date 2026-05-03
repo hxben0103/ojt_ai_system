@@ -516,6 +516,30 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
     const daysPresent = parseInt(attendance.days_present || 0);
     const lastAttendanceDate = attendance.last_attendance_date;
 
+    // Compute absent days: weekdays in OJT range (up to today) minus holidays minus days present
+    let absentDays = 0;
+    if (ojtRecord && ojtRecord.start_date) {
+      try {
+        const absentResult = await query(
+          `WITH holiday_dates AS (
+            SELECT DISTINCT d::date AS holiday
+            FROM university_calendar uc,
+                 generate_series(uc.start_date, uc.end_date, '1 day'::interval) d
+            WHERE uc.event_type IN ('holiday')
+          )
+          SELECT COUNT(*)::int AS required_days
+          FROM generate_series($1::date, LEAST($2::date, CURRENT_DATE), '1 day'::interval) d
+          WHERE EXTRACT(DOW FROM d) NOT IN (0, 6)
+            AND d::date NOT IN (SELECT holiday FROM holiday_dates)`,
+          [ojtRecord.start_date, ojtRecord.end_date || new Date()]
+        );
+        const requiredDaysInRange = parseInt(absentResult.rows[0]?.required_days) || 0;
+        absentDays = Math.max(0, requiredDaysInRange - daysPresent);
+      } catch (e) {
+        console.warn('Failed to compute absent days:', e.message);
+      }
+    }
+
     // Get latest evaluations (align with actual schema: eval_id, evaluation_period_start/end, date_evaluated)
     const evalResult = await query(
       `SELECT 
@@ -692,6 +716,7 @@ router.get('/student-status/:studentId', authenticateToken, async (req, res) => 
       },
       attendance: {
         days_present: daysPresent,
+        absent_days: absentDays,
         last_attendance_date: lastAttendanceDate,
         total_hours_completed: completedHours
       },

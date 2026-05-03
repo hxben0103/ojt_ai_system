@@ -33,6 +33,45 @@ MAX_CONTEXT_TURNS = 5
 
 
 # ------------------------------------------------------------
+# GAP 6a FIX — Centralised system message builder
+# Both streaming (server.py) and non-streaming (generate_response) must call
+# this function so the LLM persona is always identical regardless of path.
+# ------------------------------------------------------------
+def build_system_message(role_instruction: Optional[str] = None) -> str:
+    """
+    Build the canonical Ollama system message for the OJT assistant.
+
+    Args:
+        role_instruction: Role-specific instruction from chatbot_handler.
+                          If None, falls back to the generic OJT assistant persona.
+
+    Returns:
+        The full system message string to pass as the 'system' key in Ollama requests.
+    """
+    base = role_instruction or (
+        "You are the JRMSU OJT Assistant. "
+        "Answer only from the JRMSU knowledge base and provided system data. "
+        "You must ONLY answer questions related to OJT, JRMSU, and academic matters. "
+        "If the question is outside this scope, respond: "
+        "'Sorry, I can only answer OJT-related questions based on system data.'"
+    )
+
+    return (
+        f"{base} "
+        "ABSOLUTE RULE — NEVER write placeholders like [NUMBER], [PERCENTAGE], [RISK LEVEL], "
+        "[HOURS], [SCORE], or any bracket-enclosed template word. "
+        "Always use the exact numeric values already present in the prompt. "
+        "When the prompt contains a 'START YOUR RESPONSE WITH EXACTLY THIS TEXT' section, "
+        "copy that opening sentence verbatim as the very first line of your answer. "
+        "Never give a generic answer when real data is available. "
+        "Never reference documents, files, chapters, or external sources. "
+        "Use conversation history to provide context-aware answers when available. "
+        "If the question is not related to OJT, JRMSU, or academic matters, respond: "
+        "'Sorry, I can only answer OJT-related questions based on system data.'"
+    )
+
+
+# ------------------------------------------------------------
 # Utilities for formatting and cleaning
 # ------------------------------------------------------------
 def clean_llm_output(text: str) -> str:
@@ -283,10 +322,17 @@ def should_use_exact_text(chunk: str) -> bool:
 def build_prompt_with_context(
     user_query: str,
     context_text: str,
-    conversation_history: Optional[List[Dict[str, str]]] = None
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    role_instruction: Optional[str] = None
 ) -> str:
     """
     Build the prompt for the LLM, including conversation context if available.
+    
+    Args:
+        user_query: The user's question (may include [SYSTEM CONTEXT] prefix from chatbot_handler)
+        context_text: RAG-retrieved knowledge chunks
+        conversation_history: Previous conversation messages
+        role_instruction: Role-specific system instruction from chatbot_handler
     """
     # Build conversation history section
     history_section = ""
@@ -298,53 +344,107 @@ def build_prompt_with_context(
             history_lines.append(f"{role_label}: {content}")
         history_section = f"Previous conversation:\n{chr(10).join(history_lines)}\n\n"
     
-    # Check if this query contains dashboard context injected by chatbot_handler.py
-    has_dashboard = "[DASHBOARD CONTEXT]" in user_query
+    # Check if this query contains system context injected by chatbot_handler.py
+    has_system_context = "[SYSTEM CONTEXT]" in user_query or "[DASHBOARD CONTEXT]" in user_query
     actual_query = user_query
-    dash_info = ""
+    context_data = ""
     
-    if has_dashboard:
+    if has_system_context:
         try:
             parts = user_query.split("\n\nUser Question: ")
-            dash_info = parts[0].replace("[DASHBOARD CONTEXT]", "").strip()
+            context_data = parts[0].replace("[SYSTEM CONTEXT]", "").replace("[DASHBOARD CONTEXT]", "").strip()
             actual_query = parts[1] if len(parts) > 1 else user_query
         except:
             pass
 
-    # Instructions for dashboard vs normal RAG
-    if has_dashboard:
-        role_instruction = (
-            "You are the JRMSU OJT Assistant. The user is asking about their dashboard. "
-            "Use the provided [DASHBOARD DATA] numbers below to give a specific analysis of their progress, "
-            "attendance, and performance. Be encouraging and data-driven."
+    # Use role instruction if provided, otherwise build default
+    if role_instruction:
+        prompt_instruction = role_instruction
+    elif has_system_context:
+        prompt_instruction = (
+            "You are the JRMSU OJT Assistant. The user has performance data available. "
+            "Use the provided [USER DATA] numbers below AND the JRMSU Knowledge to give "
+            "a specific, personalized analysis. Be data-driven and encouraging."
         )
-        knowledge_label = "General OJT Procedures (for reference):"
-        current_data_section = f"\n[DASHBOARD DATA]\n{dash_info}\n"
     else:
-        role_instruction = "You are the JRMSU OJT Assistant. Use the JRMSU knowledge below to answer."
-        knowledge_label = "JRMSU Knowledge:"
-        current_data_section = ""
+        prompt_instruction = (
+            "You are the JRMSU OJT Assistant. Use the JRMSU knowledge below to answer. "
+            "You must ONLY answer questions related to OJT, JRMSU, and academic matters. "
+            "If the question is outside this scope, politely decline."
+        )
 
-    prompt = f"""
-{role_instruction}
+    # Build data sections
+    knowledge_label = "JRMSU Knowledge:"
+    current_data_section = ""
+    if context_data:
+        current_data_section = f"\n[USER DATA]\n{context_data}\n"
+
+    # ── Pre-write answer opener with real numbers for small-model reliability ──
+    # gemma2:2b (2B params) ignores [USER DATA] blocks and generates [NUMBER]
+    # placeholders. The fix: extract actual values and write the opener ourselves
+    # so the LLM only needs to CONTINUE from a sentence with real numbers.
+    answer_opener = ""
+    if context_data:
+        import re as _re
+        import logging as _log
+        _logger = _log.getLogger("run_ai")
+
+        def _extract(label: str, text: str) -> str:
+            """Pull the value after 'Label: value' on a matching line."""
+            pattern = rf"{_re.escape(label)}:\s*(.+)"
+            match = _re.search(pattern, text)
+            return match.group(1).strip() if match else ""
+
+        hours_line  = _extract("Hours", context_data)
+        risk_line   = _extract("Risk Level", context_data)
+        score_line  = _extract("AI Performance Score", context_data)
+        att_line    = _extract("Attendance", context_data)
+        tasks_line  = _extract("Daily Tasks", context_data)
+
+        _logger.info(
+            f"[OPENER_EXTRACT] Hours={hours_line!r}, Risk={risk_line!r}, "
+            f"Score={score_line!r}, Att={att_line!r}, Tasks={tasks_line!r}"
+        )
+
+        if hours_line and risk_line and score_line:
+            answer_opener = (
+                f"Based on your current OJT data: you have completed {hours_line}. "
+                f"Your AI performance score is {score_line} with a {risk_line} risk level."
+            )
+            if att_line:
+                answer_opener += f" Attendance record: {att_line}."
+            if tasks_line:
+                answer_opener += f" Task summary: {tasks_line}."
+            answer_opener += "\n\nHere is my analysis:"
+            _logger.info(f"[OPENER_EXTRACT] ✅ Opener built: {answer_opener[:120]}...")
+        else:
+            _logger.warning(
+                f"[OPENER_EXTRACT] ⚠️ Could not build opener — missing fields. "
+                f"context_data first 300 chars: {context_data[:300]}"
+            )
+    # Instead of telling the LLM to "copy" text (which small models misinterpret),
+    # inject the opener as a partial assistant response the model continues from.
+    partial_response = ""
+    if answer_opener:
+        partial_response = f"\n\nAssistant's response so far (continue from here):\n{answer_opener}\n"
+
+    prompt = f"""\
+{prompt_instruction}
 
 {history_section}{knowledge_label}
 {context_text}
 {current_data_section}
 Current question: {actual_query}
 
-Analysis Instructions:
-- Answer ONLY using the JRMSU Knowledge or [DASHBOARD DATA] provided above.
-- If the answer is not in the context, say: "I'm sorry, I don't have information about that in the JRMSU OJT guidelines."
-- Use numeric status from [DASHBOARD DATA] if available.
-- Start with a direct and helpful answer.
-- Maintain a professional yet supportive mentor-like tone.
-- Use bullet points if helpful.
-- DO NOT mention document names or files.
-- DO NOT say 'According to the data' or 'The provided information shows'. Just speak directly.
+Rules:
+- Use the exact numbers from [USER DATA] above. Never use placeholders like [NUMBER] or [RISK LEVEL].
+- Answer ONLY using the JRMSU Knowledge or [USER DATA] provided above.
+- If no relevant data exists, say: "I'm sorry, I don't have information about that in the JRMSU OJT guidelines."
+- Be professional but supportive. Use bullet points if helpful.
+- Do not mention documents, files, or sources. Speak directly to the user.
 - If the question is outside OJT/Academic scope, politely decline.
-""".strip()
-    
+{partial_response}""".strip()
+
     return prompt
 
 
@@ -401,7 +501,8 @@ def retrieve_context(query_text: str, top_k: int = 3) -> List[str]:
 # ------------------------------------------------------------
 def generate_response(
     user_query: str,
-    conversation_history: Optional[List[Dict[str, str]]] = None
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    role_instruction: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Main answer pipeline with conversation context support.
@@ -409,6 +510,7 @@ def generate_response(
     Args:
         user_query: User's question
         conversation_history: Optional list of previous messages (from ConversationContext)
+        role_instruction: Optional role-specific system instruction from chatbot_handler
     
     Returns:
         Dictionary with structured response:
@@ -561,25 +663,18 @@ def generate_response(
     context_text = "\n\n".join(chunk for _, chunk in scored_chunks)
     logger.debug(f"[GENERATE_RESPONSE] Context length: {len(context_text)} characters")
     
-    # Build prompt with conversation context
-    prompt = build_prompt_with_context(user_query, context_text, conversation_history)
+    # Build prompt with conversation context and role instruction
+    prompt = build_prompt_with_context(user_query, context_text, conversation_history, role_instruction=role_instruction)
 
     # 7) LLM call with robust error handling
     logger.info(f"[GENERATE_RESPONSE] Calling Ollama model: {MODEL_NAME}")
     logger.debug(f"[GENERATE_RESPONSE] Prompt length: {len(prompt)} characters")
-    
+    query_lower = user_query.lower()  # needed for edge-case checks inside the try block
     try:
-        # Build system message with extraction instructions if needed
-        query_lower = user_query.lower()
-        system_content = (
-            "You are a formal academic assistant for JRMSU. "
-            "You must answer ONLY with clean, direct information from the specific [Topic: X] provided. "
-            "Do NOT mix information from different topics. "
-            "Never reference documents, files, chapters, or sources. "
-            "Use conversation history to provide context-aware answers when available."
-        )
-        
-        # Add specific extraction instructions
+        # GAP 6a FIX — Use centralised system message builder (same as streaming path)
+        system_content = build_system_message(role_instruction if role_instruction else None)
+
+        # Add specific extraction instructions for known edge cases
         if "president" in query_lower and "university" in query_lower:
             system_content += (
                 " IMPORTANT: If asked about the university president, provide ONLY the president's name and title. "

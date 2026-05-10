@@ -551,6 +551,10 @@ async function getStudentAIPayload(studentId) {
     // --- Engagement ---
     total_chatbot_queries: parseInt(snap.total_chatbot_queries) || 0,
     chatbot_queries_last_30_days: parseInt(snap.chatbot_queries_last_30_days) || 0,
+    // --- OJT Temporal Progression (tenure/span awareness) ---
+    ojt_progress_ratio: totalOjtDays > 0 ? parseFloat((elapsedRequiredDays / totalOjtDays).toFixed(4)) : 0,
+    elapsed_days: elapsedRequiredDays,
+    days_remaining: daysRemaining ?? 0,
     // --- Integrity ---
     inside_geofence: snap.integrity_data?.inside_geofence !== false,
     distance_m: parseFloat(snap.integrity_data?.distance_m) || 0.0,
@@ -1158,7 +1162,7 @@ router.get('/daily/:studentId', authenticateToken, async (req, res) => {
 // S1 FIX: Added authenticateToken — prevents unauthenticated AI resource abuse
 router.post('/chat', authenticateToken, async (req, res) => {
   try {
-    const { message, session_id, student_id, stream, student_data: frontend_student_data } = req.body;
+    const { message, session_id, student_id, stream, student_data: frontend_student_data, history: client_history } = req.body;
 
     // Merge: Start with dashboard data sent from Flutter (role, hours, attendance, scores)
     // then enrich with competency hours from the database.
@@ -1192,6 +1196,291 @@ router.post('/chat', authenticateToken, async (req, res) => {
       }
     }
 
+    // ── SERVER-SIDE DATA ENRICHMENT FOR STUDENTS ──
+    // If student dashboard sent ai_insight with score=0, fetch real data from DB
+    const isStudentRole = (student_data?.role || req.user?.role || '').toLowerCase() === 'student';
+    const hasEmptyAiInsight = !student_data?.ai_insight?.score || student_data?.ai_insight?.score === 0;
+
+    if (isStudentRole && hasEmptyAiInsight && req.user?.user_id) {
+      console.log(`[CHAT_ENRICH] Student AI insight is empty — enriching from database for user ${req.user.user_id}`);
+      try {
+        const sid = req.user.user_id;
+
+        // Fetch latest AI prediction
+        const predResult = await query(`
+          SELECT result FROM ai_insights 
+          WHERE student_id = $1 AND insight_type = 'daily_risk_prediction'
+          ORDER BY created_at DESC LIMIT 1
+        `, [sid]);
+        
+        if (predResult.rows[0]) {
+          const res_data = typeof predResult.rows[0].result === 'string' 
+            ? JSON.parse(predResult.rows[0].result) 
+            : predResult.rows[0].result;
+          
+          if (!student_data) student_data = { role: 'student' };
+          student_data.ai_insight = {
+            score: parseInt(res_data?.score || res_data?.predicted_performance || 0),
+            risk_level: (res_data?.risk_level || res_data?.ml_prediction?.risk_level || 'LOW').toUpperCase(),
+            trend: res_data?.trend || { direction: 'stable' },
+          };
+        }
+
+        // Fetch attendance summary if missing
+        if (!student_data?.attendance?.days_present) {
+          const attResult = await query(`
+            SELECT 
+              COALESCE(SUM(total_hours), 0) AS total_hours,
+              COUNT(*) FILTER (WHERE status != 'Absent') AS days_present,
+              COUNT(*) FILTER (WHERE status = 'Absent') AS days_absent,
+              COUNT(*) FILTER (WHERE is_late = true) AS late_count
+            FROM attendance WHERE student_id = $1
+          `, [sid]);
+          
+          if (attResult.rows[0]) {
+            const present = parseInt(attResult.rows[0].days_present) || 0;
+            const absent = parseInt(attResult.rows[0].days_absent) || 0;
+            if (!student_data) student_data = { role: 'student' };
+            student_data.attendance = {
+              ...(student_data.attendance || {}),
+              days_present: present,
+              absent_days: absent,
+              late_count: parseInt(attResult.rows[0].late_count) || 0,
+            };
+            // Also enrich hours if missing
+            if (!student_data.hours?.completed) {
+              const totalHours = parseFloat(attResult.rows[0].total_hours) || 0;
+              student_data.hours = {
+                ...(student_data.hours || {}),
+                completed: Math.round(totalHours),
+              };
+            }
+          }
+        }
+
+        // Fetch task counts if missing
+        if (!student_data?.daily_tasks?.completed_tasks) {
+          const taskResult = await query(`
+            SELECT 
+              COUNT(*) FILTER (WHERE status = 'Approved') AS completed,
+              COUNT(*) FILTER (WHERE status = 'Pending') AS pending
+            FROM ojt_daily_tasks WHERE student_id = $1
+          `, [sid]);
+          
+          if (taskResult.rows[0]) {
+            if (!student_data) student_data = { role: 'student' };
+            student_data.daily_tasks = {
+              completed_tasks: parseInt(taskResult.rows[0].completed) || 0,
+              pending_tasks: parseInt(taskResult.rows[0].pending) || 0,
+            };
+          }
+        }
+
+        console.log(`[CHAT_ENRICH] ✅ Enriched student data: score=${student_data?.ai_insight?.score}, risk=${student_data?.ai_insight?.risk_level}`);
+      } catch (e) {
+        console.error(`[CHAT_ENRICH] ❌ Student enrichment failed:`, e.message);
+      }
+    }
+
+    // ── SERVER-SIDE DATA ENRICHMENT FOR COORDINATORS & SUPERVISORS ──
+    // Flutter dashboard data may arrive as all zeros if stats haven't loaded yet.
+    // Fix: detect zero-data and fetch directly from the database.
+    const userRole = (student_data?.role || req.user?.role || '').toLowerCase();
+    const isCoordinatorOrSupervisor = ['coordinator', 'ojt coordinator', 'supervisor'].includes(userRole);
+    const hasEmptyData = !student_data?.total_students || student_data.total_students === 0;
+
+    if (isCoordinatorOrSupervisor && hasEmptyData) {
+      console.log(`[CHAT_ENRICH] ${userRole} data is empty — fetching from database for user ${req.user.user_id}`);
+      try {
+        const roleColumn = userRole.includes('coordinator') ? 'coordinator_id' : 'supervisor_id';
+        
+        // 1. Get OJT records assigned to this coordinator/supervisor (with supervisor name)
+        const ojtResult = await query(`
+          SELECT o.student_id, o.required_hours, o.status, 
+                 u.full_name AS student_name,
+                 o.company_name,
+                 sup.full_name AS supervisor_name
+          FROM ojt_records o
+          JOIN users u ON o.student_id = u.user_id
+          LEFT JOIN users sup ON o.supervisor_id = sup.user_id
+          WHERE o.${roleColumn} = $1 
+            AND o.status IN ('Ongoing', 'Active', 'Completed')
+        `, [req.user.user_id]);
+
+        if (ojtResult.rows.length === 0) {
+          console.log(`[CHAT_ENRICH] No OJT records found for ${userRole} ${req.user.user_id}`);
+        }
+
+        const totalStudents = ojtResult.rows.length;
+        const activeOjt = ojtResult.rows.filter(r => r.status === 'Ongoing' || r.status === 'Active').length;
+        const completedOjt = ojtResult.rows.filter(r => r.status === 'Completed').length;
+        const studentIds = ojtResult.rows.map(r => r.student_id);
+
+        // ── FIX 3: BATCH QUERIES instead of N+1 ──
+        // 2a. Batch attendance query for ALL students at once
+        const attMap = {};
+        if (studentIds.length > 0) {
+          try {
+            // Get attendance counts (present + late) from actual records
+            const attResult = await query(`
+              SELECT 
+                student_id,
+                COALESCE(SUM(total_hours), 0) AS total_hours,
+                COUNT(*) FILTER (WHERE status != 'Absent') AS days_present,
+                COUNT(*) FILTER (WHERE is_late = true) AS late_count
+              FROM attendance 
+              WHERE student_id = ANY($1)
+              GROUP BY student_id
+            `, [studentIds]);
+            attResult.rows.forEach(row => {
+              attMap[row.student_id] = {
+                total_hours: parseFloat(row.total_hours) || 0,
+                days_present: parseInt(row.days_present) || 0,
+                days_absent: 0, // Will be computed below from OJT start_date
+                late_count: parseInt(row.late_count) || 0,
+              };
+            });
+
+            // Compute elapsed weekdays (minus holidays) per student for accurate absent count
+            // absent = elapsed_working_days - days_present
+            const elapsedResult = await query(`
+              WITH holiday_dates AS (
+                SELECT DISTINCT d::date AS holiday
+                FROM university_calendar uc,
+                     generate_series(uc.start_date, uc.end_date, '1 day'::interval) d
+                WHERE uc.event_type IN ('holiday')
+              )
+              SELECT 
+                o.student_id,
+                COUNT(*) FILTER (
+                  WHERE EXTRACT(DOW FROM d) NOT IN (0, 6)
+                    AND d::date <= CURRENT_DATE
+                    AND d::date NOT IN (SELECT holiday FROM holiday_dates)
+                ) AS elapsed_days
+              FROM ojt_records o,
+                   generate_series(o.start_date, LEAST(o.end_date, CURRENT_DATE), '1 day'::interval) d
+              WHERE o.student_id = ANY($1)
+                AND o.status IN ('Ongoing', 'Active', 'Completed')
+              GROUP BY o.student_id
+            `, [studentIds]);
+            elapsedResult.rows.forEach(row => {
+              const sid = row.student_id;
+              const elapsed = parseInt(row.elapsed_days) || 0;
+              const present = (attMap[sid] || {}).days_present || 0;
+              if (attMap[sid]) {
+                attMap[sid].days_absent = Math.max(0, elapsed - present);
+              } else {
+                attMap[sid] = { total_hours: 0, days_present: 0, days_absent: Math.max(0, elapsed), late_count: 0 };
+              }
+            });
+          } catch (e) {
+            console.error('[CHAT_ENRICH] Batch attendance query failed:', e.message);
+          }
+        }
+
+        // 2b. Batch AI insights query for ALL students at once
+        const aiMap = {};
+        if (studentIds.length > 0) {
+          try {
+            const aiResult = await query(`
+              SELECT DISTINCT ON (student_id) student_id, result
+              FROM ai_insights 
+              WHERE student_id = ANY($1) AND insight_type = 'daily_risk_prediction'
+              ORDER BY student_id, created_at DESC
+            `, [studentIds]);
+            aiResult.rows.forEach(row => {
+              try {
+                const res_data = typeof row.result === 'string' ? JSON.parse(row.result) : row.result;
+                aiMap[row.student_id] = {
+                  risk_level: (res_data?.risk_level || res_data?.ml_prediction?.risk_level || 'LOW').toUpperCase(),
+                  score: parseInt(res_data?.score || res_data?.predicted_performance || 0),
+                  forecasted_grade: parseFloat(res_data?.grading?.forecasted_grade || res_data?.forecasted_grade) || null,
+                };
+              } catch (parseErr) {
+                aiMap[row.student_id] = { risk_level: 'LOW', score: 0, forecasted_grade: null };
+              }
+            });
+          } catch (e) {
+            console.error('[CHAT_ENRICH] Batch AI query failed:', e.message);
+          }
+        }
+
+        // 3. Assemble per-student details using batch results
+        const studentDetails = [];
+        let highRisk = 0, mediumRisk = 0, lowRisk = 0;
+        let totalAttRate = 0, totalCompletion = 0, totalGrade = 0, gradeCount = 0;
+
+        for (const record of ojtResult.rows) {
+          const sid = record.student_id;
+          const reqHours = record.required_hours || 300;
+
+          // Lookup from batch maps
+          const att = attMap[sid] || { total_hours: 0, days_present: 0, days_absent: 0, late_count: 0 };
+          const ai = aiMap[sid] || { risk_level: 'LOW', score: 0, forecasted_grade: null };
+
+          const hoursCompleted = att.total_hours;
+          const daysPresent = att.days_present;
+          const daysAbsent = att.days_absent;
+          const lateCount = att.late_count;
+
+          // ── FIX 1: Correct attendance rate = days_present / (days_present + days_absent) * 100 ──
+          const totalDays = daysPresent + daysAbsent;
+          const attRate = totalDays > 0 ? Math.round((daysPresent / totalDays) * 100) : 0;
+
+          const riskLevel = ai.risk_level;
+          const aiScore = ai.score;
+          const forecastedGrade = ai.forecasted_grade;
+
+          // Count risk levels
+          if (riskLevel === 'HIGH') highRisk++;
+          else if (riskLevel === 'MEDIUM') mediumRisk++;
+          else lowRisk++;
+
+          totalAttRate += attRate;
+          totalCompletion += (reqHours > 0 ? (hoursCompleted / reqHours) : 0);
+          if (forecastedGrade) { totalGrade += forecastedGrade; gradeCount++; }
+
+          studentDetails.push({
+            name: record.student_name,
+            student_id: sid,
+            risk_level: riskLevel,
+            score: aiScore,
+            status: record.status,
+            hours_completed: Math.round(hoursCompleted),
+            hours_required: reqHours,
+            attendance_rate: attRate,
+            days_present: daysPresent,
+            days_absent: daysAbsent,
+            late_count: lateCount,
+            forecasted_grade: forecastedGrade,
+            company: record.company_name || 'N/A',
+            supervisor: record.supervisor_name || 'N/A',
+          });
+        }
+
+        // Build enriched data
+        student_data = {
+          ...(student_data || {}),
+          role: userRole.includes('coordinator') ? 'coordinator' : 'supervisor',
+          total_students: totalStudents,
+          high_risk_students: highRisk,
+          medium_risk_students: mediumRisk,
+          low_risk_students: lowRisk,
+          active_ojt: activeOjt,
+          completed_ojt: completedOjt,
+          average_attendance: totalStudents > 0 ? Math.round(totalAttRate / totalStudents * 10) / 10 : 0,
+          average_completion: totalStudents > 0 ? Math.round(totalCompletion / totalStudents * 1000) / 10 : 0,
+          average_forecast_grade: gradeCount > 0 ? Math.round(totalGrade / gradeCount * 10) / 10 : 'N/A',
+          student_details: studentDetails,
+        };
+
+        console.log(`[CHAT_ENRICH] ✅ Enriched ${userRole} data: ${totalStudents} students, ${highRisk} high risk (2 batch queries)`);
+      } catch (enrichError) {
+        console.error(`[CHAT_ENRICH] ❌ Failed to enrich ${userRole} data:`, enrichError.message);
+        // Continue with whatever Flutter sent — better than nothing
+      }
+    }
+
     // A1 FIX: Standardized on FLASK_AI_URL (was AI_SERVICE_URL)
     const aiServiceUrl = process.env.FLASK_AI_URL || 'http://127.0.0.1:5000';
     
@@ -1201,9 +1490,9 @@ router.post('/chat', authenticateToken, async (req, res) => {
         const response = await axios({
           method: 'post',
           url: `${aiServiceUrl}/chat`,
-          data: { message, session_id, student_data, stream: true },
+          data: { message, session_id, student_data, stream: true, history: client_history || [] },
           responseType: 'stream',
-          timeout: 120000
+          timeout: 240000
         });
 
         res.setHeader('Content-Type', 'application/x-ndjson');
@@ -1215,17 +1504,22 @@ router.post('/chat', authenticateToken, async (req, res) => {
           message,
           session_id,
           student_data,
-          stream: false
-        }, { timeout: 120000 });
+          stream: false,
+          history: client_history || []
+        }, { timeout: 240000 });
         
         return res.status(response.status).json(response.data);
       }
     } catch (axiosError) {
-      console.error('AI Service communication error:', axiosError.message);
+      const errDetails = axiosError.response 
+        ? `Status ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data || {}).substring(0, 200)}`
+        : axiosError.code || axiosError.message;
+      console.error(`AI Service communication error: ${errDetails}`);
+      console.error(`AI Service URL: ${aiServiceUrl}/chat`);
       return res.status(503).json({
         success: false,
         error_type: 'CHATBOT_SERVICE_UNAVAILABLE',
-        message: 'AI chat service is currently down.'
+        message: `AI chat service error: ${axiosError.code === 'ECONNREFUSED' ? 'Flask server not running' : axiosError.code === 'ECONNABORTED' ? 'Request timed out' : 'Connection failed'}`
       });
     }
   } catch (error) {

@@ -125,6 +125,7 @@ class ContextManager:
     def __init__(self):
         """Initialize the context manager."""
         self.contexts: Dict[str, ConversationContext] = {}
+        self._last_cleanup = time.time()
         logger.info("[ContextManager] Initialized conversation context manager")
     
     def get_or_create_context(self, session_id: str) -> ConversationContext:
@@ -137,9 +138,11 @@ class ContextManager:
         Returns:
             ConversationContext instance
         """
-        # Clean up expired sessions periodically (every 100 calls)
-        if len(self.contexts) > 0 and len(self.contexts) % 100 == 0:
+        # Fix #7: Time-based cleanup every 10 minutes instead of unreliable
+        # modulo-100 trigger that missed most expired sessions.
+        if time.time() - self._last_cleanup > 600:
             self._cleanup_expired_sessions()
+            self._last_cleanup = time.time()
         
         if session_id not in self.contexts:
             self.contexts[session_id] = ConversationContext(session_id)

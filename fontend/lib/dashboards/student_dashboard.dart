@@ -1091,6 +1091,8 @@ class _StudentDashboardState extends State<StudentDashboard>
     final attendanceSummary = _studentStatus?['attendance'] as Map<String, dynamic>?;
     final insideGeofence = (attendanceSummary?['inside_geofence'] as bool?) ?? true;
     final lastAttendanceDate = attendanceSummary?['last_attendance_date'] as String? ?? 'N/A';
+    final int daysPresent = (attendanceSummary?['days_present'] as num?)?.toInt() ?? 0;
+    final int absentDays = (attendanceSummary?['absent_days'] as num?)?.toInt() ?? 0;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -1116,12 +1118,91 @@ class _StudentDashboardState extends State<StudentDashboard>
               ),
               const SizedBox(width: 16),
               Text(
-                'Integrity Status',
+                'Attendance & Integrity',
                 style: AppTheme.heading3.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
+          // ── Attendance Summary Row ──
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.blueGrey.shade50, Colors.blueGrey.shade50.withOpacity(0.3)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: Colors.green.shade600, size: 22),
+                      const SizedBox(height: 6),
+                      Text(
+                        '$daysPresent',
+                        style: AppTheme.heading2.copyWith(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'DAYS PRESENT',
+                        style: AppTheme.caption.copyWith(
+                          fontSize: 8,
+                          letterSpacing: 1.0,
+                          color: Colors.blueGrey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 1,
+                  height: 48,
+                  color: Colors.blueGrey.shade200,
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Icon(
+                        absentDays > 0 ? Icons.warning_amber_rounded : Icons.thumb_up_rounded,
+                        color: absentDays > 5 ? Colors.red.shade600 : absentDays > 0 ? Colors.orange.shade600 : Colors.green.shade600,
+                        size: 22,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '$absentDays',
+                        style: AppTheme.heading2.copyWith(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: absentDays > 5 ? Colors.red.shade700 : absentDays > 0 ? Colors.orange.shade700 : Colors.green.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'DAYS ABSENT',
+                        style: AppTheme.caption.copyWith(
+                          fontSize: 8,
+                          letterSpacing: 1.0,
+                          color: Colors.blueGrey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Divider(height: 1, color: Colors.grey.shade100),
+          const SizedBox(height: 16),
+          // ── Integrity Stats Row ──
           Row(
             children: [
               _buildModernIntegrityStat(

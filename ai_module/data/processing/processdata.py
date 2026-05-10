@@ -47,7 +47,10 @@ FEATURE_COLUMNS = [
     "has_coordinator_eval_grade",
     "has_supervisor_eval_grade",
     "total_chatbot_queries",
-    "chatbot_queries_last_30_days"
+    "chatbot_queries_last_30_days",
+    "ojt_progress_ratio",
+    "elapsed_days",
+    "days_remaining",
 ]
 
 # Predictive features — excludes grading components that are used to derive

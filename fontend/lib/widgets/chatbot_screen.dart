@@ -81,68 +81,92 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
     super.dispose();
   }
 
+  // Feature 1: Proactive data-driven opening message
   Future<void> _loadGreeting() async {
     if (_hasShownGreeting || !mounted) return;
 
     try {
-      // Get or generate session ID
-      final prefs = await SharedPreferences.getInstance();
-      String? sessionId = prefs.getString('chatbot_session_id');
-      if (sessionId == null) {
-        sessionId = DateTime.now().millisecondsSinceEpoch.toString();
-        await prefs.setString('chatbot_session_id', sessionId);
+      final data = widget.dashboardData;
+      final role = (data?['role'] as String?)?.toLowerCase() ?? '';
+      String greeting = '';
+
+      if (role == 'coordinator' || role == 'ojt coordinator') {
+        final total = data?['total_students'] ?? 0;
+        final highRisk = data?['high_risk_students'] ?? 0;
+        final mediumRisk = data?['medium_risk_students'] ?? 0;
+        final avgAtt = data?['average_attendance'];
+        final avgAttStr = avgAtt is num ? '${avgAtt.toStringAsFixed(1)}%' : 'N/A';
+
+        greeting = "Welcome! Here's your program snapshot:\n\n";
+        greeting += "You're managing **$total students**. ";
+        if (highRisk > 0) {
+          greeting += "**$highRisk student(s) are HIGH risk** and need immediate attention. ";
+        }
+        if (mediumRisk > 0) {
+          greeting += "$mediumRisk are at medium risk. ";
+        }
+        greeting += "Average attendance: **$avgAttStr**.\n\n";
+        greeting += "Try asking me about specific students, sites, or say **\"weekly summary\"** for a full report.";
+
+      } else if (role == 'supervisor' || role == 'industry supervisor') {
+        final assigned = data?['total_assigned'] ?? data?['total_students'] ?? 0;
+        greeting = "Welcome! You have **$assigned assigned student(s)**. ";
+        greeting += "Ask me about their performance, attendance, or say **\"weekly summary\"** for a digest.";
+
+      } else if (role == 'student') {
+        final hours = data?['hours'] as Map<String, dynamic>?;
+        final completed = hours?['completed'] ?? 0;
+        final required = hours?['required'] ?? 300;
+        final aiInsight = data?['ai_insight'] as Map<String, dynamic>?;
+        final score = aiInsight?['score'] ?? 0;
+        final risk = (aiInsight?['risk_level'] as String?)?.toUpperCase() ?? 'N/A';
+        final pct = required > 0 ? ((completed / required) * 100).toInt() : 0;
+
+        greeting = "Welcome! Here's your current OJT status:\n\n";
+        greeting += "**Hours:** $completed / $required ($pct% complete)\n";
+        greeting += "**AI Score:** $score/100 | **Risk Level:** $risk\n\n";
+        if (score > 0 && score < 60) {
+          greeting += "Your score needs improvement. Ask me **\"What should I improve?\"** for tips.";
+        } else if (score >= 60) {
+          greeting += "You're on track! Ask me anything about your OJT progress.";
+        } else {
+          greeting += "Ask me about your progress, requirements, or what you can improve.";
+        }
+
+      } else {
+        greeting = "Hello! I'm your JRMSU OJT AI Assistant. How can I help you today?";
       }
 
-      // Extract role from dashboard data for role-aware greeting
-      final role = (widget.dashboardData?['role'] as String?) ?? '';
+      if (greeting.isNotEmpty && mounted) {
+        final greetingMsg = ChatMessage(
+          text: '',
+          isUser: false,
+          timestamp: DateTime.now(),
+          messageId: DateTime.now().millisecondsSinceEpoch.toString(),
+        );
 
-      final response = await http.post(
-        Uri.parse(AiConfig.greetingEndpoint),
-        headers: {"Content-Type": "application/json"},
-        body: json.encode({
-          "session_id": sessionId,
-          "role": role,
-        }),
-      ).timeout(const Duration(seconds: 10));
+        setState(() {
+          _hasShownGreeting = true;
+          _streamingMessage = greetingMsg;
+          _messages.add(greetingMsg);
+          _isTyping = true;
+        });
 
-      if (response.statusCode == 200 && mounted) {
-        final data = json.decode(response.body);
-        final greeting = data["answer"] as String?;
+        await _streamResponse(greeting, greetingMsg);
 
-        if (greeting != null && greeting.isNotEmpty && mounted) {
-          // Create greeting message
-          final greetingMsg = ChatMessage(
-            text: '',
-            isUser: false,
-            timestamp: DateTime.now(),
-            messageId: DateTime.now().millisecondsSinceEpoch.toString(),
-          );
-
+        if (mounted) {
           setState(() {
-            _hasShownGreeting = true;
-            _streamingMessage = greetingMsg;
-            _messages.add(greetingMsg);
-            _isTyping = true;
+            _isTyping = false;
+            _streamingMessage = null;
           });
-
-          // Stream the greeting for better UX
-          await _streamResponse(greeting, greetingMsg);
-
-          if (mounted) {
-            setState(() {
-              _isTyping = false;
-              _streamingMessage = null;
-            });
-          }
-          _scrollToBottom();
         }
+        _scrollToBottom();
       }
     } catch (e) {
-      // Silently fail - greeting is not critical, but mark as shown to avoid retries
       debugPrint('Failed to load greeting: $e');
       if (mounted) {
         setState(() {
-          _hasShownGreeting = true; // Prevent retry loops
+          _hasShownGreeting = true;
         });
       }
     }
@@ -182,6 +206,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
       // ── Load auth token for authenticated endpoint ──
       final token = prefs.getString('auth_token');
       
+
       final client = http.Client();
       final request = http.Request('POST', Uri.parse(apiUrl))
         ..headers['Content-Type'] = 'application/json'
@@ -190,10 +215,12 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
           "message": userMessage,
           "session_id": sessionId,
           "student_data": widget.dashboardData,
-          "stream": true, // Request streaming
+          "stream": true,
+          // Feature 3: Send last 3 conversation turns for multi-turn memory
+          "history": _buildConversationHistory(),
         });
 
-      final response = await client.send(request).timeout(const Duration(seconds: 120));
+      final response = await client.send(request).timeout(const Duration(seconds: 300));
 
       if (response.statusCode == 200) {
         final messageId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -204,6 +231,7 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
           messageId: messageId,
         );
 
+        if (!mounted) return;
         setState(() {
           _streamingMessage = streamingMsg;
           _messages.add(streamingMsg);
@@ -252,49 +280,91 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
           }
         }
 
-        setState(() {
-          _isTyping = false;
-          _streamingMessage = null;
-          _streamingText = '';
-        });
+        if (mounted) {
+          setState(() {
+            _isTyping = false;
+            _streamingMessage = null;
+            _streamingText = '';
+          });
+        }
       } else {
-        _showErrorMessage("Server error: ${response.statusCode}");
+        // Try to read the error body for more detail
+        String? serverMsg;
+        try {
+          final body = await response.stream.bytesToString();
+          final data = json.decode(body);
+          serverMsg = data['message'] as String?;
+        } catch (_) {}
+
+        // Handle non-200 status codes with user-friendly messages
+        String errorMsg;
+        if (response.statusCode == 503) {
+          errorMsg = "The AI service is currently unavailable. This usually means:\n"
+              "• The AI model is still loading\n"
+              "• The server is processing another request\n\n"
+              "Please wait a moment and try again.";
+        } else if (response.statusCode == 500) {
+          errorMsg = "A server error occurred while processing your request.\n"
+              "${serverMsg != null ? '($serverMsg)\n' : ''}"
+              "Please try again.";
+        } else if (response.statusCode == 401 || response.statusCode == 403) {
+          errorMsg = "Your session has expired. Please go back and reopen the chatbot.";
+        } else {
+          errorMsg = "Server error (${response.statusCode}). Please try again.";
+        }
+        if (mounted) {
+          setState(() {
+            _messages.add(ChatMessage(
+              text: errorMsg,
+              isUser: false,
+              timestamp: DateTime.now(),
+              messageId: 'error_retry',
+            ));
+            _isTyping = false;
+          });
+        }
       }
     } on http.ClientException catch (e) {
-      setState(() {
-        _messages.add(ChatMessage(
-          text: "🚫 Unable to reach the chatbot server. Tap **Retry** to try again.",
-          isUser: false,
-          timestamp: DateTime.now(),
-          messageId: 'error_retry',
-        ));
-        _isTyping = false;
-      });
+      if (mounted) {
+        setState(() {
+          _messages.add(ChatMessage(
+            text: "🚫 Unable to reach the chatbot server. Tap **Retry** to try again.",
+            isUser: false,
+            timestamp: DateTime.now(),
+            messageId: 'error_retry',
+          ));
+          _isTyping = false;
+        });
+      }
       debugPrint('Chatbot connection error: $e');
     } on TimeoutException catch (e) {
-      setState(() {
-        _messages.add(ChatMessage(
-          text: "⏱️ The server took too long to respond. Tap **Retry** to try again.",
-          isUser: false,
-          timestamp: DateTime.now(),
-          messageId: 'error_retry',
-        ));
-        _isTyping = false;
-      });
+      if (mounted) {
+        setState(() {
+          _messages.add(ChatMessage(
+            text: "⏱️ The server took too long to respond. Tap **Retry** to try again.",
+            isUser: false,
+            timestamp: DateTime.now(),
+            messageId: 'error_retry',
+          ));
+          _isTyping = false;
+        });
+      }
       debugPrint('Chatbot timeout error: $e');
     } catch (e) {
       debugPrint('Chatbot exception: $e');
       debugPrint('Exception type: ${e.runtimeType}');
       final errorMsg = e.toString();
 
-    setState(() {
-        _messages.add(ChatMessage(
-          text: "🚫 Unexpected error: ${errorMsg.length > 100 ? '${errorMsg.substring(0, 100)}...' : errorMsg}",
-          isUser: false,
-          timestamp: DateTime.now(),
-        ));
-      _isTyping = false;
-    });
+    if (mounted) {
+      setState(() {
+          _messages.add(ChatMessage(
+            text: "🚫 Unexpected error: ${errorMsg.length > 100 ? '${errorMsg.substring(0, 100)}...' : errorMsg}",
+            isUser: false,
+            timestamp: DateTime.now(),
+          ));
+        _isTyping = false;
+      });
+    }
     }
 
     _scrollToBottom();
@@ -592,6 +662,26 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                       },
                     ),
             ),
+            // Feature 2: Show suggestion chips above input when user has sent few messages
+            if (_messages.where((m) => m.isUser).length < 2 && !_isTyping)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _buildRoleSuggestionChips()
+                        .map((chip) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: chip,
+                            ))
+                        .toList(),
+                  ),
+                ),
+              ),
             _buildMessageInput(),
           ],
         ),
@@ -674,28 +764,46 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
         return [
           _buildSuggestionChip('How are my students performing?'),
           _buildSuggestionChip('Which students need attention?'),
-          _buildSuggestionChip('What are the OJT grading criteria?'),
+          _buildSuggestionChip('Show attendance summary'),
+          _buildSuggestionChip('Weekly summary'),
         ];
       case 'coordinator':
       case 'ojt coordinator':
         return [
-          _buildSuggestionChip('Give me a program overview'),
-          _buildSuggestionChip('Which students need attention?'),
-          _buildSuggestionChip('How does the grading system work?'),
+          _buildSuggestionChip('Show high risk students'),
+          _buildSuggestionChip('Attendance summary'),
+          _buildSuggestionChip('Weekly summary'),
+          _buildSuggestionChip('Which sites have issues?'),
         ];
       case 'admin':
         return [
+          _buildSuggestionChip('System overview'),
           _buildSuggestionChip('What are the OJT procedures?'),
-          _buildSuggestionChip('How does the grading system work?'),
         ];
       case 'student':
       default:
         return [
           _buildSuggestionChip('How am I doing in my OJT?'),
-          _buildSuggestionChip('What are the OJT requirements?'),
           _buildSuggestionChip('What should I improve?'),
+          _buildSuggestionChip('When will I finish my hours?'),
+          _buildSuggestionChip('What are the OJT requirements?'),
         ];
     }
+  }
+
+  /// Feature 3: Build conversation history for multi-turn memory
+  List<Map<String, String>> _buildConversationHistory() {
+    final history = <Map<String, String>>[];
+    // Get last 6 messages (3 turns of user+bot)
+    final recent = _messages.length > 6 ? _messages.sublist(_messages.length - 6) : _messages.toList();
+    for (final msg in recent) {
+      if (msg.text.isEmpty) continue; // Skip empty streaming messages
+      history.add({
+        'role': msg.isUser ? 'user' : 'assistant',
+        'content': msg.text.length > 200 ? msg.text.substring(0, 200) : msg.text,
+      });
+    }
+    return history;
   }
 
   Widget _buildMessageBubble(ChatMessage msg, int index) {
@@ -764,10 +872,13 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                          msg.text.isNotEmpty
                           ? Text(
                               msg.text,
+                              textAlign: TextAlign.start,
                               style: const TextStyle(
                                 color: Color(0xFF1E293B),
                                 fontSize: 15,
                                 height: 1.6,
+                                fontFamily: '.SF Pro Text',
+                                fontFamilyFallback: ['Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'NotoColorEmoji', 'NotoSans', 'sans-serif'],
                               ),
                             )
                           : (msg.text.isEmpty 
@@ -779,11 +890,17 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                                     color: Color(0xFF334155),
                                     fontSize: 15,
                                     height: 1.6,
+                                    fontFamily: '.SF Pro Text',
+                                    fontFamilyFallback: ['Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'NotoColorEmoji', 'NotoSans', 'sans-serif'],
                                   ),
+                                  textAlign: WrapAlignment.start,
                                   strong: const TextStyle(
                                     color: Color(0xFF1E293B),
                                     fontWeight: FontWeight.w700,
+                                    fontFamily: '.SF Pro Text',
+                                    fontFamilyFallback: ['Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
                                   ),
+                                  listBulletPadding: const EdgeInsets.only(right: 8),
                                   code: const TextStyle(
                                     backgroundColor: Color(0xFFF8FAFC),
                                     color: Color(0xFF6366F1),
@@ -800,15 +917,33 @@ class _ChatBotScreenState extends State<ChatBotScreen> {
                                     fontStyle: FontStyle.italic,
                                   ),
                                   listBullet: const TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold),
+                                  h1: const TextStyle(
+                                    color: Color(0xFF1E293B),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 20,
+                                    fontFamily: '.SF Pro Text',
+                                    fontFamilyFallback: ['Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                                  ),
+                                  h2: const TextStyle(
+                                    color: Color(0xFF1E293B),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 18,
+                                    fontFamily: '.SF Pro Text',
+                                    fontFamilyFallback: ['Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                                  ),
                                   h3: const TextStyle(
                                     color: Color(0xFF1E293B),
                                     fontWeight: FontWeight.w700,
                                     fontSize: 17,
+                                    fontFamily: '.SF Pro Text',
+                                    fontFamilyFallback: ['Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
                                   ),
                                   a: const TextStyle(
                                     color: Color(0xFF4F46E5),
                                     decoration: TextDecoration.underline,
                                   ),
+                                  pPadding: const EdgeInsets.only(bottom: 8),
+                                  blockSpacing: 12,
                                 ),
                                 onTapLink: (text, href, title) {
                                   if (href != null) {

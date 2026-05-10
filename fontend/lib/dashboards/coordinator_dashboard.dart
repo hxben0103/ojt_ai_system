@@ -415,10 +415,13 @@ class _CoordinatorDashboardState extends State<CoordinatorDashboard> {
       final presentDays = attendance['total_days_present'] as int? ??
           attendance['total_days'] as int? ??
           0;
-      final attendanceRate =
-          requiredHours <= 0 ? 0.0 : approvedHours / requiredHours;
+      // FIX: Use actual absent_days from API, fallback to estimated
+      final apiAbsentDays = attendance['absent_days'] as int?;
       final estimatedRequiredDays = max(0, requiredHours ~/ 8);
-      final absentCount = max(0, estimatedRequiredDays - presentDays);
+      final absentCount = apiAbsentDays ?? max(0, estimatedRequiredDays - presentDays);
+      // FIX: Attendance rate = days_present / (days_present + absent) * 100, NOT hours-based
+      final totalDays = presentDays + absentCount;
+      final attendanceRate = totalDays > 0 ? presentDays / totalDays : 0.0;
 
       String riskLevel = 'LOW';
       double? riskConfidence;

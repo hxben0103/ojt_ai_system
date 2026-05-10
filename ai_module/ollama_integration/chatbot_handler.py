@@ -17,7 +17,7 @@ import os
 import sys
 import logging
 import traceback
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -47,61 +47,122 @@ from career_engine import generate_career_briefing
 
 
 # ──────────────────────────────────────────────────────────────
-# OJT Topic Guard — Only answer OJT/JRMSU related queries
+# Shared constants
+# ──────────────────────────────────────────────────────────────
+# Risk sort order — used by coordinator & supervisor summaries and weekly digest
+RISK_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+
+# Greeting patterns — used by both streaming (server.py) and non-streaming paths
+GREETING_PATTERNS = [
+    "hi", "hello", "hey", "good morning", "good afternoon",
+    "good evening", "greetings", "hi there", "hello there",
+]
+
+
+# ──────────────────────────────────────────────────────────────
+# OJT Topic Guard — WHITELIST ONLY (no blacklist)
+# Only queries matching these keywords are processed.
+# Everything else is blocked immediately — no resources wasted.
 # ──────────────────────────────────────────────────────────────
 OJT_TOPIC_KEYWORDS = [
-    # OJT terms
-    "ojt", "internship", "practicum", "on the job", "on-the-job", "training",
+    # ── OJT Core Terms ──
+    "ojt", "internship", "practicum", "on the job", "on-the-job",
     "deployment", "host company", "industry partner",
-    # Attendance / DTR
-    "attendance", "dtr", "daily time record", "hours", "time in", "time out",
-    "overtime", "log", "check in", "check out", "present", "absent",
-    # Requirements / Documentation
+    # ── Attendance / DTR ──
+    "attendance", "dtr", "daily time record", "time in", "time out",
+    "overtime", "check in", "check out", "tardy",
+    # ── Requirements / Documentation ──
     "requirement", "journal", "narrative", "narrative report", "documentation",
-    "submission", "deadline", "clearance", "completion", "weekly progress",
-    # Grading / Performance
-    "grade", "grading", "evaluation", "performance", "score", "risk",
-    "prediction", "forecast", "ai", "insight", "analytics",
-    # People / Roles
-    "supervisor", "coordinator", "student", "admin",
-    # Tasks / Competencies
-    "competency", "competencies", "task", "daily task", "work", "activity",
-    # University / Institution
-    "jrmsu", "university", "college", "ccs", "campus",
-    "mission", "vision", "goals", "core values", "quality policy",
-    "history", "profile", "officials",
-    # Policies
-    "schedule", "dress code", "attire", "uniform", "policy", "rules",
-    "late", "tardy", "tardiness", "excuse", "waiver",
-    # System / Dashboard
-    "dashboard", "progress", "status", "my",
-    # Career
-    "career", "skill", "job", "employability",
-    # General help triggers (allowed because they likely lead to OJT topics)
-    "help", "how", "what", "when", "where", "who", "why",
-    "can i", "do i", "should i", "am i", "tell me",
-    "explain", "guide", "advise", "recommend",
+    "submission", "deadline", "clearance", "weekly progress",
+    # ── Grading / Performance ──
+    "grade", "grading", "evaluation", "performance", "score",
+    "prediction", "forecast", "insight", "analytics",
+    # ── People / Roles (OJT-specific) ──
+    "supervisor", "coordinator", "intern", "ojt student",
+    # ── Tasks / Competencies ──
+    "competency", "competencies", "daily task",
+    # ── University / Institution ──
+    "jrmsu", "university", "ccs", "campus",
+    "mission", "vision", "quality policy",
+    # ── Policies ──
+    "dress code", "attire", "uniform", "policy",
+    "tardiness", "excuse", "waiver",
+    # ── System / Dashboard ──
+    "dashboard", "progress report", "program overview", "program health",
+    # ── Company / Site ──
+    "ojt site", "company name", "assigned student", "assigned to",
+    # ── Career ──
+    "career", "employability", "skill gap",
+    # ── Student Self-Reference (personal data queries) ──
+    "my ojt", "my attendance", "my grade", "my hours", "my score",
+    "my performance", "my progress", "my status", "my risk", "my completion",
+    "my data", "my record", "my report", "my training",
+    # ── Common OJT Question Patterns ──
+    "how am i doing", "am i on track", "how many hours", "how many days",
+    "what is my", "what are my", "show me",
+    "who are the student", "who is at risk", "tell me about the student",
+    "student performance", "student attendance", "student risk",
+    "students at risk", "students needing", "student status",
+    "weekly summary", "weekly report",
+    # ── Data Inquiry Patterns (OJT-context specific) ──
+    "how is the student", "how are the student", "how is my",
+    "summarize my", "summarize the", "overview of",
+    "at risk", "high risk", "medium risk", "low risk",
+    "needs attention", "needing attention",
+    "ojt recommendation", "ojt improvement",
+    "what can you do", "what can you help",
+    # ── Metric Queries (OJT-scoped) ──
+    "total hours", "average score", "attendance rate", "completion rate",
+    "highest score", "lowest score", "risk level",
 ]
 
-# Queries that are clearly off-topic
-OFF_TOPIC_INDICATORS = [
-    "weather", "recipe", "movie", "game", "song", "music",
-    "sports", "news", "politics", "celebrity", "joke",
-    "translate", "code", "program", "python", "javascript",
-    "math problem", "solve", "calculate",
-    "love", "dating", "relationship",
-    "bitcoin", "crypto", "stock", "invest",
-]
-
-# GAP 5 FIX — Canonical wording aligned to system prompt spec
-OJT_DECLINE_MESSAGE = (
-    "Sorry, I can only answer OJT-related questions based on system data."
+# Fix #5: Pre-compile all keywords into a single regex for O(1) matching
+# instead of looping through 100+ keywords with `in` substring checks.
+import re as _re
+_OJT_TOPIC_PATTERN = _re.compile(
+    '|'.join(_re.escape(kw) for kw in sorted(OJT_TOPIC_KEYWORDS, key=len, reverse=True))
 )
 
-# GAP 1 FIX — Explicit no-data response when student_data is absent
+
+
+def _is_ojt_related(text: str, has_context: bool = False) -> bool:
+    """
+    WHITELIST-ONLY topic guard — single regex match.
+    Returns True ONLY if the query contains at least one OJT keyword.
+    Everything else is blocked immediately — no resources wasted,
+    no data fetched, no Ollama call made.
+
+    Uses a pre-compiled regex pattern for fast matching instead of
+    looping through 100+ keywords.
+    """
+    text_lower = text.lower().strip()
+
+    # Single regex pass — matches any OJT keyword
+    if _OJT_TOPIC_PATTERN.search(text_lower):
+        return True
+
+    # No keyword match → block immediately
+    logger.info(f"[TOPIC_GUARD] Query not OJT-related, blocking: {text_lower[:80]}")
+    return False
+
+
+# Friendly decline message — explains scope and gives examples
+OJT_DECLINE_MESSAGE = (
+    "I'm your **JRMSU OJT Assistant** — I'm specialized for OJT-related topics only. "
+    "I can't answer that question.\n\n"
+    "Here's what I **can** help you with:\n"
+    "- Your OJT progress, hours, and attendance\n"
+    "- Student performance, risk levels, and grades\n"
+    "- OJT requirements, deadlines, and documentation\n"
+    "- Program overview and student insights (for coordinators/supervisors)\n"
+    "- JRMSU OJT policies and procedures\n\n"
+    "Try asking: *\"How am I doing in my OJT?\"* or *\"Show me students at risk\"*"
+)
+
+# Explicit no-data response when student_data is absent
 NO_DATA_MESSAGE = "No available data found in the system."
 
-# GAP 2 FIX — Role whitelist for escalation guard
+# Role whitelist for escalation guard
 VALID_ROLES = {
     "student",
     "supervisor",
@@ -127,62 +188,14 @@ def _validate_role(role: str) -> str:
     return sanitised
 
 
-def _is_ojt_related(text: str) -> bool:
-    """
-    Check if the query is related to OJT, JRMSU, or the system's scope.
-    Returns True if the query should be processed, False if it should be declined.
-    """
+def _is_greeting(text: str) -> bool:
+    """Check if the message is a simple greeting."""
     text_lower = text.lower().strip()
-
-    # Very short queries (1-3 words) — allow them through, the RAG will handle
-    if len(text_lower.split()) <= 3:
-        return True
-
-    # Check for off-topic indicators first
-    for indicator in OFF_TOPIC_INDICATORS:
-        if indicator in text_lower:
-            logger.info(f"[TOPIC_GUARD] Blocked off-topic query: matched '{indicator}'")
-            return False
-
-    # Check for OJT keywords
-    for keyword in OJT_TOPIC_KEYWORDS:
-        if keyword in text_lower:
-            return True
-
-    # If no OJT keywords found in a longer query, it's likely off-topic
-    if len(text_lower.split()) > 5:
-        logger.info(f"[TOPIC_GUARD] No OJT keywords found in query: {text_lower[:80]}")
-        return False
-
-    # Short-medium queries without clear indicators — allow them through
-    # The RAG confidence check will catch truly irrelevant ones
-    return True
+    return text_lower in GREETING_PATTERNS or any(text_lower.startswith(g) for g in GREETING_PATTERNS)
 
 
-# ──────────────────────────────────────────────────────────────
-# Intent Detection
-# ──────────────────────────────────────────────────────────────
-def _detect_intent(text: str) -> str:
-    """Detect the high-level intent of the user message."""
-    text_lower = text.lower()
-
-    performance_keywords = ["performance", "risk", "score", "grade", "forecast", "prediction", "how am i doing", "status"]
-    if any(k in text_lower for k in performance_keywords):
-        return "PERFORMANCE"
-
-    attendance_keywords = ["attendance", "dtr", "hours", "late", "absent", "log"]
-    if any(k in text_lower for k in attendance_keywords):
-        return "ATTENDANCE"
-
-    requirements_keywords = ["requirement", "journal", "documentation", "submission", "deadline"]
-    if any(k in text_lower for k in requirements_keywords):
-        return "REQUIREMENTS"
-
-    dashboard_keywords = ["dashboard", "my progress", "my stats", "hours", "total students", "risk", "status", "pending", "evaluation"]
-    if any(k in text_lower for k in dashboard_keywords):
-        return "DASHBOARD"
-
-    return "GENERAL"
+# NOTE: _detect_intent was removed — it was dead code (result only logged, never branched on).
+# If intent-specific routing is needed in the future, reintroduce with actual branching logic.
 
 
 # ──────────────────────────────────────────────────────────────
@@ -219,43 +232,76 @@ def _build_role_system_instruction(role: str, student_data: Optional[Dict] = Non
 
         return (
             f"You are the JRMSU OJT Assistant speaking to a **Student**.{status_note} "
-            "Use a supportive, mentoring tone. When dashboard data is available, "
-            "reference their actual hours, attendance, and performance score to give "
-            "personalized advice. Always relate your answers to their OJT progress. "
-            "You must ONLY answer questions related to OJT, JRMSU, and academic matters. "
-            "If the question is outside this scope, politely decline."
+            "YOUR ROLE: You are their personal OJT mentor and academic advisor. "
+            "TONE: Supportive, encouraging, and motivational. Speak as a mentor guiding them. "
+            "DATA ACCESS: You have access to THIS student's personal OJT data including hours completed, "
+            "attendance record, daily task count, AI performance score, risk level, and trend direction. "
+            "WHAT TO DO: "
+            "- When they ask about their progress, cite their exact hours, attendance, and score. "
+            "- When they ask about grades, explain how their performance score and attendance affect their final grade. "
+            "- When they ask about requirements, reference JRMSU OJT policies from the knowledge base. "
+            "- When their risk is HIGH or MEDIUM, proactively suggest improvement steps. "
+            "- Celebrate their achievements if their score is high or attendance is perfect. "
+            "- If they ask about other students or system-wide data, say you can only show their own data. "
+            "SCOPE: Only answer OJT, JRMSU, and academic questions. Politely decline anything else."
         )
 
     elif role == "supervisor" or role == "industry supervisor":
         return (
             "You are the JRMSU OJT Assistant speaking to an **Industry Supervisor**. "
-            "Use a professional, collegial tone. When dashboard data is available, "
-            "reference the students assigned to them, pending evaluations, and any "
-            "high-risk students that need attention. Help them understand the OJT "
-            "grading system, evaluation process, and student monitoring. "
-            "You must ONLY answer questions related to OJT, JRMSU, and academic matters. "
-            "If the question is outside this scope, politely decline."
+            "YOUR ROLE: You are their professional OJT management assistant. "
+            "TONE: Professional, collegial, and action-oriented. Speak as a colleague helping them manage trainees. "
+            "DATA ACCESS: You have data on the students assigned to this supervisor, including each student's "
+            "name, risk level, AI score, hours completed, attendance rate, and absences. "
+            "WHAT TO DO: "
+            "- When they ask about their students, list each student with their risk level and key metrics. "
+            "- When they ask about high-risk students, identify those with HIGH or MEDIUM risk and explain why. "
+            "- When they ask about evaluations, explain the JRMSU evaluation process and grading rubric. "
+            "- Provide actionable recommendations: who needs a check-in, who is on track. "
+            "- When a student has many absences or low score, suggest specific interventions. "
+            "- If they ask about the OJT program policies, reference the JRMSU knowledge base. "
+            "- If they ask about other supervisors' students, say you can only show their assigned students. "
+            "SCOPE: Only answer OJT, JRMSU, and academic questions. Politely decline anything else."
         )
 
     elif role == "coordinator" or role == "ojt coordinator":
         return (
             "You are the JRMSU OJT Assistant speaking to an **OJT Coordinator**. "
-            "Use a professional, administrative tone. When dashboard data is available, "
-            "reference system-wide statistics like total students, risk distribution, "
-            "average attendance, and completion rates to provide actionable insights. "
-            "Help them with student management, policy enforcement, and program oversight. "
-            "You must ONLY answer questions related to OJT, JRMSU, and academic matters. "
-            "If the question is outside this scope, politely decline."
+            "YOUR ROLE: You are their program analytics and oversight assistant. "
+            "TONE: Professional, data-driven, and strategic. Speak as an institutional advisor. "
+            "DATA ACCESS: You have program-wide data including total student count, risk distribution "
+            "(HIGH/MEDIUM/LOW counts), active vs completed OJT, average attendance rate, average completion "
+            "ratio, average forecasted grade, per-student performance details including their assigned "
+            "company/site, supervisor name, and detailed attendance (days present, absent, late). "
+            "WHAT TO DO: "
+            "- When asked about students at a specific COMPANY or SITE, look at the 'Site:' field in Student Details "
+            "and list only students assigned to that company. Include their scores, attendance, and risk. "
+            "- When asked about a SUPERVISOR's students, look at the 'Supervisor:' field and list their assigned students. "
+            "- When asked about ATTENDANCE, provide days present, days absent, late count, and attendance rate for each student. "
+            "- When asked about high-risk students, list students with HIGH risk first, then MEDIUM, with their details. "
+            "- When asked for a PROGRAM OVERVIEW, give total counts, risk breakdown, averages, and program health. "
+            "- When asked about a SPECIFIC STUDENT by name, find them in the data and give all their details. "
+            "- When asked to COMPARE students or sites, create a comparison using their scores, hours, and attendance. "
+            "- Provide strategic RECOMMENDATIONS based on patterns: who needs intervention, which sites have issues. "
+            "- When asked about GRADES, reference each student's forecasted grade and what factors affect it. "
+            "- When asked about policies or procedures, reference the JRMSU OJT knowledge base. "
+            "IMPORTANT: Always use the actual student data from the prompt. Never make up names or numbers. "
+            "SCOPE: Only answer OJT, JRMSU, and academic questions. Politely decline anything else."
         )
 
     elif role == "admin":
         return (
             "You are the JRMSU OJT Assistant speaking to a **System Administrator**. "
-            "Use a formal, technical tone. When dashboard data is available, "
-            "reference user counts, approval queues, and system metrics. "
-            "Help them with administrative oversight of the OJT platform. "
-            "You must ONLY answer questions related to OJT, JRMSU, and academic matters. "
-            "If the question is outside this scope, politely decline."
+            "YOUR ROLE: You are their platform management and system oversight assistant. "
+            "TONE: Formal, technical, and concise. Speak as a system analyst. "
+            "DATA ACCESS: You have system-wide data including total users, active users, pending approvals, "
+            "and coordinator count. "
+            "WHAT TO DO: "
+            "- When they ask about system status, give user counts and approval queue sizes. "
+            "- When they ask about user management, explain the JRMSU role hierarchy and approval flow. "
+            "- When they ask about platform operations, reference system metrics. "
+            "- Help with administrative oversight questions about the OJT platform. "
+            "SCOPE: Only answer OJT, JRMSU, platform administration, and academic questions. Politely decline anything else."
         )
 
     # Default / Unknown role
@@ -303,6 +349,14 @@ def _generate_student_summary(data: Dict) -> str:
     if ojt_record:
         ojt_status = ojt_record.get('status', 'Active')
 
+    # Feature 5: Minimum data threshold — don't show unreliable risk if < 5 days
+    total_days = present + absent
+    if total_days < 5:
+        risk = "INSUFFICIENT DATA"
+        risk_note = f"Only {total_days} day(s) of data available. At least 5 OJT days needed for reliable risk assessment."
+    else:
+        risk_note = ""
+
     # Build a performance assessment phrase based on score
     if score >= 80:
         perf_assessment = "performing well"
@@ -323,6 +377,19 @@ def _generate_student_summary(data: Dict) -> str:
     else:
         att_assessment = "acceptable attendance"
 
+    # Feature 4: Risk explanation — build key factors
+    risk_factors = []
+    if absent > 5:
+        risk_factors.append(f"High absences ({absent} days)")
+    if late > 3:
+        risk_factors.append(f"Frequent tardiness ({late} times late)")
+    if progress_pct < 10 and completed < 20:
+        risk_factors.append(f"Very low hours completion ({progress_pct}%)")
+    if score > 0 and score < 50:
+        risk_factors.append(f"Low AI performance score ({score}/100)")
+    if done == 0:
+        risk_factors.append("No completed tasks logged")
+
     summary = (
         f"\n[STUDENT PERFORMANCE DATA — YOU MUST USE THESE EXACT NUMBERS IN YOUR RESPONSE]\n"
         f"IMPORTANT: The following is this student's REAL data from the system. "
@@ -334,12 +401,21 @@ def _generate_student_summary(data: Dict) -> str:
         f"AI Performance Score: {score}/100\n"
         f"Risk Level: {risk}\n"
         f"Trend: {trend_dir}\n\n"
-        f"ASSESSMENT: This student is {perf_assessment}. They have {att_assessment}.\n"
     )
+
+    # Add risk explanation
+    if risk_note:
+        summary += f"DATA NOTICE: {risk_note}\n"
+    elif risk_factors:
+        summary += f"Risk Factors: {'; '.join(risk_factors)}\n"
+    elif risk == 'LOW':
+        summary += "Risk Factors: None — student is on track.\n"
+
+    summary += f"ASSESSMENT: This student is {perf_assessment}. They have {att_assessment}.\n"
 
     if not can_act:
         blocking = data.get('blocking_reason', 'OJT setup incomplete')
-        summary += f"⚠️ OJT BLOCKED: {blocking}\n"
+        summary += f"OJT BLOCKED: {blocking}\n"
 
     return summary
 
@@ -362,14 +438,40 @@ def _generate_coordinator_summary(data: Dict) -> str:
 
     student_details = data.get('student_details', [])
 
+    # Handle empty data gracefully — either no students assigned or loading failed
+    if total == 0 and not student_details:
+        logger.warning("[COORDINATOR_SUMMARY] No students found — data may not have loaded yet")
+        return (
+            "\n[COORDINATOR PROGRAM DATA]\n"
+            "No students are currently assigned to this coordinator account. "
+            "This may mean the dashboard data has not finished loading yet. "
+            "Please return to the dashboard, wait for it to fully load, then reopen the chatbot.\n"
+        )
+
+    # Round floats for cleaner display
+    avg_att_str = f"{avg_attendance:.1f}" if isinstance(avg_attendance, (int, float)) else str(avg_attendance)
+    avg_comp_str = f"{avg_completion:.1f}" if isinstance(avg_completion, (int, float)) else str(avg_completion)
+    avg_grade_str = f"{avg_grade:.1f}" if isinstance(avg_grade, (int, float)) else str(avg_grade)
+
+    # Program health assessment
+    if high_risk > total * 0.3:
+        health = "CRITICAL — over 30% of students are at High Risk"
+    elif medium_risk > total * 0.5:
+        health = "NEEDS ATTENTION — over 50% of students are at Medium Risk"
+    elif float(avg_att_str) < 50:
+        health = "CONCERNING — average attendance is below 50%"
+    else:
+        health = "STABLE — most students are on track"
+
     summary = (
         f"\n[COORDINATOR PROGRAM DATA]\n"
-        f"Total Students Under Supervision: {total}\n"
-        f"Risk Distribution: {high_risk} High Risk, {medium_risk} Medium Risk, {low_risk} Low Risk\n"
-        f"OJT Status: {active} Active, {completed} Completed\n"
-        f"Average Attendance Rate: {avg_attendance:.1f}%\n"
-        f"Average Completion Ratio: {avg_completion:.1f}%\n"
-        f"Average Forecasted Grade: {avg_grade}\n"
+        f"Program Overview:\n"
+        f"  Total Students: {total} ({active} Active, {completed} Completed)\n"
+        f"  Risk Breakdown: {high_risk} High Risk, {medium_risk} Medium Risk, {low_risk} Low Risk\n"
+        f"  Average Attendance: {avg_att_str}%\n"
+        f"  Average Completion: {avg_comp_str}%\n"
+        f"  Average Forecasted Grade: {avg_grade_str}\n"
+        f"  Program Health: {health}\n"
     )
 
     # GAP 4 — Auto-detect trends and common issues from student details
@@ -377,38 +479,46 @@ def _generate_coordinator_summary(data: Dict) -> str:
         frequent_absent = [s.get('name', 'Unknown') for s in student_details if (s.get('days_absent') or 0) > 3]
         high_tardiness = [s.get('name', 'Unknown') for s in student_details if (s.get('late_count') or 0) > 5]
         low_score = [s.get('name', 'Unknown') for s in student_details if (s.get('score') or 0) < 60]
-        low_attendance = [s.get('name', 'Unknown') for s in student_details if (s.get('attendance_rate') or 0) < 70]
+        low_attendance = [s.get('name', 'Unknown') for s in student_details if (s.get('attendance_rate') or 0) < 10]
 
-        trend_flags = []
+        issues = []
         if frequent_absent:
-            trend_flags.append(
-                f"{len(frequent_absent)} student(s) with >3 absences: {', '.join(frequent_absent)}"
-            )
+            issues.append(f"{len(frequent_absent)} student(s) with more than 3 absences: {', '.join(frequent_absent[:5])}")
         if high_tardiness:
-            trend_flags.append(
-                f"{len(high_tardiness)} student(s) with >5 late arrivals: {', '.join(high_tardiness)}"
-            )
+            issues.append(f"{len(high_tardiness)} student(s) with frequent tardiness: {', '.join(high_tardiness[:5])}")
         if low_score:
-            trend_flags.append(
-                f"{len(low_score)} student(s) with AI score below 60: {', '.join(low_score)}"
-            )
+            issues.append(f"{len(low_score)} student(s) with low AI scores (below 60): {', '.join(low_score[:5])}")
         if low_attendance:
-            trend_flags.append(
-                f"{len(low_attendance)} student(s) with attendance rate below 70%: {', '.join(low_attendance)}"
-            )
+            issues.append(f"{len(low_attendance)} student(s) with very low attendance (below 10%): {', '.join(low_attendance[:5])}")
 
-        if trend_flags:
-            summary += "\nTrend Flags / Common Issues Detected:\n"
-            for flag in trend_flags:
-                summary += f"⚠️ {flag}\n"
+        if issues:
+            summary += "\nKey Issues Detected:\n"
+            for issue in issues:
+                summary += f"  - {issue}\n"
         else:
-            summary += "\nTrend Flags: No critical issues detected across all students.\n"
+            summary += "\nKey Issues: No critical issues detected.\n"
 
-        summary += "\nPer-Student Performance Data:\n"
+        # ── Company/Site Grouping (enables questions like "students at JRMSU") ──
+        from collections import defaultdict
+        company_groups = defaultdict(list)
         for s in student_details:
+            company = (s.get('company') or 'Unassigned').strip()
+            company_groups[company].append(s.get('name', 'Unknown'))
+
+        summary += "\nAssignment Sites (Company/Organization):\n"
+        for company, names in sorted(company_groups.items()):
+            summary += f"  {company}: {len(names)} student(s) — {', '.join(names[:6])}\n"
+
+        # ── Per-Student Details (sorted by risk, capped at 10) ──
+        sorted_students = sorted(student_details, key=lambda s: RISK_ORDER.get(s.get('risk_level', 'LOW').upper(), 3))
+        capped = sorted_students[:10]
+        remaining = len(student_details) - len(capped)
+
+        summary += "\nStudent Details:\n"
+        for s in capped:
             name = s.get('name', 'Unknown')
-            risk = s.get('risk_level', 'N/A')
-            score = s.get('score', 'N/A')
+            risk = (s.get('risk_level') or 'N/A').upper()
+            score = s.get('score', 0)
             hrs_done = s.get('hours_completed', 0)
             hrs_req = s.get('hours_required', 300)
             att_rate = s.get('attendance_rate', 0)
@@ -416,22 +526,184 @@ def _generate_coordinator_summary(data: Dict) -> str:
             absent = s.get('days_absent', 0)
             late = s.get('late_count', 0)
             grade = s.get('forecasted_grade')
-            status = s.get('status', 'Active')
+            grade_str = f"{grade:.1f}" if grade else 'N/A'
             company = s.get('company', 'N/A')
             supervisor = s.get('supervisor', 'N/A')
 
-            grade_str = f"{grade:.1f}" if grade else 'N/A'
+            # Feature 5: Data threshold for per-student
+            total_student_days = present + absent
+            if total_student_days < 5:
+                risk_tag = "[INSUFFICIENT DATA]"
+            else:
+                risk_tag = f"[{risk} RISK]"
+
+            # Feature 4: Risk factors per student
+            risk_factors = []
+            if absent > 5:
+                risk_factors.append(f"high absences ({absent})")
+            if att_rate < 10:
+                risk_factors.append("very low attendance")
+            if score and score < 50:
+                risk_factors.append(f"low score ({score}/100)")
+            if late > 5:
+                risk_factors.append(f"frequent tardiness ({late})")
+            if hrs_done == 0:
+                risk_factors.append("no hours logged")
+            # Get key_factors from prediction if available
+            pred_factors = s.get('key_factors', [])
+            if pred_factors:
+                risk_factors.extend(pred_factors[:2])  # Add top 2 AI-detected factors
+
+            factors_text = f" Why: {', '.join(risk_factors)}." if risk_factors else ""
+
             summary += (
-                f"- {name} (Status: {status}, Company: {company}, Supervisor: {supervisor})\n"
-                f"  Hours: {hrs_done}/{hrs_req}, Attendance: {att_rate}% ({present} present, {absent} absent, {late} late)\n"
-                f"  AI Score: {score}/100, Risk: {risk}, Forecasted Grade: {grade_str}\n"
+                f"  {risk_tag} {name} | Site: {company} | Supervisor: {supervisor}\n"
+                f"    Score: {score}/100, Hours: {hrs_done}/{hrs_req}, "
+                f"Attendance: {present} present / {absent} absent / {late} late ({att_rate}%), "
+                f"Grade: {grade_str}{factors_text}\n"
             )
+
+        if remaining > 0:
+            summary += f"  ... and {remaining} more students not shown.\n"
+
+        # ── Recommendations ──
+        summary += "\nRecommended Actions:\n"
+        if high_risk > 0:
+            summary += f"  1. Immediately follow up with the {high_risk} High Risk student(s).\n"
+        if frequent_absent:
+            summary += f"  {'2' if high_risk > 0 else '1'}. Address attendance issues — {len(frequent_absent)} student(s) have excessive absences.\n"
+        if float(avg_att_str) < 30:
+            summary += f"  - Overall attendance is critically low at {avg_att_str}%. Consider a program-wide intervention.\n"
+        if not high_risk and not frequent_absent:
+            summary += "  - No urgent actions required. Continue regular monitoring.\n"
 
     return summary
 
 
-# Risk sort order for supervisor summary
-_RISK_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+def _generate_weekly_summary(data: Dict) -> str:
+    """Feature 6: Generate a structured weekly digest for coordinators/supervisors.
+    This runs WITHOUT Ollama — it's pure data analysis, returned instantly."""
+    import datetime
+
+    role = (data.get('role') or '').lower()
+    today = datetime.datetime.now().strftime("%B %d, %Y")
+    student_details = data.get('student_details', [])
+    total = data.get('total_students', len(student_details))
+    high_risk = data.get('high_risk_students', 0)
+    medium_risk = data.get('medium_risk_students', 0)
+    low_risk = data.get('low_risk_students', 0)
+
+    report = f"# Weekly OJT Program Summary\n"
+    report += f"**Generated:** {today}\n"
+    report += f"**Total Students:** {total}\n\n"
+
+    # ── Section 1: Risk Overview ──
+    report += "## Risk Distribution\n"
+    if high_risk > 0:
+        report += f"- **{high_risk} HIGH RISK** students need immediate attention\n"
+    report += f"- **{medium_risk} MEDIUM RISK** students need monitoring\n"
+    report += f"- **{low_risk} LOW RISK** students are on track\n\n"
+
+    if not student_details:
+        report += "*No detailed student data available for analysis.*\n"
+        return report
+
+    # ── Section 2: Students Needing Attention ──
+    sorted_students = sorted(student_details,
+                             key=lambda s: RISK_ORDER.get((s.get('risk_level') or 'LOW').upper(), 3))
+
+    at_risk = [s for s in sorted_students if (s.get('risk_level') or 'LOW').upper() in ('HIGH', 'MEDIUM')]
+    if at_risk:
+        report += "## Students Needing Attention\n"
+        for s in at_risk[:8]:
+            name = s.get('name', 'Unknown')
+            risk = (s.get('risk_level') or 'N/A').upper()
+            score = s.get('score', 0)
+            absent = s.get('days_absent', 0)
+            company = s.get('company', 'N/A')
+            # Build reason
+            reasons = []
+            if absent > 5:
+                reasons.append(f"{absent} absences")
+            if score and score < 50:
+                reasons.append(f"score {score}/100")
+            if s.get('hours_completed', 0) == 0:
+                reasons.append("no hours logged")
+            reason_text = f" ({', '.join(reasons)})" if reasons else ""
+            report += f"- **{name}** [{risk}] at {company}{reason_text}\n"
+        report += "\n"
+
+    # ── Section 3: Attendance Analysis ──
+    total_present = sum(s.get('days_present', 0) for s in student_details)
+    total_absent = sum(s.get('days_absent', 0) for s in student_details)
+    avg_att = data.get('average_attendance', 0)
+
+    report += "## Attendance Overview\n"
+    report += f"- Program-wide average attendance: **{avg_att}%**\n"
+    report += f"- Total present days across all students: **{total_present}**\n"
+    report += f"- Total absent days across all students: **{total_absent}**\n"
+
+    # Worst attendance
+    worst_att = sorted(student_details, key=lambda s: s.get('days_absent', 0), reverse=True)[:3]
+    if worst_att and worst_att[0].get('days_absent', 0) > 0:
+        report += "- **Most absences:**\n"
+        for s in worst_att:
+            if s.get('days_absent', 0) > 0:
+                report += f"  - {s.get('name', 'Unknown')}: {s.get('days_absent', 0)} absent days\n"
+    report += "\n"
+
+    # ── Section 4: Performance Rankings ──
+    scored = [s for s in student_details if (s.get('score') or 0) > 0]
+    if scored:
+        top = sorted(scored, key=lambda s: s.get('score', 0), reverse=True)[:3]
+        bottom = sorted(scored, key=lambda s: s.get('score', 0))[:3]
+
+        report += "## Performance Rankings\n"
+        report += "**Top Performers:**\n"
+        for i, s in enumerate(top, 1):
+            report += f"  {i}. {s.get('name', 'Unknown')} — Score: {s.get('score', 0)}/100\n"
+        report += "\n**Needs Improvement:**\n"
+        for i, s in enumerate(bottom, 1):
+            report += f"  {i}. {s.get('name', 'Unknown')} — Score: {s.get('score', 0)}/100\n"
+        report += "\n"
+
+    # ── Section 5: Site Summary ──
+    from collections import defaultdict
+    company_stats = defaultdict(lambda: {'count': 0, 'total_score': 0, 'total_absent': 0})
+    for s in student_details:
+        c = (s.get('company') or 'Unassigned').strip()
+        company_stats[c]['count'] += 1
+        company_stats[c]['total_score'] += (s.get('score') or 0)
+        company_stats[c]['total_absent'] += (s.get('days_absent') or 0)
+
+    if len(company_stats) > 1:
+        report += "## Site Performance\n"
+        for company, stats in sorted(company_stats.items()):
+            avg_score = stats['total_score'] / stats['count'] if stats['count'] > 0 else 0
+            report += f"- **{company}**: {stats['count']} student(s), avg score {avg_score:.0f}/100, {stats['total_absent']} total absences\n"
+        report += "\n"
+
+    # ── Section 6: Recommendations ──
+    report += "## Recommended Actions This Week\n"
+    action_num = 1
+    if high_risk > 0:
+        report += f"{action_num}. Schedule individual meetings with the {high_risk} HIGH risk student(s)\n"
+        action_num += 1
+    if total_absent > total_present * 0.3:
+        report += f"{action_num}. Address program-wide attendance — absences are {total_absent} vs {total_present} present days\n"
+        action_num += 1
+    worst_company = max(company_stats.items(), key=lambda x: x[1]['total_absent'], default=None)
+    if worst_company and worst_company[1]['total_absent'] > 10:
+        report += f"{action_num}. Follow up with site **{worst_company[0]}** — highest absence count ({worst_company[1]['total_absent']} days)\n"
+        action_num += 1
+    if action_num == 1:
+        report += "- All students are performing well. Continue regular monitoring.\n"
+
+    report += "\n*This summary is auto-generated from your current program data.*"
+    return report
+
+
+# _RISK_ORDER removed — now uses shared RISK_ORDER constant at top of file
 
 
 def _supervisor_recommendation(student: Dict) -> str:
@@ -482,7 +754,7 @@ def _generate_supervisor_summary(data: Dict) -> str:
         # Sort by risk: HIGH first, then MEDIUM, then LOW
         sorted_students = sorted(
             student_details,
-            key=lambda s: _RISK_ORDER.get((s.get('risk_level') or 'LOW').upper(), 2)
+            key=lambda s: RISK_ORDER.get((s.get('risk_level') or 'LOW').upper(), 2)
         )
         summary += "\nAssigned Student Details (sorted by risk):\n"
         for s in sorted_students:
@@ -595,14 +867,8 @@ def chatbot_response(
             "confidence_score": 0.0
         }
 
-    # Check for simple greetings - return friendly role-aware response without RAG
-    greeting_patterns = [
-        "hi", "hello", "hey", "good morning", "good afternoon",
-        "good evening", "greetings", "hi there", "hello there"
-    ]
-    text_lower = text.lower().strip()
-
-    if text_lower in greeting_patterns or any(text_lower.startswith(g) for g in greeting_patterns):
+    # Check for simple greetings — return friendly role-aware response without RAG
+    if _is_greeting(text):
         logger.info(f"[CHATBOT_HANDLER] Detected greeting: {text}")
         role = (student_data or {}).get('role', '').lower()
         greeting = _get_role_greeting(role)
@@ -638,7 +904,8 @@ def chatbot_response(
         }
 
     # ── OJT TOPIC GUARD ──
-    if not _is_ojt_related(text):
+    has_context = bool(student_data)
+    if not _is_ojt_related(text, has_context=has_context):
         logger.info(f"[CHATBOT_HANDLER] Declined off-topic query: {text[:80]}")
         return {
             "success": True,
@@ -664,9 +931,7 @@ def chatbot_response(
         # Get conversation history for context-aware responses
         conversation_history = context.get_recent_history(max_turns=5)
 
-        # Detect intent
-        intent = _detect_intent(text)
-        logger.info(f"[CHATBOT_HANDLER] Detected intent: {intent}")
+        logger.info(f"[CHATBOT_HANDLER] Processing message for session {session_id}")
 
         # ── Build role-aware context ──
         role = ""
@@ -691,8 +956,8 @@ def chatbot_response(
                 elif role == 'student' or "hours" in student_data:
                     dashboard_context = _generate_student_summary(student_data)
                 else:
-                    # Fallback for generic "User" role if data is present
-                    dashboard_context = f"\nUser Dashboard Info: {str(student_data)}\n"
+                    # Fallback — don't leak raw dict to LLM
+                    dashboard_context = "\nUser Dashboard Info: Data available but role not recognized.\n"
 
                 # Also include career briefing if it's a student
                 if "hours" in student_data:
@@ -705,7 +970,6 @@ def chatbot_response(
             except Exception as ce:
                 logger.error(f"[CHATBOT_HANDLER] Error generating dashboard summary: {ce}")
 
-        # ── Build enriched query for LLM ──
         if dashboard_context:
             import datetime
             current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -719,8 +983,7 @@ def chatbot_response(
         else:
             text_for_llm = text
 
-        logger.info(f"[CHATBOT_HANDLER] Processing message for session {session_id}")
-        logger.debug(f"[CHATBOT_HANDLER] Message: {text[:100]}...")
+        logger.debug(f"[CHATBOT_HANDLER] Query for LLM: {text[:100]}...")
         logger.debug(f"[CHATBOT_HANDLER] Conversation history: {len(conversation_history)} messages")
 
         # Call the RAG pipeline with conversation context and role instruction

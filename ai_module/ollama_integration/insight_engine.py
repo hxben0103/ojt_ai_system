@@ -481,6 +481,20 @@ def generate_top_reasons(
     elif max_consec == 2:
         reasons.append(f"2 consecutive absences detected — monitor closely to prevent a streak")
     
+    # --- Tenure-aware reasoning (OJT span/duration context) ---
+    ojt_progress = features_dict.get('ojt_progress_ratio', 0)
+    elapsed_days_val = int(features_dict.get('elapsed_days', 0))
+    remaining_days_val = int(features_dict.get('days_remaining', 0))
+    
+    if ojt_progress > 0.8 and risk_level == "HIGH":
+        reasons.insert(0, f"Student is {ojt_progress*100:.0f}% through OJT ({elapsed_days_val} days elapsed, {remaining_days_val} remaining) with unresolved performance issues — urgent intervention needed")
+    elif ojt_progress > 0.5 and risk_level == "MEDIUM":
+        reasons.append(f"Student is past the midpoint ({ojt_progress*100:.0f}% through OJT, {remaining_days_val} days left) — address concerns before it's too late")
+    elif ojt_progress > 0.8 and risk_level == "LOW":
+        reasons.append(f"Student has maintained good performance through {ojt_progress*100:.0f}% of OJT — on track for successful completion")
+    elif ojt_progress < 0.2 and elapsed_days_val > 0:
+        reasons.append(f"Early OJT stage ({elapsed_days_val} days in) — prediction confidence will increase as more data accumulates")
+    
     if attendance_rate < 60:
         reasons.append(f"Low attendance rate ({attendance_rate:.1f}%) - impacts 20% Weekly Progress score")
     elif attendance_rate < 80:
@@ -1085,24 +1099,30 @@ def predict_with_explanation(snapshot: Dict[str, Any], include_gemma: bool = Tru
             "status": snapshot.get("trend_status", "stable"),
             "reason": snapshot.get("trend_reason", "Performance is consistent")
         }
+
+        # Fix #8: Compute forecasted grade once and reuse (was called twice)
+        grading_result = calculate_forecasted_grade(snapshot)
         
         # If ML prediction failed, return error
         if not ml_result.get("success", False):
             return ml_result
         
         # Step 4: Build prompt for Gemma (optional, if Ollama is available)
-        # Format features for display, only keeping non-zero/important ones to reduce prompt size
-        features_summary_list = []
-        for name, value in features_dict.items():
-            if value > 0 or ("score" in name): # Keep scores even if 0, drop 0-count tasks
-                features_summary_list.append(f"- {name}: {value:.1f}")
-                
-        # Limit to top 15 features to save LLM context
-        features_summary = "\n".join(features_summary_list[:15])
-        
-        student_name = snapshot.get("student_name", "Student")
-        
-        prompt = f"""You are an academic advisor for OJT students at JRMSU. Use the official grading weights:
+        # Fix #11: Only build the features summary string when Gemma will actually use it
+        prompt = ""
+        if include_gemma:
+            # Format features for display, only keeping non-zero/important ones to reduce prompt size
+            features_summary_list = []
+            for name, value in features_dict.items():
+                if value > 0 or ("score" in name): # Keep scores even if 0, drop 0-count tasks
+                    features_summary_list.append(f"- {name}: {value:.1f}")
+                    
+            # Limit to top 15 features to save LLM context
+            features_summary = "\n".join(features_summary_list[:15])
+            
+            student_name = snapshot.get("student_name", "Student")
+            
+            prompt = f"""You are an academic advisor for OJT students at JRMSU. Use the official grading weights:
 - Weekly Progress Report (Attendance & Tasks): 20%
 - Narrative Report (Documentation): 20%
 - Practicum Coordinator Evaluation: 20%
@@ -1157,7 +1177,8 @@ Start with: "Hi {student_name}, ..." Keep total response under 200 words. Format
         # Inject structural blocks
         unified_response["trend"] = trend_result
         unified_response["integrity"] = integrity_result
-        unified_response["grading"] = calculate_forecasted_grade(snapshot)
+        # Fix #8: Reuse cached grading_result instead of calling calculate_forecasted_grade again
+        unified_response["grading"] = grading_result
                 
         return unified_response
     

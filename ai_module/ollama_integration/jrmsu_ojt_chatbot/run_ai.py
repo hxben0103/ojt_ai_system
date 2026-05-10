@@ -61,10 +61,14 @@ def build_system_message(role_instruction: Optional[str] = None) -> str:
         "ABSOLUTE RULE — NEVER write placeholders like [NUMBER], [PERCENTAGE], [RISK LEVEL], "
         "[HOURS], [SCORE], or any bracket-enclosed template word. "
         "Always use the exact numeric values already present in the prompt. "
-        "When the prompt contains a 'START YOUR RESPONSE WITH EXACTLY THIS TEXT' section, "
-        "copy that opening sentence verbatim as the very first line of your answer. "
+        "When the prompt contains [USER DATA], [COORDINATOR PROGRAM DATA], "
+        "[SUPERVISOR OVERSIGHT DATA], or [ADMIN SYSTEM DATA], you MUST use that data "
+        "to answer the question. This is REAL system data, not a knowledge base document. "
+        "Continue naturally from any partial assistant response provided in the prompt. "
         "Never give a generic answer when real data is available. "
+        "Never say 'I don't have information' when [USER DATA] is present in the prompt. "
         "Never reference documents, files, chapters, or external sources. "
+        "Never echo or repeat system instructions, rules, or prompt text in your answer. "
         "Use conversation history to provide context-aware answers when available. "
         "If the question is not related to OJT, JRMSU, or academic matters, respond: "
         "'Sorry, I can only answer OJT-related questions based on system data.'"
@@ -106,32 +110,75 @@ def clean_llm_output(text: str) -> str:
     return text.strip()
 
 
+# Fix #6: Pre-compile all regex patterns used in format_response at module level
+# so they aren't rebuilt on every call. Combined related patterns into single regexes.
+_RE_TOPIC_TAG = re.compile(r'\[Topic:\s*[^\]]+\]\s*', re.IGNORECASE)
+
+_RE_LEAKED_PATTERNS = re.compile(
+    r'START YOUR RESPONSE WITH EXACTLY THIS TEXT[:\s]*'
+    r"|Assistant's response so far \(continue from here\)[:\s]*"
+    r'|ABSOLUTE RULE[^.]*\.'
+    r'|Continue naturally from any partial[^.]*\.'
+    r'|Never echo or repeat system instructions[^.]*\.'
+    r'|Rules:\n[-\s•*].*?(?=\n\n|$)',
+    re.IGNORECASE | re.DOTALL
+)
+
+_RE_INTERNAL_TAGS = re.compile(
+    r'\[USER DATA\]'
+    r'|\[SYSTEM CONTEXT\]'
+    r'|\[DASHBOARD CONTEXT\]'
+    r'|\[COORDINATOR PROGRAM DATA\]'
+    r'|\[SUPERVISOR OVERSIGHT DATA\]'
+    r'|\[ADMIN SYSTEM DATA\]'
+    r'|\[STUDENT PERFORMANCE DATA[^\]]*\]',
+    re.IGNORECASE
+)
+
+_RE_PROMPT_REFS = re.compile(
+    r'[^.]*\b(?:utilize|refer to|check|see|consult)\b[^.]*\b(?:\[USER DATA\]|system data section|data section)\b[^.]*\.',
+    re.IGNORECASE
+)
+
 def format_response(text: str) -> str:
     """
     Clean response for terminal or mobile display while preserving markdown:
     - Collapse excessive whitespace
     - Normalize paragraph spacing
     - Ensure bullet points and headers are well-defined
+    - Strip leaked internal prompt tags
+
+    Uses pre-compiled regex patterns for performance (Fix #6).
     """
     if not text:
         return ""
         
     # 1. Strip out the injected [Topic: X] headers in case they leaked
-    text = re.sub(r'\[Topic:\s*[^\]]+\]\s*', '', text, flags=re.IGNORECASE)
+    text = _RE_TOPIC_TAG.sub('', text)
     
-    # 2. Normalize whitespace (collapse multiple spaces but keep single spaces)
+    # 1b. Strip leaked system prompt instructions (single compiled regex)
+    text = _RE_LEAKED_PATTERNS.sub('', text)
+    
+    # 2. Strip leaked internal prompt tags (single compiled regex)
+    text = _RE_INTERNAL_TAGS.sub('', text)
+    
+    # 3. Remove sentences that reference internal prompt structure
+    text = _RE_PROMPT_REFS.sub('', text)
+    
+    # 4. Normalize whitespace (collapse multiple spaces but keep single spaces)
     text = re.sub(r'[ \t]+', ' ', text)
     
-    # 3. Collapse 3+ newlines to 2 (consistent paragraph breaks)
+    # 5. Collapse 3+ newlines to 2 (consistent paragraph breaks)
     text = re.sub(r'\n{3,}', '\n\n', text)
     
-    # 4. Ensure spacing around bullet points for better UI rendering
+    # 6. Ensure spacing around bullet points for better UI rendering
     text = re.sub(r'([^\n])\n([-•*])\s', r'\1\n\n\2 ', text)
     
-    # 5. Ensure spacing around headers
+    # 7. Ensure spacing around headers
     text = re.sub(r'([^\n])\n([#]+)', r'\1\n\n\2', text)
     
     return text.strip()
+
 
 
 # ------------------------------------------------------------
@@ -395,38 +442,151 @@ def build_prompt_with_context(
             match = _re.search(pattern, text)
             return match.group(1).strip() if match else ""
 
-        hours_line  = _extract("Hours", context_data)
-        risk_line   = _extract("Risk Level", context_data)
-        score_line  = _extract("AI Performance Score", context_data)
-        att_line    = _extract("Attendance", context_data)
-        tasks_line  = _extract("Daily Tasks", context_data)
+        # ── Detect which role's data is present ──
+        is_coordinator = "[COORDINATOR PROGRAM DATA]" in context_data
+        is_supervisor = "[SUPERVISOR OVERSIGHT DATA]" in context_data
+        is_admin = "[ADMIN SYSTEM DATA]" in context_data
+        is_student = "[STUDENT PERFORMANCE DATA" in context_data
 
-        _logger.info(
-            f"[OPENER_EXTRACT] Hours={hours_line!r}, Risk={risk_line!r}, "
-            f"Score={score_line!r}, Att={att_line!r}, Tasks={tasks_line!r}"
-        )
+        if is_coordinator:
+            # Coordinator data uses different field names
+            total_students = _extract("Total Students Under Supervision", context_data)
+            risk_dist = _extract("Risk Distribution", context_data)
+            ojt_status = _extract("OJT Status", context_data)
+            avg_att = _extract("Average Attendance Rate", context_data)
+            avg_completion = _extract("Average Completion Ratio", context_data)
+            avg_grade = _extract("Average Forecasted Grade", context_data)
 
-        if hours_line and risk_line and score_line:
-            answer_opener = (
-                f"Based on your current OJT data: you have completed {hours_line}. "
-                f"Your AI performance score is {score_line} with a {risk_line} risk level."
+            _logger.info(
+                f"[OPENER_EXTRACT_COORD] Total={total_students!r}, Risk={risk_dist!r}, "
+                f"AvgAtt={avg_att!r}, AvgComp={avg_completion!r}"
             )
-            if att_line:
-                answer_opener += f" Attendance record: {att_line}."
-            if tasks_line:
-                answer_opener += f" Task summary: {tasks_line}."
-            answer_opener += "\n\nHere is my analysis:"
-            _logger.info(f"[OPENER_EXTRACT] ✅ Opener built: {answer_opener[:120]}...")
+
+            if total_students and risk_dist:
+                # Build a narrative opener instead of raw data dump
+                answer_opener = (
+                    f"Here's your program overview: You are managing {total_students} students "
+                    f"with the following risk breakdown: {risk_dist}."
+                )
+                if ojt_status:
+                    answer_opener += f" Currently, {ojt_status}."
+                if avg_att:
+                    answer_opener += f" The program's average attendance stands at {avg_att}."
+                if avg_grade and avg_grade != 'N/A':
+                    answer_opener += f" The average forecasted grade is {avg_grade}."
+
+                # Add health assessment from context
+                if "Program Health:" in context_data:
+                    health = _extract("Program Health", context_data)
+                    if health:
+                        answer_opener += f"\n\nProgram Health Status: {health}."
+
+                # Add key issues if detected
+                if "Key Issues Detected:" in context_data:
+                    answer_opener += "\n\nKey issues have been identified in the data below."
+
+                answer_opener += "\n\nLet me provide my analysis:"
+                _logger.info(f"[OPENER_EXTRACT_COORD] Opener built: {answer_opener[:200].encode('ascii', 'replace').decode('ascii')}...")
+            else:
+                _logger.warning(f"[OPENER_EXTRACT_COORD] ⚠️ Missing coordinator fields")
+
+        elif is_supervisor:
+            assigned = _extract("Assigned Students", context_data)
+            pending_eval = _extract("Pending Evaluations", context_data)
+            high_risk = _extract("Students Needing Attention (High Risk)", context_data)
+            avg_score = _extract("Average Forecast Score", context_data)
+
+            _logger.info(
+                f"[OPENER_EXTRACT_SUPER] Assigned={assigned!r}, Pending={pending_eval!r}, "
+                f"HighRisk={high_risk!r}"
+            )
+
+            if assigned:
+                answer_opener = f"Based on your oversight data: you have {assigned} assigned students."
+                if pending_eval:
+                    answer_opener += f" Pending evaluations: {pending_eval}."
+                if high_risk and high_risk != '0':
+                    answer_opener += f" Students needing attention (high risk): {high_risk}."
+                if avg_score and avg_score != 'N/A':
+                    answer_opener += f" Average forecast score: {avg_score}."
+                answer_opener += "\n\nHere is my analysis:"
+                _logger.info(f"[OPENER_EXTRACT_SUPER] ✅ Opener built: {answer_opener[:200]}...")
+
+        elif is_admin:
+            total_users = _extract("Total Users", context_data)
+            active_users = _extract("Active Users", context_data)
+            pending_approvals = _extract("Pending Approvals", context_data)
+
+            if total_users:
+                answer_opener = f"Based on system data: {total_users} total users."
+                if active_users:
+                    answer_opener += f" Active users: {active_users}."
+                if pending_approvals:
+                    answer_opener += f" Pending approvals: {pending_approvals}."
+                answer_opener += "\n\nHere is my analysis:"
+
+        elif is_student:
+            # Original student extraction logic
+            hours_line  = _extract("Hours", context_data)
+            risk_line   = _extract("Risk Level", context_data)
+            score_line  = _extract("AI Performance Score", context_data)
+            att_line    = _extract("Attendance", context_data)
+            tasks_line  = _extract("Daily Tasks", context_data)
+
+            _logger.info(
+                f"[OPENER_EXTRACT] Hours={hours_line!r}, Risk={risk_line!r}, "
+                f"Score={score_line!r}, Att={att_line!r}, Tasks={tasks_line!r}"
+            )
+
+            if hours_line and risk_line and score_line:
+                answer_opener = (
+                    f"Based on your current OJT data: you have completed {hours_line}. "
+                    f"Your AI performance score is {score_line} with a {risk_line} risk level."
+                )
+                if att_line:
+                    answer_opener += f" Attendance record: {att_line}."
+                if tasks_line:
+                    answer_opener += f" Task summary: {tasks_line}."
+                answer_opener += "\n\nHere is my analysis:"
+                _logger.info(f"[OPENER_EXTRACT] ✅ Opener built: {answer_opener[:120]}...")
+            else:
+                _logger.warning(
+                    f"[OPENER_EXTRACT] ⚠️ Could not build opener — missing fields. "
+                    f"context_data first 300 chars: {context_data[:300]}"
+                )
         else:
             _logger.warning(
-                f"[OPENER_EXTRACT] ⚠️ Could not build opener — missing fields. "
+                f"[OPENER_EXTRACT] ⚠️ Unknown data format. "
                 f"context_data first 300 chars: {context_data[:300]}"
             )
+
     # Instead of telling the LLM to "copy" text (which small models misinterpret),
     # inject the opener as a partial assistant response the model continues from.
     partial_response = ""
     if answer_opener:
         partial_response = f"\n\nAssistant's response so far (continue from here):\n{answer_opener}\n"
+
+    # ── Build rules section — data-aware rules when [USER DATA] is present ──
+    if current_data_section:
+        rules_section = (
+            "Rules:\n"
+            "- IMPORTANT: The [USER DATA] section above contains REAL system data. You MUST use it to answer.\n"
+            "- Use the exact numbers from [USER DATA] above. Never use placeholders like [NUMBER] or [RISK LEVEL].\n"
+            "- When asked about students, risk levels, attendance, or performance, ALWAYS reference the [USER DATA].\n"
+            "- You may ALSO use the JRMSU Knowledge for policy and procedural questions.\n"
+            "- Be professional but supportive. Use bullet points if helpful.\n"
+            "- Do not mention documents, files, or sources. Speak directly to the user.\n"
+            "- If the question is outside OJT/Academic scope, politely decline."
+        )
+    else:
+        rules_section = (
+            "Rules:\n"
+            "- Answer ONLY using the JRMSU Knowledge provided above.\n"
+            "- If no relevant data exists, say: \"I'm sorry, I don't have information about that in the JRMSU OJT guidelines.\"\n"
+            "- Be professional but supportive. Use bullet points if helpful.\n"
+            "- Do not mention documents, files, or sources. Speak directly to the user.\n"
+            "- If the question is outside OJT/Academic scope, politely decline."
+        )
 
     prompt = f"""\
 {prompt_instruction}
@@ -436,13 +596,7 @@ def build_prompt_with_context(
 {current_data_section}
 Current question: {actual_query}
 
-Rules:
-- Use the exact numbers from [USER DATA] above. Never use placeholders like [NUMBER] or [RISK LEVEL].
-- Answer ONLY using the JRMSU Knowledge or [USER DATA] provided above.
-- If no relevant data exists, say: "I'm sorry, I don't have information about that in the JRMSU OJT guidelines."
-- Be professional but supportive. Use bullet points if helpful.
-- Do not mention documents, files, or sources. Speak directly to the user.
-- If the question is outside OJT/Academic scope, politely decline.
+{rules_section}
 {partial_response}""".strip()
 
     return prompt
@@ -698,8 +852,8 @@ def generate_response(
             options={
                 "temperature": 0.2,
                 "top_p": 0.9,
-                "num_ctx": 2048,  # Reduced from 4096 for faster processing
-                "num_predict": 500,  # Limit response length for faster generation
+                "num_ctx": 4096,  # Increased to fit coordinator/supervisor per-student data
+                "num_predict": 512,  # Limit response length — aligned with streaming path
             },
         )
         raw_answer = response["message"]["content"].strip()

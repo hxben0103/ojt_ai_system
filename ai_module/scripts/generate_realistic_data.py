@@ -168,6 +168,23 @@ def generate_student(student_id: int, archetype: str) -> dict:
     record["total_chatbot_queries"] = total_chatbot_queries
     record["chatbot_queries_last_30_days"] = queries_last_30
 
+    # --- OJT Temporal Progression (tenure/span awareness) ---
+    # ojt_progress_ratio: how far through the OJT period (0.0 = just started, 1.0 = last day)
+    # Strong students are usually further along (they persist); at-risk can be anywhere
+    if archetype == "strong":
+        ojt_progress = np.random.uniform(0.3, 1.0)  # strong students persist
+    elif archetype == "average":
+        ojt_progress = np.random.uniform(0.15, 1.0)  # spread across timeline
+    else:  # at_risk
+        ojt_progress = np.random.uniform(0.05, 1.0)  # some just started, some near end
+
+    elapsed_days = max(1, int(total_ojt_days * ojt_progress))
+    remaining_days = max(0, total_ojt_days - elapsed_days)
+
+    record["ojt_progress_ratio"] = round(ojt_progress, 4)
+    record["elapsed_days"] = elapsed_days
+    record["days_remaining"] = remaining_days
+
     # =========================================================
     # GRADING COMPONENTS (used to derive target, NOT as features)
     # =========================================================
@@ -283,7 +300,8 @@ def generate_dataset(num_students: int = NUM_STUDENTS) -> pd.DataFrame:
         "hours_completed_ratio", "late_count", "absent_count",
         "total_tasks_logged", "total_task_hours",
         "number_of_distinct_competencies",
-        "total_chatbot_queries"
+        "total_chatbot_queries",
+        "ojt_progress_ratio", "elapsed_days", "days_remaining"
     ]
     for feat in key_features:
         print(f"   {feat}: min={df[feat].min():.1f}, max={df[feat].max():.1f}, mean={df[feat].mean():.1f}")

@@ -1,5 +1,13 @@
 import logging
+import os
+import sys
 import numpy as np
+
+# Bug #4 fix: Ensure jrmsu_ojt_chatbot is on sys.path so `from rag.embedder`
+# resolves correctly regardless of which module imports us first.
+_JRMSU_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jrmsu_ojt_chatbot")
+if _JRMSU_DIR not in sys.path:
+    sys.path.insert(0, _JRMSU_DIR)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

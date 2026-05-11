@@ -449,13 +449,14 @@ def build_prompt_with_context(
         is_student = "[STUDENT PERFORMANCE DATA" in context_data
 
         if is_coordinator:
-            # Coordinator data uses different field names
-            total_students = _extract("Total Students Under Supervision", context_data)
-            risk_dist = _extract("Risk Distribution", context_data)
-            ojt_status = _extract("OJT Status", context_data)
-            avg_att = _extract("Average Attendance Rate", context_data)
-            avg_completion = _extract("Average Completion Ratio", context_data)
+            # Coordinator data labels — must match _generate_coordinator_summary() output
+            # Format: "Total Students: 13 (13 Active, 0 Completed)"
+            total_students = _extract("Total Students", context_data)
+            risk_dist = _extract("Risk Breakdown", context_data)
+            avg_att = _extract("Average Attendance", context_data)
+            avg_completion = _extract("Average Completion", context_data)
             avg_grade = _extract("Average Forecasted Grade", context_data)
+            health = _extract("Program Health", context_data)
 
             _logger.info(
                 f"[OPENER_EXTRACT_COORD] Total={total_students!r}, Risk={risk_dist!r}, "
@@ -468,18 +469,14 @@ def build_prompt_with_context(
                     f"Here's your program overview: You are managing {total_students} students "
                     f"with the following risk breakdown: {risk_dist}."
                 )
-                if ojt_status:
-                    answer_opener += f" Currently, {ojt_status}."
                 if avg_att:
                     answer_opener += f" The program's average attendance stands at {avg_att}."
+                if avg_completion:
+                    answer_opener += f" Average completion rate is {avg_completion}."
                 if avg_grade and avg_grade != 'N/A':
                     answer_opener += f" The average forecasted grade is {avg_grade}."
-
-                # Add health assessment from context
-                if "Program Health:" in context_data:
-                    health = _extract("Program Health", context_data)
-                    if health:
-                        answer_opener += f"\n\nProgram Health Status: {health}."
+                if health:
+                    answer_opener += f"\n\nProgram Health Status: {health}."
 
                 # Add key issues if detected
                 if "Key Issues Detected:" in context_data:
@@ -488,7 +485,7 @@ def build_prompt_with_context(
                 answer_opener += "\n\nLet me provide my analysis:"
                 _logger.info(f"[OPENER_EXTRACT_COORD] Opener built: {answer_opener[:200].encode('ascii', 'replace').decode('ascii')}...")
             else:
-                _logger.warning(f"[OPENER_EXTRACT_COORD] ⚠️ Missing coordinator fields")
+                _logger.warning(f"[OPENER_EXTRACT_COORD] Missing coordinator fields")
 
         elif is_supervisor:
             assigned = _extract("Assigned Students", context_data)
@@ -688,11 +685,25 @@ def generate_response(
         }
     """
     logger.info(f"[GENERATE_RESPONSE] Processing query: {user_query[:100]}...")
-    
+
+    # Detect dashboard-enriched queries — extract just the user question for RAG
+    # embedding, but keep the full enriched message for the LLM prompt.
+    has_dashboard_data = "[SYSTEM CONTEXT]" in user_query
+    rag_query = user_query
+    if has_dashboard_data:
+        # Extract only the user question for RAG similarity matching
+        import re as _re_local
+        uq_match = _re_local.search(r'User Question:\s*(.+)', user_query, _re_local.DOTALL)
+        if uq_match:
+            rag_query = uq_match.group(1).strip()
+            logger.info(f"[GENERATE_RESPONSE] Dashboard data detected. RAG query: {rag_query[:80]}...")
+        else:
+            logger.info("[GENERATE_RESPONSE] Dashboard data detected but no 'User Question:' marker found")
+
     # 0) FIRST: try direct exact answer for official university info
     logger.debug("[GENERATE_RESPONSE] Checking for exact answer...")
     try:
-        exact = try_exact_university_answer(user_query)
+        exact = try_exact_university_answer(rag_query)
         if exact:
             logger.info(f"[GENERATE_RESPONSE] Found exact answer from knowledge base ({len(exact)} chars)")
             return {
@@ -708,10 +719,10 @@ def generate_response(
         logger.warning(f"[GENERATE_RESPONSE] Error in exact answer lookup: {e}")
         # Continue to RAG pipeline
 
-    # 1) Embed question for RAG
+    # 1) Embed question for RAG — use cleaned rag_query, not full enriched text
     logger.debug("[GENERATE_RESPONSE] Embedding query...")
     try:
-        query_embedding = embed_text(user_query)[0]
+        query_embedding = embed_text(rag_query)[0]
         logger.debug(f"[GENERATE_RESPONSE] Query embedded successfully (dimension: {len(query_embedding)})")
     except Exception as e:
         error_msg = f"Error embedding query: {str(e)}"
@@ -783,7 +794,9 @@ def generate_response(
     is_confident, confidence_score = assess_confidence(scored_chunks)
     
     # If similarity too low -> return fallback
-    if best_score < SIMILARITY_THRESHOLD:
+    # BUT: if dashboard data is present, ALWAYS proceed to LLM — the user is asking
+    # about their OJT progress, which the injected [SYSTEM CONTEXT] can answer.
+    if best_score < SIMILARITY_THRESHOLD and not has_dashboard_data:
         logger.info(f"[GENERATE_RESPONSE] Score {best_score:.3f} below threshold {SIMILARITY_THRESHOLD} - returning fallback")
         return {
             "success": True,
@@ -794,6 +807,8 @@ def generate_response(
             "error_type": None,
             "message": None
         }
+    elif best_score < SIMILARITY_THRESHOLD and has_dashboard_data:
+        logger.info(f"[GENERATE_RESPONSE] Score {best_score:.3f} below threshold BUT dashboard data present — proceeding to LLM")
 
     # 4) If confidence is low but above threshold, still mark as fallback
     if not is_confident:

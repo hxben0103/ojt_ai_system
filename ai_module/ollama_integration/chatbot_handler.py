@@ -70,7 +70,8 @@ OJT_TOPIC_KEYWORDS = [
     "deployment", "host company", "industry partner",
     # ── Attendance / DTR ──
     "attendance", "dtr", "daily time record", "time in", "time out",
-    "overtime", "check in", "check out", "tardy",
+    "overtime", "check in", "check out", "tardy", "absent", "late",
+    "present", "tardiness",
     # ── Requirements / Documentation ──
     "requirement", "journal", "narrative", "narrative report", "documentation",
     "submission", "deadline", "clearance", "weekly progress",
@@ -79,20 +80,24 @@ OJT_TOPIC_KEYWORDS = [
     "prediction", "forecast", "insight", "analytics",
     # ── People / Roles (OJT-specific) ──
     "supervisor", "coordinator", "intern", "ojt student",
+    "student", "students",  # standalone — users say "which student..."
     # ── Tasks / Competencies ──
-    "competency", "competencies", "daily task",
+    "competency", "competencies", "daily task", "task", "tasks",
     # ── University / Institution ──
     "jrmsu", "university", "ccs", "campus",
     "mission", "vision", "quality policy",
     # ── Policies ──
     "dress code", "attire", "uniform", "policy",
-    "tardiness", "excuse", "waiver",
+    "excuse", "waiver",
     # ── System / Dashboard ──
     "dashboard", "progress report", "program overview", "program health",
     # ── Company / Site ──
-    "ojt site", "company name", "assigned student", "assigned to",
+    "ojt site", "company name", "assigned student", "assigned to", "assigned",
     # ── Career ──
     "career", "employability", "skill gap",
+    # ── Risk / Status (standalone) ──
+    "risk", "status", "progress", "hours", "hour",
+    "training", "report", "improvement", "recommendation", "data",
     # ── Student Self-Reference (personal data queries) ──
     "my ojt", "my attendance", "my grade", "my hours", "my score",
     "my performance", "my progress", "my status", "my risk", "my completion",
@@ -107,13 +112,17 @@ OJT_TOPIC_KEYWORDS = [
     # ── Data Inquiry Patterns (OJT-context specific) ──
     "how is the student", "how are the student", "how is my",
     "summarize my", "summarize the", "overview of",
-    "at risk", "high risk", "medium risk", "low risk",
+    "at risk", "high risk", "medium risk", "low risk", "higher risk",
     "needs attention", "needing attention",
     "ojt recommendation", "ojt improvement",
     "what can you do", "what can you help",
     # ── Metric Queries (OJT-scoped) ──
     "total hours", "average score", "attendance rate", "completion rate",
     "highest score", "lowest score", "risk level",
+    # ── Natural variations users actually type ──
+    "which student", "how is", "how are", "who has", "who have",
+    "doing well", "not doing well", "struggling", "behind",
+    "list of", "summary of", "details of",
 ]
 
 # Fix #5: Pre-compile all keywords into a single regex for O(1) matching
@@ -146,18 +155,76 @@ def _is_ojt_related(text: str, has_context: bool = False) -> bool:
     return False
 
 
-# Friendly decline message — explains scope and gives examples
+# Friendly decline message — role-aware with targeted suggestions
 OJT_DECLINE_MESSAGE = (
     "I'm your **JRMSU OJT Assistant** — I'm specialized for OJT-related topics only. "
     "I can't answer that question.\n\n"
     "Here's what I **can** help you with:\n"
-    "- Your OJT progress, hours, and attendance\n"
+    "- OJT progress, hours, and attendance\n"
     "- Student performance, risk levels, and grades\n"
     "- OJT requirements, deadlines, and documentation\n"
-    "- Program overview and student insights (for coordinators/supervisors)\n"
     "- JRMSU OJT policies and procedures\n\n"
-    "Try asking: *\"How am I doing in my OJT?\"* or *\"Show me students at risk\"*"
+    "Try asking something OJT-related!"
 )
+
+
+def _get_role_decline_message(role: str = "") -> str:
+    """Return a role-specific decline message with targeted suggestions."""
+    role_lower = role.lower().strip() if role else ""
+
+    if role_lower == "student":
+        return (
+            "I'm your **JRMSU OJT Assistant** — I can only help with OJT-related topics. "
+            "I can't answer that question.\n\n"
+            "As a **student**, here's what I can help you with:\n"
+            "- 📊 Your OJT progress, hours completed, and remaining hours\n"
+            "- 📅 Your attendance record (present, absent, late)\n"
+            "- 📈 Your AI performance score and risk level\n"
+            "- 📝 OJT requirements, DTR, and documentation\n"
+            "- 🎓 JRMSU OJT policies and grading system\n\n"
+            "Try asking: *\"How am I doing in my OJT?\"* or *\"What are my hours?\"*"
+        )
+
+    elif role_lower in ("coordinator", "ojt coordinator"):
+        return (
+            "I'm your **JRMSU OJT Assistant** — I can only help with OJT-related topics. "
+            "I can't answer that question.\n\n"
+            "As a **coordinator**, here's what I can help you with:\n"
+            "- 📊 Program overview — total students, risk breakdown, health status\n"
+            "- ⚠️ Students at risk — who needs attention and why\n"
+            "- 📈 Attendance trends and completion rates across all students\n"
+            "- 🏢 Students by company/site assignment\n"
+            "- 📋 Weekly summary and program analytics\n\n"
+            "Try asking: *\"Show me students at risk\"* or *\"How is the program doing?\"*"
+        )
+
+    elif role_lower in ("supervisor", "industry supervisor"):
+        return (
+            "I'm your **JRMSU OJT Assistant** — I can only help with OJT-related topics. "
+            "I can't answer that question.\n\n"
+            "As a **supervisor**, here's what I can help you with:\n"
+            "- 👥 Your assigned students' performance and status\n"
+            "- ⚠️ Students needing attention — high risk or low attendance\n"
+            "- 📝 Evaluation guidelines and grading rubric\n"
+            "- 📊 Student scores, hours, and task completion\n"
+            "- 📋 Recommendations for student improvement\n\n"
+            "Try asking: *\"How are my students doing?\"* or *\"Who needs evaluation?\"*"
+        )
+
+    elif role_lower == "admin":
+        return (
+            "I'm your **JRMSU OJT Assistant** — I can only help with OJT-related topics. "
+            "I can't answer that question.\n\n"
+            "As an **admin**, here's what I can help you with:\n"
+            "- 🏛️ System-wide OJT metrics and user statistics\n"
+            "- 📊 Active users, pending approvals, and program status\n"
+            "- 📋 JRMSU OJT policies and institutional guidelines\n"
+            "- 🔧 System health and operational insights\n\n"
+            "Try asking: *\"Show me system overview\"* or *\"What are the OJT policies?\"*"
+        )
+
+    # Fallback — no role detected
+    return OJT_DECLINE_MESSAGE
 
 # Explicit no-data response when student_data is absent
 NO_DATA_MESSAGE = "No available data found in the system."
@@ -906,10 +973,11 @@ def chatbot_response(
     # ── OJT TOPIC GUARD ──
     has_context = bool(student_data)
     if not _is_ojt_related(text, has_context=has_context):
-        logger.info(f"[CHATBOT_HANDLER] Declined off-topic query: {text[:80]}")
+        _role = (student_data or {}).get('role', '') if student_data else ''
+        logger.info(f"[CHATBOT_HANDLER] Declined off-topic query (role={_role}): {text[:80]}")
         return {
             "success": True,
-            "answer": OJT_DECLINE_MESSAGE,
+            "answer": _get_role_decline_message(_role),
             "is_fallback": False,
             "session_id": session_id or "default",
             "used_context": [],

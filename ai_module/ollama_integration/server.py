@@ -3,7 +3,7 @@ from flask_cors import CORS
 from chatbot_handler import (
     chatbot_response, get_rag_context,
     _is_ojt_related, _is_greeting, _build_role_system_instruction,
-    _get_role_greeting, OJT_DECLINE_MESSAGE,
+    _get_role_greeting, OJT_DECLINE_MESSAGE, _get_role_decline_message,
     _generate_student_summary, _generate_coordinator_summary,
     _generate_supervisor_summary, _generate_admin_summary,
     _generate_weekly_summary, _validate_role,
@@ -171,64 +171,37 @@ def chat():
         if should_stream:
             # Ollama busy guard — per-session so concurrent users aren't blocked
             _sid = session_id or "default"
-            if _session_busy.get(_sid, False):
-                print(f"[CHAT] ⚠️ Session {_sid} is busy, returning busy message")
-                return jsonify({
-                    "success": True,
-                    "answer": "I'm still processing a previous request. Please wait a moment and try again.",
-                    "is_streaming": False,
-                    "session_id": _sid,
-                    "is_fallback": True,
-                    "confidence_score": 0.5,
-                    "used_context": []
-                })
+            # Bug #3 fix: Use _ollama_lock for atomic check-and-set
+            with _ollama_lock:
+                if _session_busy.get(_sid, False):
+                    print(f"[CHAT] ⚠️ Session {_sid} is busy, returning busy message")
+                    return jsonify({
+                        "success": True,
+                        "answer": "I'm still processing a previous request. Please wait a moment and try again.",
+                        "is_streaming": False,
+                        "session_id": _sid,
+                        "is_fallback": True,
+                        "confidence_score": 0.5,
+                        "used_context": []
+                    })
+                # Bug #1 fix: Set busy flag HERE (before generator) to close the race window
+                _session_busy[_sid] = True
 
             print(f"[CHAT] Starting TRUE Ollama token stream for: {user_message[:50]}...")
-            def generate():
+            # Bug #2 fix: Bind _sid as default arg so closure captures by value, not reference
+            def generate(_sid=_sid):
                 # All imports moved to module top (Fix #12)
-
-                # ── OJT Topic Guard for streaming ──
-                has_context = bool(student_data)
-                if not _is_ojt_related(user_message, has_context=has_context):
-                    yield json.dumps({
-                        "success": True,
-                        "answer": OJT_DECLINE_MESSAGE,
-                        "is_streaming": False,
-                        "session_id": session_id or "default",
-                        "is_fallback": False,
-                        "confidence_score": 1.0,
-                        "used_context": []
-                    }) + "\n"
-                    return
-
-                # ── Handle greetings inline ──
-                if _is_greeting(user_message):
-                    role_g = (student_data or {}).get('role', '') if student_data else ''
-                    greeting = _get_role_greeting(role_g.lower())
-                    yield json.dumps({
-                        "success": True,
-                        "answer": greeting,
-                        "is_streaming": False,
-                        "session_id": session_id or "default",
-                        "is_fallback": False,
-                        "confidence_score": 1.0,
-                        "used_context": []
-                    }) + "\n"
-                    return
-
-                # ── Feature 6: Weekly Summary Intent Detection ──
-                weekly_patterns = [
-                    "weekly summary", "weekly report", "weekly digest",
-                    "week summary", "this week", "weekly overview"
-                ]
-                is_weekly = any(p in user_message.lower() for p in weekly_patterns)
-                raw_role_ws = (student_data or {}).get('role', '') if student_data else ''
-                if is_weekly and raw_role_ws.lower() in ('coordinator', 'ojt coordinator', 'supervisor'):
-                    try:
-                        weekly_report = _generate_weekly_summary(student_data)
+                # Bug #1 fix: Wrap ENTIRE generator body in try/finally so ALL exit paths
+                # (topic guard, greeting, weekly summary, zero-context, Ollama error)
+                # clear the busy flag.
+                try:
+                    # ── OJT Topic Guard for streaming ──
+                    has_context = bool(student_data)
+                    if not _is_ojt_related(user_message, has_context=has_context):
+                        _stream_role = (student_data or {}).get('role', '') if student_data else ''
                         yield json.dumps({
                             "success": True,
-                            "answer": weekly_report,
+                            "answer": _get_role_decline_message(_stream_role),
                             "is_streaming": False,
                             "session_id": session_id or "default",
                             "is_fallback": False,
@@ -236,184 +209,221 @@ def chat():
                             "used_context": []
                         }) + "\n"
                         return
-                    except Exception as we:
-                        print(f"[CHAT] Weekly summary generation failed: {we}")
-                        # Fall through to LLM
 
-                ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-                ollama_model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
+                    # ── Handle greetings inline ──
+                    if _is_greeting(user_message):
+                        role_g = (student_data or {}).get('role', '') if student_data else ''
+                        greeting = _get_role_greeting(role_g.lower())
+                        yield json.dumps({
+                            "success": True,
+                            "answer": greeting,
+                            "is_streaming": False,
+                            "session_id": session_id or "default",
+                            "is_fallback": False,
+                            "confidence_score": 1.0,
+                            "used_context": []
+                        }) + "\n"
+                        return
 
-                # 1. Get RAG context using unified logic
-                context_snippets = get_rag_context(user_message)
-                NO_CONTEXT_MARKER = "No specific JRMSU context found for this query."
-                has_rag_data = context_snippets and context_snippets != NO_CONTEXT_MARKER
+                    # ── Feature 6: Weekly Summary Intent Detection ──
+                    weekly_patterns = [
+                        "weekly summary", "weekly report", "weekly digest",
+                        "week summary", "this week", "weekly overview"
+                    ]
+                    is_weekly = any(p in user_message.lower() for p in weekly_patterns)
+                    raw_role_ws = (student_data or {}).get('role', '') if student_data else ''
+                    if is_weekly and raw_role_ws.lower() in ('coordinator', 'ojt coordinator', 'supervisor'):
+                        try:
+                            weekly_report = _generate_weekly_summary(student_data)
+                            yield json.dumps({
+                                "success": True,
+                                "answer": weekly_report,
+                                "is_streaming": False,
+                                "session_id": session_id or "default",
+                                "is_fallback": False,
+                                "confidence_score": 1.0,
+                                "used_context": []
+                            }) + "\n"
+                            return
+                        except Exception as we:
+                            print(f"[CHAT] Weekly summary generation failed: {we}")
+                            # Fall through to LLM
 
-                # 2. Get conversation history — merge server-side + client-side (Feature 3)
-                # Client sends last 3 turns as "history" in the request body
-                client_history = data.get("history", [])
-                history = []
-                if session_id:
-                    ctx = get_context_manager().get_context(session_id)
-                    if ctx:
-                        ctx.add_user_message(user_message)
-                        history = ctx.get_recent_history(max_turns=5)
+                    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+                    ollama_model = os.getenv("OLLAMA_MODEL", "gemma2:2b")
 
-                # 3. Build role-aware instruction + dashboard context from student_data
-                # GAP 2b FIX — validate role against whitelist before use
-                raw_role = (student_data or {}).get('role', '') if student_data else ''
-                role = _validate_role(raw_role) if student_data else ''
-                role_instruction = _build_role_system_instruction(role, student_data) if role else None
+                    # 1. Get RAG context using unified logic
+                    context_snippets = get_rag_context(user_message)
+                    NO_CONTEXT_MARKER = "No specific JRMSU context found for this query."
+                    has_rag_data = context_snippets and context_snippets != NO_CONTEXT_MARKER
 
-                dashboard_context = ""
-                if student_data:
-                    try:
-                        if role == 'coordinator' or "total_students" in student_data:
-                            dashboard_context = _generate_coordinator_summary(student_data)
-                        elif role == 'admin' or "total_users" in student_data:
-                            dashboard_context = _generate_admin_summary(student_data)
-                        elif role in ('supervisor', 'industry supervisor') or "total_assigned" in student_data:
-                            dashboard_context = _generate_supervisor_summary(student_data)
-                        elif role == 'student' or "hours" in student_data:
-                            dashboard_context = _generate_student_summary(student_data)
-                        print(f"[CHAT] Dashboard context built for role '{role}' ({len(dashboard_context)} chars)")
-                    except Exception as e:
-                        print(f"[CHAT] Warning: Failed to build dashboard context: {e}")
+                    # 2. Get conversation history — merge server-side + client-side (Feature 3)
+                    # Client sends last 3 turns as "history" in the request body
+                    client_history = data.get("history", [])
+                    history = []
+                    if session_id:
+                        ctx = get_context_manager().get_context(session_id)
+                        if ctx:
+                            ctx.add_user_message(user_message)
+                            history = ctx.get_recent_history(max_turns=5)
 
-                # 4. Build enriched query WITH dashboard data + conversation history (Feature 3)
-                # Build conversation context from client history for follow-up questions
-                history_context = ""
-                if client_history and isinstance(client_history, list):
-                    recent = client_history[-3:]  # Last 3 turns max
-                    for turn in recent:
-                        if isinstance(turn, dict):
-                            role_h = turn.get('role', 'user')
-                            content_h = turn.get('content', '')[:200]  # Cap each turn
-                            history_context += f"{role_h}: {content_h}\n"
-                    if history_context:
-                        history_context = f"\n[RECENT CONVERSATION]\n{history_context}\n"
-                        # Also merge into server-side history for RAG prompt builder
+                    # 3. Build role-aware instruction + dashboard context from student_data
+                    # GAP 2b FIX — validate role against whitelist before use
+                    raw_role = (student_data or {}).get('role', '') if student_data else ''
+                    role = _validate_role(raw_role) if student_data else ''
+                    role_instruction = _build_role_system_instruction(role, student_data) if role else None
+
+                    dashboard_context = ""
+                    if student_data:
+                        try:
+                            if role == 'coordinator' or "total_students" in student_data:
+                                dashboard_context = _generate_coordinator_summary(student_data)
+                            elif role == 'admin' or "total_users" in student_data:
+                                dashboard_context = _generate_admin_summary(student_data)
+                            elif role in ('supervisor', 'industry supervisor') or "total_assigned" in student_data:
+                                dashboard_context = _generate_supervisor_summary(student_data)
+                            elif role == 'student' or "hours" in student_data:
+                                dashboard_context = _generate_student_summary(student_data)
+                            print(f"[CHAT] Dashboard context built for role '{role}' ({len(dashboard_context)} chars)")
+                        except Exception as e:
+                            print(f"[CHAT] Warning: Failed to build dashboard context: {e}")
+
+                    # 4. Build enriched query WITH dashboard data + conversation history (Feature 3)
+                    # Build conversation context from client history for follow-up questions
+                    history_context = ""
+                    if client_history and isinstance(client_history, list):
+                        recent = client_history[-3:]  # Last 3 turns max
                         for turn in recent:
                             if isinstance(turn, dict):
-                                history.append({
-                                    'role': turn.get('role', 'user'),
-                                    'content': turn.get('content', '')
-                                })
+                                role_h = turn.get('role', 'user')
+                                content_h = turn.get('content', '')[:200]  # Cap each turn
+                                history_context += f"{role_h}: {content_h}\n"
+                        if history_context:
+                            history_context = f"\n[RECENT CONVERSATION]\n{history_context}\n"
+                            # Also merge into server-side history for RAG prompt builder
+                            for turn in recent:
+                                if isinstance(turn, dict):
+                                    history.append({
+                                        'role': turn.get('role', 'user'),
+                                        'content': turn.get('content', '')
+                                    })
 
-                # ── Zero-context guard: if no live data AND no RAG knowledge, respond instantly ──
-                # This prevents Ollama being asked questions it cannot answer with real data,
-                # which would waste 30-120 seconds and potentially cause a 503 timeout.
-                has_dashboard = bool(dashboard_context)
-                if not has_dashboard and not has_rag_data:
-                    yield json.dumps({
-                        "success": True,
-                        "answer": (
-                            "I don't have specific information about that in the "
-                            "JRMSU OJT knowledge base or your current program data.\n\n"
-                            "I can only answer questions based on:\n"
-                            "- Your live OJT data (attendance, hours, grades, risk)\n"
-                            "- JRMSU OJT policies and procedures\n\n"
-                            "Please try rephrasing your question or ask something OJT-related."
-                        ),
-                        "is_streaming": False,
-                        "session_id": session_id or "default",
-                        "is_fallback": True,
-                        "confidence_score": 0.0,
-                        "used_context": []
-                    }) + "\n"
-                    return
+                    # ── Zero-context guard: if no live data AND no RAG knowledge, respond instantly ──
+                    # This prevents Ollama being asked questions it cannot answer with real data,
+                    # which would waste 30-120 seconds and potentially cause a 503 timeout.
+                    has_dashboard = bool(dashboard_context)
+                    if not has_dashboard and not has_rag_data:
+                        yield json.dumps({
+                            "success": True,
+                            "answer": (
+                                "I don't have specific information about that in the "
+                                "JRMSU OJT knowledge base or your current program data.\n\n"
+                                "I can only answer questions based on:\n"
+                                "- Your live OJT data (attendance, hours, grades, risk)\n"
+                                "- JRMSU OJT policies and procedures\n\n"
+                                "Please try rephrasing your question or ask something OJT-related."
+                            ),
+                            "is_streaming": False,
+                            "session_id": session_id or "default",
+                            "is_fallback": True,
+                            "confidence_score": 0.0,
+                            "used_context": []
+                        }) + "\n"
+                        return
 
-                if dashboard_context:
-                    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    enriched_message = (
-                        f"[SYSTEM CONTEXT]\n"
-                        f"Current Local Time: {current_time_str}\n"
-                        f"{dashboard_context}\n"
-                        f"{history_context}\n"
-                        f"User Question: {user_message}"
+                    if dashboard_context:
+                        current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        enriched_message = (
+                            f"[SYSTEM CONTEXT]\n"
+                            f"Current Local Time: {current_time_str}\n"
+                            f"{dashboard_context}\n"
+                            f"{history_context}\n"
+                            f"User Question: {user_message}"
+                        )
+                    else:
+                        enriched_message = f"{history_context}\n{user_message}" if history_context else user_message
+
+                    # 5. Build the official prompt with enriched message (not raw user_message)
+                    print(f"[CHAT_DEBUG] enriched_message has [SYSTEM CONTEXT]: {'[SYSTEM CONTEXT]' in enriched_message}")
+                    print(f"[CHAT_DEBUG] enriched_message length: {len(enriched_message)}")
+                    # Use ascii repr to avoid cp1252 encoding crash on Windows with emoji chars
+                    print(f"[CHAT_DEBUG] first 400 chars: {enriched_message[:400].encode('ascii', 'replace').decode('ascii')}")
+                    prompt = build_prompt_with_context(
+                        enriched_message, context_snippets,
+                        conversation_history=history,
+                        role_instruction=role_instruction
                     )
-                else:
-                    enriched_message = f"{history_context}\n{user_message}" if history_context else user_message
 
-                # 5. Build the official prompt with enriched message (not raw user_message)
-                print(f"[CHAT_DEBUG] enriched_message has [SYSTEM CONTEXT]: {'[SYSTEM CONTEXT]' in enriched_message}")
-                print(f"[CHAT_DEBUG] enriched_message length: {len(enriched_message)}")
-                # Use ascii repr to avoid cp1252 encoding crash on Windows with emoji chars
-                print(f"[CHAT_DEBUG] first 400 chars: {enriched_message[:400].encode('ascii', 'replace').decode('ascii')}")
-                prompt = build_prompt_with_context(
-                    enriched_message, context_snippets,
-                    conversation_history=history,
-                    role_instruction=role_instruction
-                )
+                    # 6. Build role-aware system message using the SHARED builder
+                    # GAP 6b FIX — identical persona whether streaming or non-streaming
+                    system_msg = build_system_message(role_instruction)
 
-                # 6. Build role-aware system message using the SHARED builder
-                # GAP 6b FIX — identical persona whether streaming or non-streaming
-                system_msg = build_system_message(role_instruction)
-
-                accumulated = ""
-                _session_busy[_sid] = True
-                try:
-                    with req_lib.post(
-                        ollama_url,
-                        json={
-                            "model": ollama_model,
-                            "prompt": prompt,
-                            "system": system_msg,
-                            "stream": True,
-                            "options": {
-                                "temperature": 0.2,
-                                "top_p": 0.9,
-                                "num_ctx": 4096,
-                                "num_predict": 512,
-                            }
-                        },
-                        stream=True,
-                        timeout=240
-                    ) as r:
-                        for raw_line in r.iter_lines():
-                            if not raw_line:
-                                continue
-                            try:
-                                chunk = json.loads(raw_line.decode("utf-8"))
-                                token = chunk.get("response", "")
-                                accumulated += token
-                                done = chunk.get("done", False)
-                                # Fix #9: Only run format_response on the final chunk
-                                answer = format_response(accumulated) if done else accumulated
-                                yield json.dumps({
-                                    "success": True,
-                                    "answer": answer,
-                                    "is_streaming": not done,
-                                    "session_id": session_id or "default",
-                                    "is_fallback": False,
-                                    "confidence_score": 1.0,
-                                    "used_context": [context_snippets[:200] + "..."] if context_snippets else []
-                                }) + "\n"
-                                if done:
-                                    # Save assistant response to conversation context
-                                    if session_id:
-                                        try:
-                                            ctx2 = get_context_manager().get_context(session_id)
-                                            if ctx2:
-                                                ctx2.add_assistant_message(accumulated)
-                                        except Exception:
-                                            pass
-                                    break
-                            except Exception:
-                                continue
-                except Exception as e:
-                    _session_busy.pop(_sid, None)
-                    yield json.dumps({
-                        "success": False,
-                        "error_type": "LLM_ERROR",
-                        "message": f"Streaming error: {str(e)}",
-                        "answer": None,
-                        "session_id": session_id or "default",
-                        "is_fallback": False,
-                        "used_context": [],
-                        "confidence_score": 0.0
-                    }) + "\n"
-                    return
-                _session_busy.pop(_sid, None)
+                    accumulated = ""
+                    try:
+                        with req_lib.post(
+                            ollama_url,
+                            json={
+                                "model": ollama_model,
+                                "prompt": prompt,
+                                "system": system_msg,
+                                "stream": True,
+                                "options": {
+                                    "temperature": 0.2,
+                                    "top_p": 0.9,
+                                    "num_ctx": 4096,
+                                    "num_predict": 512,
+                                }
+                            },
+                            stream=True,
+                            timeout=240
+                        ) as r:
+                            for raw_line in r.iter_lines():
+                                if not raw_line:
+                                    continue
+                                try:
+                                    chunk = json.loads(raw_line.decode("utf-8"))
+                                    token = chunk.get("response", "")
+                                    accumulated += token
+                                    done = chunk.get("done", False)
+                                    # Fix #9: Only run format_response on the final chunk
+                                    answer = format_response(accumulated) if done else accumulated
+                                    yield json.dumps({
+                                        "success": True,
+                                        "answer": answer,
+                                        "is_streaming": not done,
+                                        "session_id": session_id or "default",
+                                        "is_fallback": False,
+                                        "confidence_score": 1.0,
+                                        "used_context": [context_snippets[:200] + "..."] if context_snippets else []
+                                    }) + "\n"
+                                    if done:
+                                        # Save assistant response to conversation context
+                                        if session_id:
+                                            try:
+                                                ctx2 = get_context_manager().get_context(session_id)
+                                                if ctx2:
+                                                    ctx2.add_assistant_message(accumulated)
+                                            except Exception:
+                                                pass
+                                        break
+                                except Exception:
+                                    continue
+                    except Exception as e:
+                        yield json.dumps({
+                            "success": False,
+                            "error_type": "LLM_ERROR",
+                            "message": f"Streaming error: {str(e)}",
+                            "answer": None,
+                            "session_id": session_id or "default",
+                            "is_fallback": False,
+                            "used_context": [],
+                            "confidence_score": 0.0
+                        }) + "\n"
+                        return
+                finally:
+                    # Bug #1+#3 fix: ALWAYS clear busy flag on ALL exit paths
+                    with _ollama_lock:
+                        _session_busy.pop(_sid, None)
 
             return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
 
@@ -553,8 +563,12 @@ def predict():
         print(f"[PREDICT] Hour Metrics: completed={data.get('total_hours_completed')}, required={data.get('required_hours')}")
         print(f"[PREDICT] Competency Samples: software={data.get('hours_software_development')}, it_related={data.get('hours_it_related_research')}")
         
-        # Use hybrid ML + Gemma prediction
-        result = predict_with_explanation(data)
+        # Use ML-only prediction for the non-streaming endpoint.
+        # include_gemma=False prevents each dashboard predict from queuing
+        # a 30-60s Ollama call. The dashboard fires 13+ of these per coordinator
+        # login, which floods Ollama and starves the chatbot (causing 503s).
+        # Gemma narrative is only used in /predict-stream when explicitly requested.
+        result = predict_with_explanation(data, include_gemma=False)
         
         # Check if prediction was successful
         if result.get("success", False):
@@ -655,7 +669,7 @@ def suggest_remark():
     Given a task description and competency, returns a 1-sentence professional remark.
     """
     try:
-        import requests as req_lib, os, json
+        # Bug #5 fix: Removed inline imports (already at module top)
         data = request.get_json() or {}
         task_desc = data.get("task_description", "").strip()
         competency = data.get("competency", "").strip()
